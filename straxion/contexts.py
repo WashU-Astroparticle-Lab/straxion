@@ -1,7 +1,7 @@
-import warnings
 from typing import Dict, Any, List
 from immutabledict import immutabledict
 import strax
+import straxion
 
 common_options: Dict[str, Any] = dict(
     register_all=[straxion.plugins],
@@ -42,11 +42,9 @@ def qualiphide(
     st = strax.Context(config=common_config, **context_options)
     
     # Add the output folder to the storage. This is where new data can be stored.
-    st.storage(
-        [
+    st.storage = [
             strax.DataDirectory(output_folder, readonly=False),
-        ]
-    )
+    ]
     # Add the processed data to the storage.
     for path in _processed_paths:
         st.storage.append(
