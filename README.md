@@ -1,5 +1,5 @@
 # straxion
-strax-based time series analysis for single photon counting experiments
+strax-based time series analysis for single photon counting experiments. Inspired by the `straxen` [structure]([url](https://github.com/XENONnT/straxen/tree/master)), which is used by [XENON collaboration](https://xenonexperiment.org).
 
 ## Installation
 ```
