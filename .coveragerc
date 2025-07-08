@@ -4,4 +4,4 @@
 concurrency =
 
 [report]
-ignore_errors = True
+ignore_errors = False
