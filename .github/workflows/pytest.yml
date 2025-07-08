@@ -21,8 +21,6 @@ jobs:
   test:
     name: "${{ matrix.test }}_py${{ matrix.python-version }}"
     runs-on: ubuntu-latest
-    env:
-      HAVE_ACCESS_TO_SECRETS: ${{ secrets.RUNDB_API_URL }}
     strategy:
       fail-fast: False
       matrix:
@@ -73,7 +71,7 @@ jobs:
         env:
           NUMBA_DISABLE_JIT: 1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        if: matrix.test == 'coveralls' && (github.actor != 'dependabot[bot]') && env.HAVE_ACCESS_TO_SECRETS != null
+        if: matrix.test == 'coveralls' && (github.actor != 'dependabot[bot]')
         run: |
           # Install straxion first
           pip install -e .
