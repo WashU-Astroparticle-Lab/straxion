@@ -1,0 +1,84 @@
+# Test on each PR.
+# We run three types of tests:
+#  - Pytest -> these are the "normal" tests and should be run for all
+#    python versions
+#  - Coveralls -> this is to see if we are covering all our lines of
+#    code with our tests. The results get uploaded to
+#    coveralls.io/github/WashU-Astroparticle-Lab/straxion
+name: Test package
+
+# Trigger this code when a new release is published
+on:
+  workflow_dispatch:
+  release:
+    types: [ created ]
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: "${{ matrix.test }}_py${{ matrix.python-version }}"
+    runs-on: ubuntu-latest
+    env:
+      HAVE_ACCESS_TO_SECRETS: ${{ secrets.RUNDB_API_URL }}
+    strategy:
+      fail-fast: False
+      matrix:
+        python-version: ["3.11"]
+        test: ["coveralls", "pytest"]
+        # Drop some not crucial tests for python 3.10 and 3.11
+        exclude:
+          - python-version: "3.11"
+            test: coveralls
+          - python-version: "3.11"
+            test: pytest_no_database
+
+    steps:
+      # Setup and installation
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup python
+        uses: actions/setup-python@v5.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Install dependencies
+        run: sudo apt-get install -y graphviz
+
+      - name: Install test tollkits
+        run: pip install pytest hypothesis coverage coveralls
+
+      - name: Install requirements for Python 3.11
+        if: matrix.python-version == '3.11'
+        run: pip install git+https://github.com/XENONnT/base_environment.git --force-reinstall
+
+      - name: Install strax and straxion
+        run: |
+          pip install git+https://github.com/AxFoundation/strax.git --force-reinstall
+          pip install .
+          pip install tf-keras scikit-learn --upgrade
+      
+      - name: Test package
+        # This is running a normal test
+        if: matrix.test == 'pytest'
+        run: |
+          coverage run --source=straxion -m pytest --durations 0
+          coverage report
+
+      - name: Coveralls
+        # Make the coverage report and upload
+        env:
+          NUMBA_DISABLE_JIT: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: matrix.test == 'coveralls' && (github.actor != 'dependabot[bot]') && env.HAVE_ACCESS_TO_SECRETS != null
+        run: |
+          # Install straxion first
+          pip install -e .
+          coverage run --source=straxion -m pytest -v
+          coveralls --service=github
+
+      - name: goodbye
+        run: echo 'Tests done, bye bye.'
