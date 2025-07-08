@@ -1,0 +1,9 @@
+# .coveragerc to control coverage.py
+[run]
+# no threading or subprocess support:
+concurrency =
+
+[report]
+# 
+
+ignore_errors = True
