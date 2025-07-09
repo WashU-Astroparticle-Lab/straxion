@@ -26,12 +26,6 @@ jobs:
       matrix:
         python-version: ["3.11"]
         test: ["coveralls", "pytest"]
-        # Drop some not crucial tests for python 3.10 and 3.11
-        exclude:
-          - python-version: "3.11"
-            test: coveralls
-          - python-version: "3.11"
-            test: pytest_no_database
 
     steps:
       # Setup and installation
