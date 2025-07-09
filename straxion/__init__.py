@@ -1,7 +1,5 @@
 __version__ = "0.0.0"
 
-from . import plugins
-from .plugins import *
+from .contexts import qualiphide
 
-from . import contexts
-from .contexts import *
+__all__ = ["qualiphide"]

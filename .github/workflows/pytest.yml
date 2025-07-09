@@ -36,7 +36,7 @@ jobs:
         uses: actions/setup-python@v5.3.0
         with:
           python-version: ${{ matrix.python-version }}
-      
+
       - name: Install dependencies
         run: sudo apt-get install -y graphviz
 
@@ -52,7 +52,7 @@ jobs:
           pip install git+https://github.com/AxFoundation/strax.git --force-reinstall
           pip install .
           pip install tf-keras scikit-learn --upgrade
-      
+
       - name: Test package
         # This is running a normal test
         if: matrix.test == 'pytest'
