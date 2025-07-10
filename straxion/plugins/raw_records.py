@@ -19,12 +19,13 @@ DATA_DTYPE = np.int16
 @strax.takes_config(
     strax.Option(
         "record_length",
-        default=2_000_000_000,
+        default=200_000_000,
         track=False,  # Not tracking record length, but we will have to check if it is as promised
         type=int,
         help=(
             "Number of samples in each dataset."
             "We assumed that each sample is equally spaced in time, with interval 1/fs."
+            "It should not go beyond a billion so that numpy can still handle."
         ),
     ),
     strax.Option(
