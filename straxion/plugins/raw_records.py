@@ -319,7 +319,7 @@ class DAQReader(strax.Plugin):
         if not isinstance(channel, (int, np.integer)) or channel < 0:
             raise ValueError(f"Channel must be a non-negative integer, got {channel}")
 
-        run = os.path.basename(self.config["daq_input_dir"])
+        run = os.path.basename(os.path.normpath(self.config["daq_input_dir"]))
         filename = f"{run}-ch{channel}.bin"
         return os.path.join(self.config["daq_input_dir"], filename)
 
