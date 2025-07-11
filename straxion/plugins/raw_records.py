@@ -359,11 +359,4 @@ class DAQReader(strax.Plugin):
 
             results.append(r)
 
-        # Combine all channel records.
-        if results:
-            return np.concatenate(results)
-        else:
-            raise ValueError(
-                f"No valid channel data found in {self.config['daq_input_dir']}. "
-                "Check that channel files exist and are readable."
-            )
+        return results
