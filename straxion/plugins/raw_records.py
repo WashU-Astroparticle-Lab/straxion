@@ -357,6 +357,4 @@ class DAQReader(strax.Plugin):
             r["data_i"] = channel_data["data_i"]
             r["data_q"] = channel_data["data_q"]
 
-            results.append(r)
-
         return results
