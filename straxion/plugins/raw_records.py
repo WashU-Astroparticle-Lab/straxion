@@ -12,7 +12,7 @@ export, __all__ = strax.exporter()
 TIME_DTYPE = np.int64
 LENGTH_DTYPE = np.int64
 CHANNEL_DTYPE = np.int16
-DATA_DTYPE = np.int16
+DATA_DTYPE = np.dtype(">f8")
 
 
 @export
