@@ -9,6 +9,7 @@ import numpy as np
 export, __all__ = strax.exporter()
 
 
+SECOND_TO_NANOSECOND = 1_000_000_000
 TIME_DTYPE = np.int64
 LENGTH_DTYPE = np.int64
 CHANNEL_DTYPE = np.int16
@@ -40,7 +41,7 @@ DATA_DTYPE = np.dtype(">f8")
         type=float,
         track=False,
         default=0,
-        help="Time of start run (in unit of seconds, since unix epoch).",
+        help="Time of start run (in unit of nanoseconds, since unix epoch).",
     ),
     strax.Option(
         "daq_input_dir",
@@ -114,7 +115,7 @@ class DAQReader(strax.Plugin):
         ]
 
     def setup(self):
-        self.dt = int(1 / self.config["fs"] * 1e6)  # In unit of us.
+        self.dt = int(1 / self.config["fs"] * SECOND_TO_NANOSECOND)  # In unit of ns.
 
     def load_one_channel(self, file_path):
         """Reads and polynomially corrects raw binary DAQ data of a certain readout channel.
@@ -350,7 +351,7 @@ class DAQReader(strax.Plugin):
 
             # Fill in the record data
             r = results[i]
-            r["time"] = channel_data["time"][0]
+            r["time"] = channel_data["time"][0] * SECOND_TO_NANOSECOND
             r["length"] = len(channel_data)
             r["dt"] = self.dt
             r["channel"] = ch
@@ -365,7 +366,7 @@ class DAQReader(strax.Plugin):
             start=np.min(results["time"]),
             end=np.max(results["time"]) + self.dt * self.config["record_length"],
             data=results,
-            data_type=self.provides,
+            data_type="raw_records",
         )
 
         return results
