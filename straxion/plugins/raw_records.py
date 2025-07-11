@@ -39,7 +39,7 @@ DATA_DTYPE = np.dtype(">f8")
         "run_start_time",
         type=float,
         track=False,
-        default=-1,
+        default=0,
         help="Time of start run (in unit of seconds, since unix epoch).",
     ),
     strax.Option(
@@ -333,7 +333,7 @@ class DAQReader(strax.Plugin):
         4. Combines all channel records into a single array.
 
         Returns:
-            np.ndarray: Combined raw records from all channels with dtype from infer_dtype()
+            strax.Chunk: Combined raw records from all channels with dtype from infer_dtype()
 
         Raises:
             ValueError: If no valid channels are found or if all channel processing fails.
@@ -356,5 +356,16 @@ class DAQReader(strax.Plugin):
             r["channel"] = ch
             r["data_i"] = channel_data["data_i"]
             r["data_q"] = channel_data["data_q"]
+
+        # Shift all time stamps by the run start time. Now all time stamps are since unix epoch.
+        results["time"] += self.config["run_start_time"]
+
+        # We must build a chunk for the lowest data type, as required by strax.
+        results = self.chunk(
+            start=np.min(results["time"]),
+            end=np.max(results["time"]) + self.dt * self.config["record_length"],
+            data=results,
+            data_type=self.provides,
+        )
 
         return results
