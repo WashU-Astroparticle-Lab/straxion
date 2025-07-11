@@ -316,7 +316,7 @@ class DAQReader(strax.Plugin):
             ValueError: If channel number is not a non-negative integer.
 
         """
-        if not isinstance(channel, int) or channel < 0:
+        if not isinstance(channel, (int, np.integer)) or channel < 0:
             raise ValueError(f"Channel must be a non-negative integer, got {channel}")
 
         run = os.path.basename(self.config["daq_input_dir"])
