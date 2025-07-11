@@ -40,7 +40,7 @@ DATA_DTYPE = np.dtype(">f8")
         "run_start_time",
         type=float,
         track=False,
-        default=0,
+        default=900_714_600_000_000_000,  # Placeholder: 1998-07-17 22:30:00 GMT.
         help="Time of start run (in unit of nanoseconds, since unix epoch).",
     ),
     strax.Option(
@@ -98,9 +98,10 @@ class DAQReader(strax.Plugin):
     def infer_dtype(self):
         """Data type for a waveform raw_record."""
         return [
-            (("Start time since unix epoch [us]", "time"), TIME_DTYPE),
+            (("Start time since unix epoch [ns]", "time"), TIME_DTYPE),
+            (("Exclusive end time since unix epoch [ns]", "endtime"), TIME_DTYPE),
             (("Length of the interval in samples", "length"), LENGTH_DTYPE),
-            (("Width of one sample [us]", "dt"), TIME_DTYPE),
+            (("Width of one sample [ns]", "dt"), TIME_DTYPE),
             (("Channel number defined by channel_map", "channel"), CHANNEL_DTYPE),
             (
                 ("Waveform data of I in raw ADC counts", "data_i"),
