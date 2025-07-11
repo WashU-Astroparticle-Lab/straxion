@@ -342,19 +342,16 @@ class DAQReader(strax.Plugin):
         found_channels = self._get_channels()
         self._check_channels(found_channels)
 
-        results = []
-        for ch in found_channels:
+        results = np.zeros(len(found_channels), dtype=self.infer_dtype())
+        for i, ch in enumerate(found_channels):
             # Load and process the channel data.
             file_path = self.get_channel_file(ch)
             channel_data = self.load_one_channel(file_path)
 
-            # Create records for this channel.
-            n_samples = len(channel_data)
-            r = np.zeros(n_samples, dtype=self.infer_dtype())
-
             # Fill in the record data
-            r["time"] = channel_data["time"]
-            r["length"] = n_samples
+            r = results[i]
+            r["time"] = channel_data["time"][0]
+            r["length"] = len(channel_data)
             r["dt"] = self.dt
             r["channel"] = ch
             r["data_i"] = channel_data["data_i"]
