@@ -59,7 +59,7 @@ DATA_DTYPE = np.int16
         "sub_detector",
         track=True,
         type=str,
-        default="kid",
+        default="kids",
         help="Name of the sub detector of interest (eg. 'kid').",
     ),
 )
