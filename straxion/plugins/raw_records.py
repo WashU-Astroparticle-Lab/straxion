@@ -325,6 +325,22 @@ class DAQReader(strax.Plugin):
         filename = f"{run}-ch{channel}.bin"
         return os.path.join(self.config["daq_input_dir"], filename)
 
+    def source_finished(self):
+        """Return whether all chunks the plugin wants to read have been written by DAQ.
+
+        FIXME: We assumed that the DAQ will only produce one chunk for each run!
+
+        """
+        return True
+
+    def is_ready(self, chunk_i):
+        """Return whether the chunk chunk_i is ready for reading."""
+        # We assume there is only one chunk for all runs.
+        if chunk_i == 0:
+            return True
+        # There is no other chunk, so it will never be ready.
+        return False
+
     def compute(self):
         """Process all available channels and return combined raw records.
 
