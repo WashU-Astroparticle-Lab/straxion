@@ -53,6 +53,38 @@ jobs:
           pip install .
           pip install tf-keras scikit-learn --upgrade
 
+      - name: Download test data from release
+        if: matrix.test == 'pytest'
+        run: |
+          # Get the test-data draft release
+          RELEASE_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases" | \
+            jq -r '.[] | select(.draft==true and .tag_name=="test-data") | .id' | head -1)
+
+          if [ "$RELEASE_ID" != "null" ] && [ -n "$RELEASE_ID" ]; then
+            echo "Found draft release ID: $RELEASE_ID"
+
+            # Get the asset download URL
+            ASSET_URL=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets" | \
+              jq -r '.[] | select(.name | contains("timeS429")) | .browser_download_url')
+
+            if [ "$ASSET_URL" != "null" ] && [ -n "$ASSET_URL" ]; then
+              echo "Downloading test data from: $ASSET_URL"
+              curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$ASSET_URL" -o timeS429.tar.gz
+
+              echo "Extracting test data..."
+              tar -xzf timeS429.tar.gz
+              rm timeS429.tar.gz
+              echo "STRAXION_TEST_DATA_DIR=$(pwd)/timeS429" >> $GITHUB_ENV
+              echo "Test data extracted successfully"
+            else
+              echo "No test data asset found in release"
+            fi
+          else
+            echo "No draft release found, skipping test data download"
+          fi
+
       - name: Test package
         # This is running a normal test
         if: matrix.test == 'pytest'
@@ -62,13 +94,15 @@ jobs:
 
       - name: Test raw_records with data (if available)
         # Test the DAQReader plugin with real data if test data is provided
-        if: matrix.test == 'pytest' && secrets.STRAXION_TEST_DATA_DIR != ''
-        env:
-          STRAXION_TEST_DATA_DIR: ${{ secrets.STRAXION_TEST_DATA_DIR }}
+        if: matrix.test == 'pytest'
         run: |
-          echo "Running raw_records tests with test data..."
-          coverage run --source=straxion -m pytest tests/test_raw_records.py::test_raw_records_processing tests/test_raw_records.py::test_raw_records_data_consistency -v
-          coverage report
+          if [ -n "$STRAXION_TEST_DATA_DIR" ] && [ -d "$STRAXION_TEST_DATA_DIR" ]; then
+            echo "Running raw_records tests with test data..."
+            coverage run --source=straxion -m pytest tests/test_raw_records.py::test_raw_records_processing tests/test_raw_records.py::test_raw_records_data_consistency -v
+            coverage report
+          else
+            echo "STRAXION_TEST_DATA_DIR not set or directory does not exist, skipping raw_records tests"
+          fi
 
       - name: Coveralls
         # Make the coverage report and upload
@@ -87,12 +121,15 @@ jobs:
         env:
           NUMBA_DISABLE_JIT: 1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          STRAXION_TEST_DATA_DIR: ${{ secrets.STRAXION_TEST_DATA_DIR }}
-        if: matrix.test == 'coveralls' && (github.actor != 'dependabot[bot]') && secrets.STRAXION_TEST_DATA_DIR != ''
+        if: matrix.test == 'coveralls' && (github.actor != 'dependabot[bot]')
         run: |
-          echo "Running raw_records tests for coverage..."
-          coverage run --source=straxion -m pytest tests/test_raw_records.py::test_raw_records_processing tests/test_raw_records.py::test_raw_records_data_consistency -v
-          coveralls --service=github
+          if [ -n "$STRAXION_TEST_DATA_DIR" ] && [ -d "$STRAXION_TEST_DATA_DIR" ]; then
+            echo "Running raw_records tests for coverage..."
+            coverage run --source=straxion -m pytest tests/test_raw_records.py::test_raw_records_processing tests/test_raw_records.py::test_raw_records_data_consistency -v
+            coveralls --service=github
+          else
+            echo "STRAXION_TEST_DATA_DIR not set or directory does not exist, skipping raw_records coverage tests"
+          fi
 
       - name: goodbye
         run: echo 'Tests done, bye bye.'

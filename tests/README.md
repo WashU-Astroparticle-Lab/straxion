@@ -61,75 +61,33 @@ This script performs the same validation as the test but provides more detailed 
 
 ## GitHub Actions Integration
 
-The tests are configured to work with GitHub Actions using GitHub secrets for test data.
+The tests are configured to work with GitHub Actions using GitHub Releases for test data.
 
-### Setting Up GitHub Secrets
+### Setting Up Test Data
 
-1. Go to your repository settings
-2. Navigate to "Secrets and variables" → "Actions"
-3. Add a new repository secret:
-   - **Name**: `STRAXION_TEST_DATA_DIR`
-   - **Value**: The path to your test data directory on the GitHub Actions runner
+The workflow automatically downloads test data from GitHub Releases. To set this up:
+
+1. **Prepare your test data**:
+   ```bash
+   python scripts/prepare_release_data.py /path/to/your/timeS429/directory
+   ```
+
+2. **Create a draft release** in your GitHub repository
+3. **Upload the compressed file** to the draft release
+4. **The workflow will automatically download and use the data**
+
+See `docs/SECURE_TEST_DATA_SETUP.md` for detailed step-by-step instructions.
 
 ### GitHub Actions Workflow
 
 The tests are integrated into the existing `.github/workflows/pytest.yml` workflow, which will:
 
 1. Run basic tests without test data on Python 3.11
-2. Run raw_records tests with real data if the `STRAXION_TEST_DATA_DIR` secret is available
-3. Generate coverage reports for both basic and data-dependent tests
+2. Automatically download test data from GitHub Releases (if available)
+3. Run raw_records tests with real data
+4. Generate coverage reports for both basic and data-dependent tests
 
-### Providing Test Data to GitHub Actions
 
-There are several ways to provide test data to GitHub Actions:
-
-#### Option 1: Upload as Artifact (Recommended for small datasets; Adopted)
-
-```yaml
-# In your workflow
-- name: Upload test data
-  uses: actions/upload-artifact@v3
-  with:
-    name: test-data
-    path: /path/to/your/test/data
-
-- name: Download test data
-  uses: actions/download-artifact@v3
-  with:
-    name: test-data
-    path: ./test-data
-
-- name: Run tests with data
-  env:
-    STRAXION_TEST_DATA_DIR: ./test-data
-  run: pytest tests/ -v
-```
-
-#### Option 2: Use GitHub Secrets for Paths
-
-If your test data is stored in a known location on the runner:
-
-```yaml
-- name: Run tests with data
-  env:
-    STRAXION_TEST_DATA_DIR: ${{ secrets.STRAXION_TEST_DATA_DIR }}
-  run: pytest tests/ -v
-```
-
-#### Option 3: Download from External Source
-
-```yaml
-- name: Download test data
-  run: |
-    # Download your test data from a secure location
-    curl -L -o test-data.tar.gz ${{ secrets.TEST_DATA_URL }}
-    tar -xzf test-data.tar.gz
-
-- name: Run tests with data
-  env:
-    STRAXION_TEST_DATA_DIR: ./extracted-test-data
-  run: pytest tests/ -v
-```
 
 ## Test Coverage
 
