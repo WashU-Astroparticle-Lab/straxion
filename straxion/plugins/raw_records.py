@@ -371,12 +371,14 @@ class DAQReader(strax.Plugin):
             r["time"] = channel_data["time"][0] * SECOND_TO_NANOSECOND
             r["length"] = len(channel_data)
             r["dt"] = self.dt
+            r["endtime"] = r["time"] + r["length"] * r["dt"]
             r["channel"] = ch
             r["data_i"] = channel_data["data_i"]
             r["data_q"] = channel_data["data_q"]
 
         # Shift all time stamps by the run start time. Now all time stamps are since unix epoch.
         results["time"] += self.config["run_start_time"]
+        results["endtime"] += self.config["run_start_time"]
 
         # We must build a chunk for the lowest data type, as required by strax.
         results = self.chunk(
