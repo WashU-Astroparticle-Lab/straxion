@@ -60,6 +60,16 @@ jobs:
           coverage run --source=straxion -m pytest --durations 0
           coverage report
 
+      - name: Test raw_records with data (if available)
+        # Test the DAQReader plugin with real data if test data is provided
+        if: matrix.test == 'pytest' && secrets.STRAXION_TEST_DATA_DIR != ''
+        env:
+          STRAXION_TEST_DATA_DIR: ${{ secrets.STRAXION_TEST_DATA_DIR }}
+        run: |
+          echo "Running raw_records tests with test data..."
+          coverage run --source=straxion -m pytest tests/test_raw_records.py::test_raw_records_processing tests/test_raw_records.py::test_raw_records_data_consistency -v
+          coverage report
+
       - name: Coveralls
         # Make the coverage report and upload
         env:
@@ -70,6 +80,18 @@ jobs:
           # Install straxion first
           pip install -e .
           coverage run --source=straxion -m pytest -v
+          coveralls --service=github
+
+      - name: Coveralls with raw_records data (if available)
+        # Include raw_records tests in coverage when test data is available
+        env:
+          NUMBA_DISABLE_JIT: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STRAXION_TEST_DATA_DIR: ${{ secrets.STRAXION_TEST_DATA_DIR }}
+        if: matrix.test == 'coveralls' && (github.actor != 'dependabot[bot]') && secrets.STRAXION_TEST_DATA_DIR != ''
+        run: |
+          echo "Running raw_records tests for coverage..."
+          coverage run --source=straxion -m pytest tests/test_raw_records.py::test_raw_records_processing tests/test_raw_records.py::test_raw_records_data_consistency -v
           coveralls --service=github
 
       - name: goodbye
