@@ -53,13 +53,19 @@ jobs:
           pip install .
           pip install tf-keras scikit-learn --upgrade
 
+      - name: Debug GitHub Releases API
+        if: matrix.test == 'pytest'
+        run: |
+          curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases" | jq .
+
       - name: Download test data from release
         if: matrix.test == 'pytest'
         run: |
           # Get the test-data draft release
           RELEASE_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases" | \
-            jq -r '.[] | select(.draft==true and .tag_name=="test-data") | .id' | head -1)
+            jq -r '.[] | select(.tag_name=="test-data") | .id' | head -1)
 
           if [ "$RELEASE_ID" != "null" ] && [ -n "$RELEASE_ID" ]; then
             echo "Found draft release ID: $RELEASE_ID"
