@@ -55,7 +55,7 @@ def main():
 
         # Get file size
         file_size = os.path.getsize(args.output)
-        print(f"✓ File size: {file_size:,} bytes ({file_size/1024/1024:.1f} MB)")
+        print(f"✓ File size: {file_size:,} bytes ({file_size / 1024 / 1024:.1f} MB)")
 
         # Check GitHub releases size limit
         if file_size > 2 * 1024 * 1024 * 1024:  # 2GB limit
