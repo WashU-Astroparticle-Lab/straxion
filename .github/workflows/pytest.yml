@@ -108,7 +108,7 @@ jobs:
         run: |
           if [ -n "$STRAXION_TEST_DATA_DIR" ] && [ -d "$STRAXION_TEST_DATA_DIR" ]; then
             echo "Running raw_records tests with test data..."
-            coverage run --source=straxion -m pytest tests/test_raw_records.py::test_raw_records_processing tests/test_raw_records.py::test_raw_records_data_consistency -v
+            coverage run --source=straxion -m pytest tests/test_raw_records.py::test_straxion_test_data_dir_exists_and_not_empty tests/test_raw_records.py::test_raw_records_processing tests/test_raw_records.py::test_raw_records_data_consistency -v
             coverage report
           else
             echo "STRAXION_TEST_DATA_DIR not set or directory does not exist, skipping raw_records tests"
@@ -135,7 +135,7 @@ jobs:
         run: |
           if [ -n "$STRAXION_TEST_DATA_DIR" ] && [ -d "$STRAXION_TEST_DATA_DIR" ]; then
             echo "Running raw_records tests for coverage..."
-            coverage run --source=straxion -m pytest tests/test_raw_records.py::test_raw_records_processing tests/test_raw_records.py::test_raw_records_data_consistency -v
+            coverage run --source=straxion -m pytest tests/test_raw_records.py::test_straxion_test_data_dir_exists_and_not_empty tests/test_raw_records.py::test_raw_records_processing tests/test_raw_records.py::test_raw_records_data_consistency -v
             coveralls --service=github
           else
             echo "STRAXION_TEST_DATA_DIR not set or directory does not exist, skipping raw_records coverage tests"
