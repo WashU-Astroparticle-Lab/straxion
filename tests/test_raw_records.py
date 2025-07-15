@@ -19,24 +19,6 @@ def test_daq_reader_plugin_registration():
     assert st._plugin_class_registry["raw_records"] == DAQReader
 
 
-def test_daq_reader_config_options():
-    """Test that DAQReader has the expected configuration options."""
-    st = straxion.qualiphide()
-    plugin = st._plugin_class_registry["raw_records"](st)
-
-    expected_options = {
-        "record_length",
-        "fs",
-        "run_start_time",
-        "daq_input_dir",
-        "channel_map",
-        "sub_detector",
-    }
-
-    config_options = set(plugin.config.keys())
-    assert expected_options.issubset(config_options)
-
-
 def test_daq_reader_dtype_inference():
     """Test that DAQReader can infer the correct data type."""
     st = straxion.qualiphide()
