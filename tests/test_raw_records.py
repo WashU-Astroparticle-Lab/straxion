@@ -171,7 +171,7 @@ def test_daq_reader_invalid_config():
 
     # Test with invalid record_length
     config = {
-        "daq_input_dir": "/tmp",  # Use a directory that exists
+        "daq_input_dir": "/nonexistent/path",  # Use a non-existent path
         "record_length": -1,  # Invalid negative value
         "fs": 500_000,
     }
