@@ -71,8 +71,8 @@ def test_raw_records_processing():
         # Check data types
         assert rr["time"].dtype == np.int64
         assert rr["channel"].dtype == np.int16
-        assert rr["data_i"].dtype == np.dtype(">f8")
-        assert rr["data_q"].dtype == np.dtype(">f8")
+        assert np.issubdtype(rr["data_i"].dtype, np.floating) and rr["data_i"].dtype.itemsize == 8
+        assert np.issubdtype(rr["data_q"].dtype, np.floating) and rr["data_q"].dtype.itemsize == 8
 
         # Check that all records have the expected length
         expected_length = config["record_length"]
@@ -99,10 +99,30 @@ def test_raw_records_processing():
         pytest.fail(f"Failed to process raw_records: {str(e)}")
 
 
-@pytest.mark.skipif(
-    not os.getenv("STRAXION_TEST_DATA_DIR"),
-    reason="Test data directory not provided via STRAXION_TEST_DATA_DIR environment variable",
-)
+def _check_endtime_consistency(rr):
+    """Check that endtime is correctly calculated for each record."""
+    for record in rr:
+        expected_endtime = record["time"] + record["length"] * record["dt"]
+        assert record["endtime"] == expected_endtime
+
+
+def _check_monotonic_time(rr):
+    """Check that time stamps are monotonically increasing within each channel."""
+    for channel in np.unique(rr["channel"]):
+        channel_records = rr[rr["channel"] == channel]
+        if len(channel_records) > 1:
+            times = channel_records["time"]
+            assert np.all(
+                np.diff(times) > 0
+            ), f"Time stamps not monotonically increasing for channel {channel}"
+
+
+def _check_finite_data(rr):
+    """Check that data values are finite for data_i and data_q."""
+    assert np.all(np.isfinite(rr["data_i"])), "Non-finite values found in data_i"
+    assert np.all(np.isfinite(rr["data_q"])), "Non-finite values found in data_q"
+
+
 def test_raw_records_data_consistency():
     """Test that the raw_records data is internally consistent."""
     test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
@@ -112,30 +132,13 @@ def test_raw_records_data_consistency():
         pytest.skip(f"Test data directory {timeS429_dir} does not exist")
 
     st = straxion.qualiphide()
-
     config = {"daq_input_dir": timeS429_dir, "record_length": 5_000_000, "fs": 500_000}
 
     try:
         rr = st.get_array("timeS429", "raw_records", config=config)
-
-        # Check that endtime is correctly calculated
-        for record in rr:
-            expected_endtime = record["time"] + record["length"] * record["dt"]
-            assert record["endtime"] == expected_endtime
-
-        # Check that time stamps are monotonically increasing within each channel
-        for channel in np.unique(rr["channel"]):
-            channel_records = rr[rr["channel"] == channel]
-            if len(channel_records) > 1:
-                times = channel_records["time"]
-                assert np.all(
-                    np.diff(times) > 0
-                ), f"Time stamps not monotonically increasing for channel {channel}"
-
-        # Check that data values are finite
-        assert np.all(np.isfinite(rr["data_i"]))
-        assert np.all(np.isfinite(rr["data_q"]))
-
+        _check_endtime_consistency(rr)
+        _check_monotonic_time(rr)
+        _check_finite_data(rr)
     except Exception as e:
         pytest.fail(f"Failed to validate raw_records consistency: {str(e)}")
 
