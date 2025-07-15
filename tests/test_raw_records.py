@@ -13,6 +13,20 @@ def test_qualiphide_context_creation():
     assert hasattr(st, "get_array")
 
 
+def test_straxion_test_data_dir_exists_and_not_empty():
+    """Test that STRAXION_TEST_DATA_DIR is set, exists, and is not empty."""
+    test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+    if test_data_dir:
+        assert os.path.exists(test_data_dir) and os.path.isdir(
+            test_data_dir
+        ), f"STRAXION_TEST_DATA_DIR '{test_data_dir}' does not exist or is not a directory."
+        contents = os.listdir(test_data_dir)
+        print(f"Contents of STRAXION_TEST_DATA_DIR ({test_data_dir}): {contents}")
+        assert len(contents) > 0, f"STRAXION_TEST_DATA_DIR '{test_data_dir}' is empty."
+    else:
+        pytest.skip("STRAXION_TEST_DATA_DIR is not set.")
+
+
 def test_daq_reader_plugin_registration():
     """Test that the DAQReader plugin is properly registered in the context."""
     st = straxion.qualiphide()
