@@ -28,7 +28,7 @@ def test_straxion_test_data_dir_exists_and_not_empty():
         print(f"Contents of STRAXION_TEST_DATA_DIR ({test_data_dir}): {contents}")
         assert len(contents) > 0, f"STRAXION_TEST_DATA_DIR '{test_data_dir}' is empty."
     else:
-        pytest.skip("STRAXION_TEST_DATA_DIR is not set.")
+        pytest.fail("STRAXION_TEST_DATA_DIR is not set.")
 
 
 def test_daq_reader_plugin_registration():
@@ -82,7 +82,7 @@ def test_raw_records_processing():
     timeS429_dir = os.path.join(test_data_dir, "timeS429")
 
     if not os.path.exists(timeS429_dir):
-        pytest.skip(f"Test data directory {timeS429_dir} does not exist")
+        pytest.fail(f"Test data directory {timeS429_dir} does not exist")
 
     # Create context and process raw_records
     st = straxion.qualiphide()
@@ -167,7 +167,7 @@ def test_raw_records_data_consistency():
     timeS429_dir = os.path.join(test_data_dir, "timeS429")
 
     if not os.path.exists(timeS429_dir):
-        pytest.skip(f"Test data directory {timeS429_dir} does not exist")
+        pytest.fail(f"Test data directory {timeS429_dir} does not exist")
 
     st = straxion.qualiphide()
     config = {"daq_input_dir": timeS429_dir, "record_length": 5_000_000, "fs": 500_000}
