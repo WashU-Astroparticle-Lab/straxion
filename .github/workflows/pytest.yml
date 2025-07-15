@@ -80,9 +80,11 @@ jobs:
               echo "Test data extracted successfully"
             else
               echo "No test data asset found in release"
+              exit 1
             fi
           else
             echo "No draft release found, skipping test data download"
+            exit 1
           fi
 
       - name: Test package
