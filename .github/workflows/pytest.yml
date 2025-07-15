@@ -79,6 +79,7 @@ jobs:
               echo "Downloading test data from: $ASSET_URL"
               curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$ASSET_URL" -o timeS429.tar.gz
 
+              echo "Listing contents of $(pwd):"
               echo "Extracting test data..."
               tar -xzf timeS429.tar.gz
               rm timeS429.tar.gz
