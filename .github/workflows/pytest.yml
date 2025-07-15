@@ -79,14 +79,14 @@ jobs:
               echo "Downloading test data from: $ASSET_URL"
               curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$ASSET_URL" -o timeS429.tar.gz
 
-              echo "Listing contents of $(pwd):"
+              echo "Listing contents of the current directory $(pwd):"
               echo "Extracting test data..."
               tar -xzf timeS429.tar.gz
               rm timeS429.tar.gz
               echo "STRAXION_TEST_DATA_DIR=$(pwd)/timeS429" >> $GITHUB_ENV
               echo "Test data extracted successfully"
-              echo "Listing contents of $(pwd)/timeS429:"
-              ls -l $(pwd)/timeS429
+              echo "Listing contents of the test data directory $STRAXION_TEST_DATA_DIR"
+              ls -l $STRAXION_TEST_DATA_DIR
             else
               echo "No test data asset found in release"
               exit 1
