@@ -1,6 +1,6 @@
 # Testing Guide
 
-This directory contains tests for the straxion package, including comprehensive tests for the DAQReader plugin.
+Unless you are a developer for `straxion`, please feel free to skip reading. This directory contains tests for the straxion package, including comprehensive tests for the `DAQReader` plugin.
 
 ## Test Structure
 
@@ -51,7 +51,7 @@ The tests expect the following directory structure:
 
 ### Using the Example Script
 
-You can also use the standalone example script to test the DAQReader:
+If you have access to `timeS429` locally, you can also use the standalone example script to test the DAQReader,
 
 ```bash
 python run_test_example.py /path/to/timeS429/directory
@@ -83,7 +83,7 @@ The tests are integrated into the existing `.github/workflows/pytest.yml` workfl
 
 There are several ways to provide test data to GitHub Actions:
 
-#### Option 1: Upload as Artifact (Recommended for small datasets)
+#### Option 1: Upload as Artifact (Recommended for small datasets; Adopted)
 
 ```yaml
 # In your workflow
