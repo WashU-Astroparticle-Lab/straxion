@@ -139,6 +139,10 @@ def _check_finite_data(rr):
     assert np.all(np.isfinite(rr["data_q"])), "Non-finite values found in data_q"
 
 
+@pytest.mark.skipif(
+    not os.getenv("STRAXION_TEST_DATA_DIR"),
+    reason="Test data directory not provided via STRAXION_TEST_DATA_DIR environment variable",
+)
 def test_raw_records_data_consistency():
     """Test that the raw_records data is internally consistent."""
     test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
