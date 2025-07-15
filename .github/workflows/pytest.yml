@@ -84,6 +84,7 @@ jobs:
               tar -xzf timeS429.tar.gz
               rm timeS429.tar.gz
               echo "STRAXION_TEST_DATA_DIR=$(pwd)/timeS429" >> $GITHUB_ENV
+              export STRAXION_TEST_DATA_DIR=$(pwd)/timeS429
               echo "Test data extracted successfully"
               echo "Listing contents of the test data directory $STRAXION_TEST_DATA_DIR"
               ls -l $STRAXION_TEST_DATA_DIR
