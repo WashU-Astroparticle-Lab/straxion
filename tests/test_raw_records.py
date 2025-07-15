@@ -22,13 +22,16 @@ def test_daq_reader_plugin_registration():
 def test_daq_reader_dtype_inference():
     """Test that DAQReader can infer the correct data type."""
     st = straxion.qualiphide()
-    plugin = st._plugin_class_registry["raw_records"](st)
+    config = {"daq_input_dir": "abracadabra", "record_length": 5_000_000, "fs": 500_000}
+    st.set_config(config)
+    plugin = st.get_single_plugin("timeS429", "raw_records")
 
     dtype = plugin.infer_dtype()
     expected_fields = ["time", "endtime", "length", "dt", "channel", "data_i", "data_q"]
 
+    field_names = [name[1] for name, *_ in dtype]
     for field in expected_fields:
-        assert any(field in field_name for field_name, _ in dtype)
+        assert field in field_names
 
 
 @pytest.mark.skipif(
