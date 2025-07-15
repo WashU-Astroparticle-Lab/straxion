@@ -147,7 +147,7 @@ def test_daq_reader_missing_data_directory():
     config = {"daq_input_dir": "/nonexistent/path", "record_length": 5_000_000, "fs": 500_000}
 
     with pytest.raises((ValueError, FileNotFoundError)):
-        st.get_array("timeS429", "raw_records", config=config)
+        st.get_array("nonsense_run_id", "raw_records", config=config)
 
 
 def test_daq_reader_invalid_config():
