@@ -75,11 +75,11 @@ def test_raw_records_processing():
     """Test the complete raw_records processing pipeline with real data.
 
     This test requires the STRAXION_TEST_DATA_DIR environment variable to be set to the path
-    containing the timeS429 directory with example data.
+    containing the test data directory with example data.
 
     """
     test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
-    timeS429_dir = os.path.join(test_data_dir, "timeS429")
+    timeS429_dir = test_data_dir
 
     if not os.path.exists(timeS429_dir):
         pytest.fail(f"Test data directory {timeS429_dir} does not exist")
@@ -164,7 +164,7 @@ def _check_finite_data(rr):
 def test_raw_records_data_consistency():
     """Test that the raw_records data is internally consistent."""
     test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
-    timeS429_dir = os.path.join(test_data_dir, "timeS429")
+    timeS429_dir = test_data_dir
 
     if not os.path.exists(timeS429_dir):
         pytest.fail(f"Test data directory {timeS429_dir} does not exist")
