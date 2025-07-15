@@ -84,6 +84,8 @@ jobs:
               rm timeS429.tar.gz
               echo "STRAXION_TEST_DATA_DIR=$(pwd)/timeS429" >> $GITHUB_ENV
               echo "Test data extracted successfully"
+              echo "Listing contents of $(pwd)/timeS429:"
+              ls -l $(pwd)/timeS429
             else
               echo "No test data asset found in release"
               exit 1
