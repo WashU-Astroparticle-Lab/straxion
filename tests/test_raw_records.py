@@ -13,6 +13,10 @@ def test_qualiphide_context_creation():
     assert hasattr(st, "get_array")
 
 
+@pytest.mark.skipif(
+    not os.getenv("STRAXION_TEST_DATA_DIR"),
+    reason="Test data directory not provided via STRAXION_TEST_DATA_DIR environment variable",
+)
 def test_straxion_test_data_dir_exists_and_not_empty():
     """Test that STRAXION_TEST_DATA_DIR is set, exists, and is not empty."""
     test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
