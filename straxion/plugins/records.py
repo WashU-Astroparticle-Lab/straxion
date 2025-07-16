@@ -22,6 +22,12 @@ export, __all__ = strax.exporter()
         help=("Direcotry to fine frequency scan (IQ loop) of resonator (txt, csv or similar)."),
     ),
     strax.Option(
+        "fs",
+        track=True,
+        type=int,
+        help="Sampling frequency (assumed the same for all channels) in unit of Hz",
+    ),
+    strax.Option(
         "pulse_kernel_start_time",
         default=100_000,
         track=True,
@@ -179,7 +185,7 @@ class PulseProcessing(strax.Plugin):
                 f"No fine scan files found in {directory}. "
                 f"Expected files like '*-ch<CHANNEL>.txt' or '*-ch<CHANNEL>.csv'."
             )
-        channel_re = re.compile(r"-ch(\d+)\\.(txt|csv)$")
+        channel_re = re.compile(r"-ch(\d+)\.(txt|csv)$")
         finescan = {}
         for f in files:
             m = channel_re.search(f)
@@ -187,7 +193,7 @@ class PulseProcessing(strax.Plugin):
                 continue
             channel = int(m.group(1))
             try:
-                arr = np.loadtxt(f, delimiter=None)  # autodetect delimiter
+                arr = np.loadtxt(f, delimiter=None)  # Use autodetect delimiter.
             except Exception as e:
                 raise RuntimeError(f"Failed to load fine scan file {f}: {e}")
             if arr.ndim == 1:
