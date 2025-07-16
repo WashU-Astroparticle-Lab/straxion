@@ -16,7 +16,7 @@ export, __all__ = strax.exporter()
 @export
 @strax.takes_config(
     strax.Option(
-        "iq_finescane_dir",
+        "iq_finescan_dir",
         track=False,  # FIXME: Ideally it should be tracked, by correction rather than config.
         type=str,
         help=("Direcotry to fine frequency scan (IQ loop) of resonator (txt, csv or similar)."),
@@ -89,7 +89,11 @@ class PulseProcessing(strax.Plugin):
 
     def infer_dtype(self):
         """Data type for a waveform record."""
-        dtype = base_waveform_dtype(self.config["record_length"])
+        # Get record_length from the plugin making raw_records.
+        raw_records_dtype = self.deps["raw_records"].dtype_for("raw_records")
+        self.record_length = len(np.zeros(1, raw_records_dtype)[0]["data_i"])
+
+        dtype = base_waveform_dtype(self.record_length)
         dtype.append(
             (
                 (
@@ -100,7 +104,7 @@ class PulseProcessing(strax.Plugin):
                     "data_theta",
                 ),
                 DATA_DTYPE,
-                self.config["record_length"],
+                self.record_length,
             )
         )
         dtype.append(
@@ -110,7 +114,7 @@ class PulseProcessing(strax.Plugin):
                     "data_theta_moving_average",
                 ),
                 DATA_DTYPE,
-                self.config["record_length"],
+                self.record_length,
             )
         )
         dtype.append(
@@ -120,7 +124,7 @@ class PulseProcessing(strax.Plugin):
                     "data_theta_convolved",
                 ),
                 DATA_DTYPE,
-                self.config["record_length"],
+                self.record_length,
             )
         )
         dtype.append(
@@ -130,9 +134,9 @@ class PulseProcessing(strax.Plugin):
         return dtype
 
     def setup(self):
-        self.finescan = self.load_finescan_files(self.config["iq_finescane_dir"])
+        self.finescan = self.load_finescan_files(self.config["iq_finescan_dir"])
         self.kernel = self.pulse_kernel_emg(
-            self.config["record_length"],
+            self.record_length,
             self.config["fs"],
             self.config["pulse_kernel_start_time"],
             self.config["pulse_kernel_decay_time"],
@@ -401,6 +405,6 @@ class PulseProcessing(strax.Plugin):
             )
             # Convolve with EMG pulse kernel.
             _convolved = np.convolve(r["data_theta_moving_average"], self.kernel, mode="full")
-            r["data_theta_convolved"] = _convolved[self.config["record_length"] - 1 :]
+            r["data_theta_convolved"] = _convolved[self.record_length - 1 :]
 
         return results
