@@ -216,7 +216,8 @@ def test_daq_reader_invalid_config():
     reason="Test data directory not provided via STRAXION_TEST_DATA_DIR environment variable",
 )
 def test_timeS429_bin_files_exist():
-    """Test that all expected .bin files (timeS429-ch0.bin to timeS429-ch9.bin) exist in the timeS429 directory."""
+    """Test that all expected .bin files (timeS429-ch0.bin to timeS429-ch9.bin) exist in the
+    timeS429 directory."""
     test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
     if not test_data_dir:
         pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
