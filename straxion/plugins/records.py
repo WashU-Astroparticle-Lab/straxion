@@ -95,11 +95,15 @@ class PulseProcessing(strax.Plugin):
 
     def infer_dtype(self):
         """Data type for a waveform record."""
-        # Get record_length from the plugin making raw_records.
-        raw_records_dtype = self.deps["raw_records"].dtype_for("raw_records")
-        self.record_length = len(np.zeros(1, raw_records_dtype)[0]["data_i"])
+        # Use record_length from setup if available, otherwise compute it.
+        if hasattr(self, "record_length"):
+            record_length = self.record_length
+        else:
+            # Get record_length from the plugin making raw_records.
+            raw_records_dtype = self.deps["raw_records"].dtype_for("raw_records")
+            record_length = len(np.zeros(1, raw_records_dtype)[0]["data_i"])
 
-        dtype = base_waveform_dtype(self.record_length)
+        dtype = base_waveform_dtype(record_length)
         dtype.append(
             (
                 (
@@ -110,7 +114,7 @@ class PulseProcessing(strax.Plugin):
                     "data_theta",
                 ),
                 DATA_DTYPE,
-                self.record_length,
+                record_length,
             )
         )
         dtype.append(
@@ -120,7 +124,7 @@ class PulseProcessing(strax.Plugin):
                     "data_theta_moving_average",
                 ),
                 DATA_DTYPE,
-                self.record_length,
+                record_length,
             )
         )
         dtype.append(
@@ -130,7 +134,7 @@ class PulseProcessing(strax.Plugin):
                     "data_theta_convolved",
                 ),
                 DATA_DTYPE,
-                self.record_length,
+                record_length,
             )
         )
         dtype.append(
@@ -140,6 +144,10 @@ class PulseProcessing(strax.Plugin):
         return dtype
 
     def setup(self):
+        # Get record_length from the plugin making raw_records.
+        raw_records_dtype = self.deps["raw_records"].dtype_for("raw_records")
+        self.record_length = len(np.zeros(1, raw_records_dtype)[0]["data_i"])
+
         self.finescan = self.load_finescan_files(self.config["iq_finescan_dir"])
         self.kernel = self.pulse_kernel_emg(
             self.record_length,
@@ -148,6 +156,21 @@ class PulseProcessing(strax.Plugin):
             self.config["pulse_kernel_decay_time"],
             self.config["pulse_kernel_gaussian_smearing_width"],
         )
+
+        # Pre-compute moving average kernel
+        self.moving_average_kernel = (
+            np.ones(self.config["moving_average_width"]) / self.config["moving_average_width"]
+        )
+
+        # Pre-compute circle fits for each channel to avoid repeated computation
+        self.channel_centers = {}
+        for channel in self.finescan.keys():
+            finescan = self.finescan[channel]
+            finescan_i = finescan[:, 1]
+            finescan_q = finescan[:, 2]
+            i_center, q_center, _, _ = self.circfit(finescan_i, finescan_q)
+            theta_f_min = np.arctan2(finescan_q[0] - q_center, finescan_i[0] - i_center)
+            self.channel_centers[channel] = (i_center, q_center, theta_f_min)
 
     @staticmethod
     def load_finescan_files(directory):
@@ -340,16 +363,8 @@ class PulseProcessing(strax.Plugin):
             np.ndarray: Timestream in angle with respect to IQ loop center, in unit of rad.
 
         """
-        # Load fine scan data. Assumed columns: index, data_i, data_q; so data_i=col1, data_q=col2.
-        finescan = self.finescan[channel]
-        finescan_i = finescan[:, 1]
-        finescan_q = finescan[:, 2]
-
-        # Fit a circle to the fine scan data.
-        i_center, q_center, _, _ = self.circfit(finescan_i, finescan_q)
-
-        # Compute angle corresponding to the lowest frequency.
-        theta_f_min = np.arctan2(finescan_q[0] - q_center, finescan_i[0] - i_center)
+        # Use pre-computed circle centers from setup
+        i_center, q_center, theta_f_min = self.channel_centers[channel]
 
         # Compute theta timestream.
         thetas = np.arctan2(data_q - q_center, data_i - i_center)
@@ -368,6 +383,11 @@ class PulseProcessing(strax.Plugin):
         2. Applying baseline correction and signal normalization
         3. Smoothing the phase data using moving average
         4. Convolving with an exponentially-modified Gaussian pulse kernel
+
+        Performance optimizations:
+        - Circle fits are pre-computed in setup() for each channel
+        - Moving average kernel is pre-computed in setup()
+        - Pulse kernel is pre-computed in setup()
 
         Args:
             raw_records (np.ndarray): Array of raw records containing I/Q data.
@@ -406,7 +426,7 @@ class PulseProcessing(strax.Plugin):
             # Moving average (convolve with a boxcar).
             r["data_theta_moving_average"] = np.convolve(
                 r["data_theta"],
-                np.ones(self.config["moving_average_width"]) / self.config["moving_average_width"],
+                self.moving_average_kernel,
                 mode="same",
             )
             # Convolve with EMG pulse kernel.
