@@ -432,7 +432,7 @@ class PulseProcessing(strax.Plugin):
                 mode="same",
             )
             # Convolve with EMG pulse kernel.
-            _convolved = np.convolve(r["data_theta_moving_average"], self.kernel, mode="full")
+            _convolved = np.convolve(r["data_theta"], self.kernel, mode="full")
             r["data_theta_convolved"] = _convolved[self.record_length - 1 :]
 
         return results
