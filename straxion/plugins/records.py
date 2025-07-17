@@ -266,7 +266,7 @@ class PulseProcessing(strax.Plugin):
             pulse_kernal (np.ndarray): Smoothed pulse train
 
         """
-        dt = int(1 / fs * 1e9)
+        dt = int(1 / fs * SECOND_TO_NANOSECOND)
 
         # Calculate significant length upfront to avoid unnecessary computation
         significant_length = min(ns, int(truncation_factor * tau / dt))
