@@ -266,33 +266,35 @@ class PulseProcessing(strax.Plugin):
             pulse_kernal (np.ndarray): Smoothed pulse train
 
         """
-        dt = int(1 / fs * SECOND_TO_NANOSECOND)
-        t = np.linspace(0, (ns - 1) * dt, ns)
-        sigma_sample = int(sigma / dt)  # Smearing width in unit of time samples.
+        dt = int(1 / fs * 1e9)
 
-        # Create exponential decay pulse.
-        exponential = np.exp(-(t - t0) / tau)
-        exponential[t < t0] = 0
+        # Calculate significant length upfront to avoid unnecessary computation
+        significant_length = min(ns, int(truncation_factor * tau / dt))
 
-        # Apply Gaussian smoothing (equivalent to MATLAB's smoothdata with "gaussian" option).
+        # Only create time array for needed samples
+        t = np.arange(significant_length) * dt
+
+        # Create exponential decay pulse only for significant portion
+        mask = t >= t0
+        exponential = np.zeros(significant_length)
+        exponential[mask] = np.exp(-(t[mask] - t0) / tau)
+
+        # Convert sigma to samples
+        sigma_sample = int(sigma / dt)
+
+        # Apply Gaussian smoothing
         pulse_kernal = gaussian_filter1d(exponential, sigma=sigma_sample)
 
-        # Truncate kernel to reasonable size for performance
-        # Keep only the significant part of the exponential decay
-        # After truncation_factor*tau, the exponential is less than exp(-truncation_factor)
-        # of its maximum.
-        significant_length = min(ns, int(truncation_factor * tau / dt))
-        if significant_length < ns:
-            # Calculate the integral of the full kernel before truncation
-            full_kernel_integral = np.sum(gaussian_filter1d(exponential, sigma=sigma_sample))
+        # No need for truncation since we already computed only the significant portion
+        # But we still need to normalize
+        kernel_sum = np.sum(pulse_kernal)
+        if kernel_sum > 0:  # Avoid division by zero
+            pulse_kernal /= kernel_sum
 
-            # Truncate the kernel
-            pulse_kernal = pulse_kernal[:significant_length]
-
-            # Renormalize to preserve the integral (unitarity)
-            # This ensures the convolution doesn't systematically reduce signal amplitude
-            truncated_integral = np.sum(pulse_kernal)
-            pulse_kernal = pulse_kernal * (full_kernel_integral / truncated_integral)
+        # Normalize again to make sure the integral is 1.
+        kernel_sum = np.sum(pulse_kernal)
+        if kernel_sum > 0:  # Avoid division by zero
+            pulse_kernal /= kernel_sum
 
         return pulse_kernal
 
