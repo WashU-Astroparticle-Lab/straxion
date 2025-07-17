@@ -254,12 +254,12 @@ class PulseProcessing(strax.Plugin):
 
         Args:
             ns (int): Number of samples.
-            fs (int): Sampling frequency.
-            t0 (int): Start time of the pulse.
-            tau (int): Decay time constant.
-            sigma (int): Smearing width constant.
-            truncation_factor (float): Factor for truncating the kernel. After
-                truncation_factor * tau, the exponential is less than
+            fs (int): Sampling frequency in unit of Hz.
+            t0 (int): Start time of the pulse in unit of ns.
+            tau (int): Decay time constant in unit of ns.
+            sigma (int): Smearing width constant in unit of ns in unit of ns.
+            truncation_factor (float): Factor for truncating the kernel in unit of tau.
+                After truncation_factor * tau, the exponential is less than
                 exp(-truncation_factor) of its peak value.
 
         Returns:
