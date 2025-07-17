@@ -6,6 +6,7 @@ from straxion.utils import (
     base_waveform_dtype,
 )
 from scipy.ndimage import gaussian_filter1d
+from scipy.signal import fftconvolve
 import os
 import re
 import glob
@@ -57,6 +58,17 @@ export, __all__ = strax.exporter()
         track=True,
         type=int,
         help="Moving average width for smoothed reference waveform, in unit of ns.",
+    ),
+    strax.Option(
+        "pulse_kernel_truncation_factor",
+        default=5,
+        track=True,
+        type=float,
+        help=(
+            "Factor for truncating the pulse kernel to improve performance. "
+            "The kernel is truncated after truncation_factor * tau samples, "
+            "where the exponential decay becomes negligible (< 0.7% of peak value)."
+        ),
     ),
 )
 class PulseProcessing(strax.Plugin):
@@ -156,6 +168,7 @@ class PulseProcessing(strax.Plugin):
             self.config["pulse_kernel_start_time"],
             self.config["pulse_kernel_decay_time"],
             self.config["pulse_kernel_gaussian_smearing_width"],
+            self.config["pulse_kernel_truncation_factor"],
         )
 
         # Pre-compute moving average kernel
@@ -233,7 +246,7 @@ class PulseProcessing(strax.Plugin):
         return finescan
 
     @staticmethod
-    def pulse_kernel_emg(ns, fs, t0, tau, sigma):
+    def pulse_kernel_emg(ns, fs, t0, tau, sigma, truncation_factor=5):
         """Generate a pulse train with exponential decay and Gaussian smoothing.
 
         Translated from Chris Albert's Matlab codes:
@@ -245,6 +258,9 @@ class PulseProcessing(strax.Plugin):
             t0 (int): Start time of the pulse.
             tau (int): Decay time constant.
             sigma (int): Smearing width constant.
+            truncation_factor (float): Factor for truncating the kernel. After
+                truncation_factor * tau, the exponential is less than
+                exp(-truncation_factor) of its peak value.
 
         Returns:
             pulse_kernal (np.ndarray): Smoothed pulse train
@@ -258,8 +274,25 @@ class PulseProcessing(strax.Plugin):
         exponential = np.exp(-(t - t0) / tau)
         exponential[t < t0] = 0
 
-        # Apply Gaussian smoothing (equivalent to MATLAB's smoothdata with "gaussian" option)
+        # Apply Gaussian smoothing (equivalent to MATLAB's smoothdata with "gaussian" option).
         pulse_kernal = gaussian_filter1d(exponential, sigma=sigma_sample)
+
+        # Truncate kernel to reasonable size for performance
+        # Keep only the significant part of the exponential decay
+        # After truncation_factor*tau, the exponential is less than exp(-truncation_factor)
+        # of its maximum.
+        significant_length = min(ns, int(truncation_factor * tau / dt))
+        if significant_length < ns:
+            # Calculate the integral of the full kernel before truncation
+            full_kernel_integral = np.sum(gaussian_filter1d(exponential, sigma=sigma_sample))
+
+            # Truncate the kernel
+            pulse_kernal = pulse_kernal[:significant_length]
+
+            # Renormalize to preserve the integral (unitarity)
+            # This ensures the convolution doesn't systematically reduce signal amplitude
+            truncated_integral = np.sum(pulse_kernal)
+            pulse_kernal = pulse_kernal * (full_kernel_integral / truncated_integral)
 
         return pulse_kernal
 
@@ -431,8 +464,13 @@ class PulseProcessing(strax.Plugin):
                 self.moving_average_kernel,
                 mode="same",
             )
+
             # Convolve with EMG pulse kernel.
-            _convolved = np.convolve(r["data_theta"], self.kernel, mode="full")
+            # Use FFT-based convolution for large kernels (faster than np.convolve)
+            if len(self.kernel) > 10000:  # Use FFT for kernels larger than 10k samples
+                _convolved = fftconvolve(r["data_theta"], self.kernel, mode="full")
+            else:
+                _convolved = np.convolve(r["data_theta"], self.kernel, mode="full")
             r["data_theta_convolved"] = _convolved[self.record_length - 1 :]
 
         return results
