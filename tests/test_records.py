@@ -96,7 +96,7 @@ class TestCircfit:
         x = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         y = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
 
-        with pytest.raises(ValueError, match="Points are collinear"):
+        with pytest.raises(ValueError, match="Points are collinear or nearly collinear"):
             PulseProcessing.circfit(x, y)
 
     def test_circfit_almost_collinear_points(self):
@@ -109,7 +109,7 @@ class TestCircfit:
         # Use a larger perturbation to ensure rank=1
         y = x + 1e-8 * np.random.normal(0, 1, n_points)
 
-        with pytest.raises(ValueError, match="Points are collinear"):
+        with pytest.raises(ValueError, match="Points are collinear or nearly collinear"):
             PulseProcessing.circfit(x, y)
 
     def test_circfit_large_circle(self):
