@@ -98,7 +98,7 @@ class PulseProcessing(strax.Plugin):
 
     __version__ = "0.0.0"
     rechunk_on_save = False
-    compressor = "ztsd"  # Inherited from straxen. Not optimized outside XENONnT.
+    compressor = "zstd"  # Inherited from straxen. Not optimized outside XENONnT.
 
     depends_on = "raw_records"
     provides = "records"
@@ -466,11 +466,11 @@ class PulseProcessing(strax.Plugin):
             )
 
             # Convolve with EMG pulse kernel.
-            # Use FFT-based convolution for large kernels (faster than np.convolve)
-            if len(self.kernel) > 10000:  # Use FFT for kernels larger than 10k samples
+            # Use FFT-based convolution for large kernels (faster than np.convolve).
+            if len(self.kernel) > 10000:  # Use FFT for kernels larger than 10k samples.
                 _convolved = fftconvolve(r["data_theta"], self.kernel, mode="full")
             else:
                 _convolved = np.convolve(r["data_theta"], self.kernel, mode="full")
-            r["data_theta_convolved"] = _convolved[self.record_length - 1 :]
+            r["data_theta_convolved"] = _convolved[-self.record_length :]
 
         return results
