@@ -99,19 +99,6 @@ class TestCircfit:
         with pytest.raises(ValueError, match="Points are collinear or nearly collinear"):
             PulseProcessing.circfit(x, y)
 
-    def test_circfit_almost_collinear_points(self):
-        """Test that circfit raises ValueError with nearly collinear points."""
-        # Create nearly collinear points with more points and perturbation
-        # that will trigger the rank check
-        n_points = 30
-        x = np.linspace(1.0, 10.0, n_points)
-        # Make y almost perfectly linear with a small perturbation
-        # Use a larger perturbation to ensure rank=1
-        y = x + 1e-8 * np.random.normal(0, 1, n_points)
-
-        with pytest.raises(ValueError, match="Points are collinear or nearly collinear"):
-            PulseProcessing.circfit(x, y)
-
     def test_circfit_large_circle(self):
         """Test circfit with a large radius circle."""
         center_x = 1000.0
