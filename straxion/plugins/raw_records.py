@@ -5,22 +5,20 @@ from typing import Tuple
 from immutabledict import immutabledict
 import strax
 import numpy as np
+from straxion.utils import (
+    DATA_DTYPE,
+    SECOND_TO_NANOSECOND,
+    base_waveform_dtype,
+)
 
 export, __all__ = strax.exporter()
-
-
-SECOND_TO_NANOSECOND = 1_000_000_000
-TIME_DTYPE = np.int64
-LENGTH_DTYPE = np.int64
-CHANNEL_DTYPE = np.int16
-DATA_DTYPE = np.dtype(">f8")
 
 
 @export
 @strax.takes_config(
     strax.Option(
         "record_length",
-        default=200_000_000,
+        default=5_000_000,
         track=False,  # Not tracking record length, but we will have to check if it is as promised
         type=int,
         help=(
@@ -31,7 +29,7 @@ DATA_DTYPE = np.dtype(">f8")
     ),
     strax.Option(
         "fs",
-        default=100_000,
+        default=500_000,
         track=True,
         type=int,
         help="Sampling frequency (assumed the same for all channels) in unit of Hz",
@@ -97,23 +95,22 @@ class DAQReader(strax.Plugin):
 
     def infer_dtype(self):
         """Data type for a waveform raw_record."""
-        return [
-            (("Start time since unix epoch [ns]", "time"), TIME_DTYPE),
-            (("Exclusive end time since unix epoch [ns]", "endtime"), TIME_DTYPE),
-            (("Length of the interval in samples", "length"), LENGTH_DTYPE),
-            (("Width of one sample [ns]", "dt"), TIME_DTYPE),
-            (("Channel number defined by channel_map", "channel"), CHANNEL_DTYPE),
+        dtype = base_waveform_dtype(self.config["record_length"])
+        dtype.append(
             (
                 ("Waveform data of I in raw ADC counts", "data_i"),
                 DATA_DTYPE,
                 self.config["record_length"],
-            ),
+            )
+        )
+        dtype.append(
             (
                 ("Waveform data of Q in raw ADC counts", "data_q"),
                 DATA_DTYPE,
                 self.config["record_length"],
-            ),
-        ]
+            )
+        )
+        return dtype
 
     def setup(self):
         self.dt = int(1 / self.config["fs"] * SECOND_TO_NANOSECOND)  # In unit of ns.
