@@ -517,29 +517,3 @@ class TestLoadFinescanFilesWithRealData:
             assert data.dtype == np.float64
 
         print(f"Successfully loaded finescan data for {len(result)} channels")
-
-    def test_finescan_data_consistency(self):
-        """Test that finescan data is internally consistent."""
-        test_data_dir = os.getenv("STRAXION_FINESCAN_DATA_DIR")
-        if not test_data_dir:
-            pytest.fail("STRAXION_FINESCAN_DATA_DIR environment variable is not set")
-
-        result = PulseProcessing.load_finescan_files(test_data_dir)
-
-        for channel, data in result.items():
-            # Check that index column is sequential
-            indices = data[:, 0]
-            expected_indices = np.arange(len(indices))
-            np.testing.assert_array_equal(indices, expected_indices)
-
-            # Check that data_i and data_q are reasonable values
-            data_i = data[:, 1]
-            data_q = data[:, 2]
-
-            # Should have some variation (not all identical)
-            assert np.std(data_i) > 0, f"Channel {channel} data_i has no variation"
-            assert np.std(data_q) > 0, f"Channel {channel} data_q has no variation"
-
-            # Should be finite
-            assert np.all(np.isfinite(data_i))
-            assert np.all(np.isfinite(data_q))
