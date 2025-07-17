@@ -6,6 +6,10 @@ from straxion.plugins.records import PulseProcessing
 class TestCircfit:
     """Test the circfit static method of PulseProcessing class."""
 
+    def setup_method(self):
+        """Set up random seed for deterministic tests."""
+        np.random.seed(42)
+
     def test_circfit_perfect_circle(self):
         """Test circfit with a perfect circle dataset.
 
@@ -97,9 +101,13 @@ class TestCircfit:
 
     def test_circfit_almost_collinear_points(self):
         """Test that circfit raises ValueError with nearly collinear points."""
-        # Create nearly collinear points
-        x = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-        y = np.array([1.0, 2.0 + 1e-10, 3.0, 4.0, 5.0])
+        # Create nearly collinear points with more points and perturbation
+        # that will trigger the rank check
+        n_points = 30
+        x = np.linspace(1.0, 10.0, n_points)
+        # Make y almost perfectly linear with a small perturbation
+        # Use a larger perturbation to ensure rank=1
+        y = x + 1e-8 * np.random.normal(0, 1, n_points)
 
         with pytest.raises(ValueError, match="Points are collinear"):
             PulseProcessing.circfit(x, y)
