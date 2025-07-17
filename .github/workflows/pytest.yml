@@ -70,26 +70,51 @@ jobs:
           if [ "$RELEASE_ID" != "null" ] && [ -n "$RELEASE_ID" ]; then
             echo "Found draft release ID: $RELEASE_ID"
 
-            # Get the asset download URL
+            # Get the asset download URL for timeS429 data
             ASSET_URL=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets" | \
               jq -r '.[] | select(.name | contains("timeS429")) | .browser_download_url')
 
             if [ "$ASSET_URL" != "null" ] && [ -n "$ASSET_URL" ]; then
-              echo "Downloading test data from: $ASSET_URL"
+              echo "Downloading timeS429 test data from: $ASSET_URL"
               curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$ASSET_URL" -o timeS429.tar.gz
 
-              echo "Listing contents of the current directory $(pwd):"
-              echo "Extracting test data..."
+              echo "Extracting timeS429 test data..."
               tar -xzf timeS429.tar.gz
               rm timeS429.tar.gz
               echo "STRAXION_TEST_DATA_DIR=$(pwd)/timeS429" >> $GITHUB_ENV
               export STRAXION_TEST_DATA_DIR=$(pwd)/timeS429
-              echo "Test data extracted successfully"
-              echo "Listing contents of the test data directory $STRAXION_TEST_DATA_DIR"
+              echo "timeS429 test data extracted successfully"
+              echo "Listing contents of the timeS429 test data directory $STRAXION_TEST_DATA_DIR"
               ls -l $STRAXION_TEST_DATA_DIR
             else
-              echo "No test data asset found in release"
+              echo "No timeS429 test data asset found in release"
+            fi
+
+            # Get the asset download URL for finescan data
+            FINESCAN_ASSET_URL=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets" | \
+              jq -r '.[] | select(.name | contains("finescan_iq428")) | .browser_download_url')
+
+            if [ "$FINESCAN_ASSET_URL" != "null" ] && [ -n "$FINESCAN_ASSET_URL" ]; then
+              echo "Downloading finescan test data from: $FINESCAN_ASSET_URL"
+              curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$FINESCAN_ASSET_URL" -o finescan_iq428.tar.gz
+
+              echo "Extracting finescan test data..."
+              tar -xzf finescan_iq428.tar.gz
+              rm finescan_iq428.tar.gz
+              echo "STRAXION_FINESCAN_DATA_DIR=$(pwd)/finescan_iq428" >> $GITHUB_ENV
+              export STRAXION_FINESCAN_DATA_DIR=$(pwd)/finescan_iq428
+              echo "Finescan test data extracted successfully"
+              echo "Listing contents of the finescan test data directory $STRAXION_FINESCAN_DATA_DIR"
+              ls -l $STRAXION_FINESCAN_DATA_DIR
+            else
+              echo "No finescan test data asset found in release"
+            fi
+
+            # Check if at least one type of test data was downloaded
+            if [ -z "$STRAXION_TEST_DATA_DIR" ] && [ -z "$STRAXION_FINESCAN_DATA_DIR" ]; then
+              echo "No test data assets found in release"
               exit 1
             fi
           else
@@ -114,6 +139,18 @@ jobs:
             coverage report
           else
             echo "STRAXION_TEST_DATA_DIR not set or directory does not exist, skipping raw_records tests"
+          fi
+
+      - name: Test records with finescan data (if available)
+        # Test the PulseProcessing plugin with real finescan data if test data is provided
+        if: matrix.test == 'pytest'
+        run: |
+          if [ -n "$STRAXION_FINESCAN_DATA_DIR" ] && [ -d "$STRAXION_FINESCAN_DATA_DIR" ]; then
+            echo "Running records tests with finescan test data..."
+            coverage run --source=straxion -m pytest tests/test_records.py::TestLoadFinescanFilesWithRealData::test_finescan_data_dir_exists_and_not_empty tests/test_records.py::TestLoadFinescanFilesWithRealData::test_load_real_finescan_files tests/test_records.py::TestLoadFinescanFilesWithRealData::test_finescan_data_consistency -v
+            coverage report
+          else
+            echo "STRAXION_FINESCAN_DATA_DIR not set or directory does not exist, skipping records tests"
           fi
 
       - name: Coveralls
@@ -141,6 +178,21 @@ jobs:
             coveralls --service=github
           else
             echo "STRAXION_TEST_DATA_DIR not set or directory does not exist, skipping raw_records coverage tests"
+          fi
+
+      - name: Coveralls with finescan data (if available)
+        # Include records tests in coverage when finescan test data is available
+        env:
+          NUMBA_DISABLE_JIT: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: matrix.test == 'coveralls' && (github.actor != 'dependabot[bot]')
+        run: |
+          if [ -n "$STRAXION_FINESCAN_DATA_DIR" ] && [ -d "$STRAXION_FINESCAN_DATA_DIR" ]; then
+            echo "Running records tests for coverage..."
+            coverage run --source=straxion -m pytest tests/test_records.py::TestLoadFinescanFilesWithRealData::test_finescan_data_dir_exists_and_not_empty tests/test_records.py::TestLoadFinescanFilesWithRealData::test_load_real_finescan_files tests/test_records.py::TestLoadFinescanFilesWithRealData::test_finescan_data_consistency -v
+            coveralls --service=github
+          else
+            echo "STRAXION_FINESCAN_DATA_DIR not set or directory does not exist, skipping records coverage tests"
           fi
 
       - name: goodbye
