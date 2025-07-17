@@ -79,8 +79,9 @@ def test_raw_records_processing():
 
     """
     test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+    if not test_data_dir:
+        pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
     timeS429_dir = test_data_dir
-
     if not os.path.exists(timeS429_dir):
         pytest.fail(f"Test data directory {timeS429_dir} does not exist")
 
@@ -164,11 +165,11 @@ def _check_finite_data(rr):
 def test_raw_records_data_consistency():
     """Test that the raw_records data is internally consistent."""
     test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+    if not test_data_dir:
+        pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
     timeS429_dir = test_data_dir
-
     if not os.path.exists(timeS429_dir):
         pytest.fail(f"Test data directory {timeS429_dir} does not exist")
-
     st = straxion.qualiphide()
     config = {"daq_input_dir": timeS429_dir, "record_length": 5_000_000, "fs": 500_000}
 
@@ -207,3 +208,23 @@ def test_daq_reader_invalid_config():
     clean_strax_data()
     with pytest.raises(Exception):
         st.get_array("timeS429", "raw_records", config=config)
+
+
+# Place this test at the end for clarity
+@pytest.mark.skipif(
+    not os.getenv("STRAXION_TEST_DATA_DIR"),
+    reason="Test data directory not provided via STRAXION_TEST_DATA_DIR environment variable",
+)
+def test_timeS429_bin_files_exist():
+    """Test that all expected .bin files (timeS429-ch0.bin to timeS429-ch9.bin) exist in the
+    timeS429 directory."""
+    test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+    if not test_data_dir:
+        pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+    timeS429_dir = test_data_dir
+    if not os.path.exists(timeS429_dir):
+        pytest.fail(f"Test data directory {timeS429_dir} does not exist")
+    expected_files = [f"timeS429-ch{n}.bin" for n in range(10)]
+    actual_files = set(os.listdir(timeS429_dir))
+    missing_files = [f for f in expected_files if f not in actual_files]
+    assert not missing_files, f"Missing .bin files: {missing_files}"
