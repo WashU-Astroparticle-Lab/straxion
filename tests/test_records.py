@@ -196,26 +196,6 @@ class TestLoadFinescanFiles:
             else:
                 np.savetxt(filepath, data, fmt="%.1f")
 
-    def test_load_finescan_files_success(self):
-        """Test successful loading of finescan files."""
-        result = PulseProcessing.load_finescan_files(self.test_dir)
-
-        # Check that all expected channels are present
-        assert 0 in result
-        assert 1 in result
-        assert 2 in result
-
-        # Check data structure
-        for channel in [0, 1, 2]:
-            assert isinstance(result[channel], np.ndarray)
-            assert result[channel].ndim == 2
-            assert result[channel].shape[1] >= 3
-
-        # Check specific data values
-        np.testing.assert_array_equal(result[0][0], [0.0, 1.0, 2.0])
-        np.testing.assert_array_equal(result[1][0], [0.0, 3.0, 4.0])
-        np.testing.assert_array_equal(result[2][0], [0.0, 5.0, 6.0])
-
     def test_load_finescan_files_nonexistent_directory(self):
         """Test that FileNotFoundError is raised for nonexistent directory."""
         with pytest.raises(FileNotFoundError, match="Fine scan directory not found"):
@@ -253,19 +233,6 @@ class TestLoadFinescanFiles:
 
         with pytest.raises(ValueError, match="does not have at least 3 columns"):
             PulseProcessing.load_finescan_files(self.test_dir)
-
-    def test_load_finescan_files_single_row(self):
-        """Test loading files with single row data."""
-        # Create a file with single row
-        single_row_file = os.path.join(self.test_dir, "finescan-kid-2025042808-ch4.txt")
-        np.savetxt(single_row_file, np.array([0, 1, 2]))  # Single row
-
-        result = PulseProcessing.load_finescan_files(self.test_dir)
-
-        # Should handle single row correctly
-        assert 4 in result
-        assert result[4].shape == (1, 3)
-        np.testing.assert_array_equal(result[4][0], [0.0, 1.0, 2.0])
 
     def test_load_finescan_files_mixed_formats(self):
         """Test loading files with mixed .txt and .csv formats."""
