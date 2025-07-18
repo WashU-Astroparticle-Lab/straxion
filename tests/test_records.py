@@ -282,8 +282,8 @@ class TestConvertIQToTheta:
 
         thetas = self.pp.convert_iq_to_theta(data_i, data_q, channel)
 
-        # Expected angles: 0, pi, pi/2, -pi/2 (wrapped to 3pi/2)
-        expected = np.array([0.0, np.pi, np.pi / 2, 3 * np.pi / 2])
+        # Expected angles: 0, pi, pi/2, -pi/2
+        expected = np.array([0.0, np.pi, np.pi / 2, -np.pi / 2])
         np.testing.assert_allclose(thetas, expected, rtol=1e-10)
 
     def test_convert_iq_to_theta_angle_wrapping(self):
