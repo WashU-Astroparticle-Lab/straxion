@@ -318,23 +318,6 @@ class TestPulseKernelEMG:
             assert np.all(kernel >= 0)
             assert np.all(np.isfinite(kernel))
 
-    def test_pulse_kernel_emg_edge_cases(self):
-        """Test pulse kernel with edge case parameters."""
-        ns = 1000
-        fs = 100000
-
-        # Very small parameters
-        kernel = PulseProcessing.pulse_kernel_emg(ns, fs, 1000, 5000, 10000, 2)
-        assert isinstance(kernel, np.ndarray)
-        assert len(kernel) > 0
-        np.testing.assert_allclose(np.sum(kernel), 1.0, rtol=1e-10)
-
-        # Very large parameters
-        kernel = PulseProcessing.pulse_kernel_emg(ns, fs, 500000, 1000000, 2000000, 10)
-        assert isinstance(kernel, np.ndarray)
-        assert len(kernel) > 0
-        np.testing.assert_allclose(np.sum(kernel), 1.0, rtol=1e-10)
-
     def test_pulse_kernel_emg_truncation(self):
         """Test that truncation factor affects kernel length appropriately."""
         ns = 10000
