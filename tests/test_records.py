@@ -408,3 +408,92 @@ class TestLoadFinescanFilesWithRealData:
                 ), f"Channel {channel} I and Q data are identical"
 
         print(f"Successfully validated consistency for {len(result)} channels")
+
+    def test_records_processing(self):
+        """Test the complete records processing pipeline with real data.
+
+        This test requires the STRAXION_FINESCAN_DATA_DIR environment variable to be set to the path
+        containing the finescan test data directory.
+
+        """
+        test_data_dir = os.getenv("STRAXION_FINESCAN_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_FINESCAN_DATA_DIR environment variable is not set")
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Finescan test data directory {test_data_dir} does not exist")
+
+        import straxion
+
+        # Create context and process records
+        st = straxion.qualiphide()
+
+        config = {
+            "daq_input_dir": "timeS429",
+            "record_length": 5_000_000,
+            "fs": 500_000,
+            "iq_finescan_dir": test_data_dir,
+        }
+
+        try:
+            r = st.get_array("timeS429", "records", config=config)
+
+            # Basic validation of the output
+            assert r is not None
+            assert len(r) > 0
+
+            # Check that all required fields are present
+            required_fields = [
+                "time",
+                "endtime",
+                "length",
+                "dt",
+                "channel",
+                "data_theta",
+                "data_theta_moving_average",
+                "data_theta_convolved",
+                "baseline",
+                "baseline_std",
+            ]
+            for field in required_fields:
+                assert field in r.dtype.names, f"Required field '{field}' missing from records"
+
+            # Check data types
+            assert r["time"].dtype == np.int64
+            assert r["endtime"].dtype == np.int64
+            assert r["length"].dtype == np.int64
+            assert r["dt"].dtype == np.int64
+            assert r["channel"].dtype == np.int16
+            assert r["data_theta"].dtype == np.float64
+            assert r["data_theta_moving_average"].dtype == np.float64
+            assert r["data_theta_convolved"].dtype == np.float64
+            assert r["baseline"].dtype == np.float64
+            assert r["baseline_std"].dtype == np.float64
+
+            # Check that all records have the expected length
+            expected_length = config["record_length"]
+            assert all(r["length"] == expected_length)
+
+            # Check that all records have the expected dt
+            expected_dt = int(1 / config["fs"] * 1_000_000_000)  # Convert to nanoseconds
+            assert all(r["dt"] == expected_dt)
+
+            # Check that channels are within expected range (0-9 based on context config)
+            assert all(0 <= r["channel"]) and all(r["channel"] <= 9)
+
+            # Check that data arrays have the correct shape
+            for record in r:
+                assert record["data_theta"].shape == (expected_length,)
+                assert record["data_theta_moving_average"].shape == (expected_length,)
+                assert record["data_theta_convolved"].shape == (expected_length,)
+
+            # Check that baseline values are scalars (not arrays)
+            assert r["baseline"].ndim == 1  # Should be 1D array of scalar values
+            assert r["baseline_std"].ndim == 1  # Should be 1D array of scalar values
+
+            print(
+                f"Successfully processed {len(r)} records "
+                f"from {len(np.unique(r['channel']))} channels"
+            )
+
+        except Exception as e:
+            pytest.fail(f"Failed to process records: {str(e)}")
