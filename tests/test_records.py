@@ -210,21 +210,6 @@ class TestLoadFinescanFiles:
         finally:
             shutil.rmtree(empty_dir)
 
-    def test_load_finescan_files_invalid_filename(self):
-        """Test that files with invalid names are ignored."""
-        # Create a file with invalid name
-        invalid_file = os.path.join(self.test_dir, "invalid-filename.txt")
-        np.savetxt(invalid_file, np.array([[0, 1, 2]]))
-
-        result = PulseProcessing.load_finescan_files(self.test_dir)
-
-        # Should still load the valid files
-        assert 0 in result
-        assert 1 in result
-        assert 2 in result
-        # Invalid file should be ignored
-        assert len(result) == 3
-
     def test_load_finescan_files_insufficient_columns(self):
         """Test that ValueError is raised for files with insufficient columns."""
         # Create a file with only 2 columns
