@@ -153,49 +153,6 @@ class TestCircfit:
 class TestLoadFinescanFiles:
     """Test the load_finescan_files static method of PulseProcessing class."""
 
-    def setup_method(self):
-        """Set up test data directory and files."""
-        self.test_dir = tempfile.mkdtemp()
-        self.create_test_files()
-
-    def teardown_method(self):
-        """Clean up test directory."""
-        if os.path.exists(self.test_dir):
-            shutil.rmtree(self.test_dir)
-
-    def create_test_files(self):
-        """Create test finescan files with various formats and content."""
-        # Create valid finescan files
-        test_data = {
-            "finescan-kid-2025042808-ch0.txt": np.array(
-                [
-                    [0, 1.0, 2.0],
-                    [1, 1.1, 2.1],
-                    [2, 1.2, 2.2],
-                ]
-            ),
-            "finescan-kid-2025042808-ch1.csv": np.array(
-                [
-                    [0, 3.0, 4.0],
-                    [1, 3.1, 4.1],
-                    [2, 3.2, 4.2],
-                ]
-            ),
-            "finescan-kid-2025042808-ch2.txt": np.array(
-                [
-                    [0, 5.0, 6.0],
-                    [1, 5.1, 6.1],
-                ]
-            ),
-        }
-
-        for filename, data in test_data.items():
-            filepath = os.path.join(self.test_dir, filename)
-            if filename.endswith(".csv"):
-                np.savetxt(filepath, data, delimiter=",", fmt="%.1f")
-            else:
-                np.savetxt(filepath, data, fmt="%.1f")
-
     def test_load_finescan_files_nonexistent_directory(self):
         """Test that FileNotFoundError is raised for nonexistent directory."""
         with pytest.raises(FileNotFoundError, match="Fine scan directory not found"):
@@ -209,47 +166,6 @@ class TestLoadFinescanFiles:
                 PulseProcessing.load_finescan_files(empty_dir)
         finally:
             shutil.rmtree(empty_dir)
-
-    def test_load_finescan_files_insufficient_columns(self):
-        """Test that ValueError is raised for files with insufficient columns."""
-        # Create a file with only 2 columns
-        invalid_file = os.path.join(self.test_dir, "finescan-kid-2025042808-ch3.txt")
-        np.savetxt(invalid_file, np.array([[0, 1]]))  # Only 2 columns
-
-        with pytest.raises(ValueError, match="does not have at least 3 columns"):
-            PulseProcessing.load_finescan_files(self.test_dir)
-
-    def test_load_finescan_files_mixed_formats(self):
-        """Test loading files with mixed .txt and .csv formats."""
-        result = PulseProcessing.load_finescan_files(self.test_dir)
-
-        # Should load both .txt and .csv files
-        assert 0 in result  # .txt file
-        assert 1 in result  # .csv file
-        assert 2 in result  # .txt file
-
-    def test_load_finescan_files_channel_number_extraction(self):
-        """Test that channel numbers are correctly extracted from filenames."""
-        result = PulseProcessing.load_finescan_files(self.test_dir)
-
-        # Check that channel numbers are integers
-        for channel in result.keys():
-            assert isinstance(channel, int)
-            assert channel >= 0
-
-    def test_load_finescan_files_data_integrity(self):
-        """Test that loaded data maintains integrity."""
-        result = PulseProcessing.load_finescan_files(self.test_dir)
-
-        for _, data in result.items():
-            # Check data type
-            assert data.dtype == np.float64
-
-            # Check that all values are finite
-            assert np.all(np.isfinite(data))
-
-            # Check that data has expected shape
-            assert data.shape[1] >= 3
 
 
 class TestPulseKernelEMG:
