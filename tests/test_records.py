@@ -368,3 +368,43 @@ class TestLoadFinescanFilesWithRealData:
             assert data.dtype == np.float64
 
         print(f"Successfully loaded finescan data for {len(result)} channels")
+
+    def test_finescan_data_consistency(self):
+        """Test that the finescan data is internally consistent."""
+        test_data_dir = os.getenv("STRAXION_FINESCAN_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_FINESCAN_DATA_DIR environment variable is not set")
+
+        result = PulseProcessing.load_finescan_files(test_data_dir)
+
+        # Check each channel's data for consistency
+        for channel, data in result.items():
+            # Check that data has at least 3 columns (index, data_i, data_q)
+            assert data.shape[1] >= 3, f"Channel {channel} data has insufficient columns"
+
+            # Check that all values are finite
+            assert np.all(np.isfinite(data)), f"Non-finite values found in channel {channel}"
+
+            # Check that data types are consistent (any floating point type is acceptable)
+            assert np.issubdtype(
+                data.dtype, np.floating
+            ), f"Channel {channel} has wrong data type (expected float, got {data.dtype})"
+
+            # Check that we have multiple data points
+            assert len(data) > 0, f"Channel {channel} has no data points"
+
+            # Check that I/Q data ranges are reasonable (not all zeros, not all same value)
+            if data.shape[1] >= 3:
+                data_i = data[:, 1]  # I data
+                data_q = data[:, 2]  # Q data
+
+                # Check that I and Q data are not all identical
+                assert not np.allclose(data_i, data_i[0]), f"Channel {channel} I data is constant"
+                assert not np.allclose(data_q, data_q[0]), f"Channel {channel} Q data is constant"
+
+                # Check that I and Q data are different from each other
+                assert not np.allclose(
+                    data_i, data_q
+                ), f"Channel {channel} I and Q data are identical"
+
+        print(f"Successfully validated consistency for {len(result)} channels")
