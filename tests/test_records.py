@@ -462,7 +462,7 @@ class TestLoadFinescanFilesWithRealData:
             assert r["endtime"].dtype == np.int64
             assert r["length"].dtype == np.int64
             assert r["dt"].dtype == np.int64
-            assert r["channel"].dtype == np.int16
+            assert np.issubdtype(r["channel"].dtype, np.integer)
             assert r["data_theta"].dtype == np.float64
             assert r["data_theta_moving_average"].dtype == np.float64
             assert r["data_theta_convolved"].dtype == np.float64

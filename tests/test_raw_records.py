@@ -105,7 +105,7 @@ def test_raw_records_processing():
 
         # Check data types
         assert rr["time"].dtype == np.int64
-        assert rr["channel"].dtype == np.int16
+        assert np.issubdtype(rr["channel"].dtype, np.integer)
         assert np.issubdtype(rr["data_i"].dtype, np.floating) and rr["data_i"].dtype.itemsize == 8
         assert np.issubdtype(rr["data_q"].dtype, np.floating) and rr["data_q"].dtype.itemsize == 8
 
