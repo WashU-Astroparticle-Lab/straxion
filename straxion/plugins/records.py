@@ -177,7 +177,7 @@ class PulseProcessing(strax.Plugin):
             np.ones(moving_average_kernel_width) / moving_average_kernel_width
         )
 
-        # Pre-compute circle fits for each channel to avoid repeated computation
+        # Pre-compute circle fits for each channel to avoid repeated computation.
         self.channel_centers = {}
         for channel in self.finescan.keys():
             finescan = self.finescan[channel]
