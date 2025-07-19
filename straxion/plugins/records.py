@@ -185,7 +185,7 @@ class PulseProcessing(strax.Plugin):
             finescan_q = finescan[:, 2]
             i_center, q_center, _, _ = self.circfit(finescan_i, finescan_q)
             theta_f_min = np.arctan2(finescan_q[0] - q_center, finescan_i[0] - i_center)
-            self.channel_centers[channel] = (i_center, q_center, theta_f_min)
+            self.channel_centers[int(channel)] = (i_center, q_center, theta_f_min)
 
     @staticmethod
     def load_finescan_files(directory):
@@ -401,7 +401,7 @@ class PulseProcessing(strax.Plugin):
 
         """
         # Use pre-computed circle centers from setup
-        i_center, q_center, theta_f_min = self.channel_centers[channel]
+        i_center, q_center, theta_f_min = self.channel_centers[int(channel)]
 
         # Compute theta timestream.
         thetas = np.arctan2(data_q - q_center, data_i - i_center)
