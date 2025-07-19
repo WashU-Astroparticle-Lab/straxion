@@ -6,7 +6,7 @@ SECOND_TO_NANOSECOND = 1_000_000_000
 # Common dtype constants for waveform records.
 TIME_DTYPE = np.int64
 LENGTH_DTYPE = np.int64
-CHANNEL_DTYPE = int
+CHANNEL_DTYPE = np.int16
 DATA_DTYPE = np.dtype(">f8")
 
 
