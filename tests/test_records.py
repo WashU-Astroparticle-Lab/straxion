@@ -168,10 +168,10 @@ class TestLoadFinescanFiles:
             shutil.rmtree(empty_dir)
 
 
-class TestPulseKernelEMG:
-    """Test the pulse_kernel_emg static method of PulseProcessing class."""
+class TestPulseKernel:
+    """Test the pulse_kernel static method of PulseProcessing class."""
 
-    def test_pulse_kernel_emg_basic(self):
+    def test_pulse_kernel_basic(self):
         """Test basic pulse kernel generation with typical parameters."""
         ns = 10000
         fs = 100000  # 100 kHz
@@ -180,7 +180,7 @@ class TestPulseKernelEMG:
         sigma = 700000  # 700 us
         truncation_factor = 5
 
-        kernel = PulseProcessing.pulse_kernel_emg(ns, fs, t0, tau, sigma, truncation_factor)
+        kernel = PulseProcessing.pulse_kernel(ns, fs, t0, tau, sigma, truncation_factor)
 
         # Basic checks
         assert isinstance(kernel, np.ndarray)
@@ -196,7 +196,7 @@ class TestPulseKernelEMG:
         # Kernel should have finite values
         assert np.all(np.isfinite(kernel))
 
-    def test_pulse_kernel_emg_parameters(self):
+    def test_pulse_kernel_parameters(self):
         """Test pulse kernel with different parameter combinations."""
         ns = 5000
         fs = 50000  # 50 kHz
@@ -209,7 +209,7 @@ class TestPulseKernelEMG:
         ]
 
         for t0, tau, sigma, truncation_factor in test_params:
-            kernel = PulseProcessing.pulse_kernel_emg(ns, fs, t0, tau, sigma, truncation_factor)
+            kernel = PulseProcessing.pulse_kernel(ns, fs, t0, tau, sigma, truncation_factor)
 
             # Basic validation
             assert isinstance(kernel, np.ndarray)
@@ -219,7 +219,7 @@ class TestPulseKernelEMG:
             assert np.all(kernel >= 0)
             assert np.all(np.isfinite(kernel))
 
-    def test_pulse_kernel_emg_truncation(self):
+    def test_pulse_kernel_truncation(self):
         """Test that truncation factor affects kernel length appropriately."""
         ns = 10000
         fs = 100000
@@ -230,7 +230,7 @@ class TestPulseKernelEMG:
         # Test different truncation factors
         kernels = []
         for truncation_factor in [2, 5, 10]:
-            kernel = PulseProcessing.pulse_kernel_emg(ns, fs, t0, tau, sigma, truncation_factor)
+            kernel = PulseProcessing.pulse_kernel(ns, fs, t0, tau, sigma, truncation_factor)
             kernels.append(kernel)
 
             # All kernels should be normalized
