@@ -269,21 +269,21 @@ class PulseProcessing(strax.Plugin):
         """
         dt = int(1 / fs * SECOND_TO_NANOSECOND)
 
-        # Calculate significant length upfront to avoid unnecessary computation
-        significant_length = min(ns, int(truncation_factor * tau / dt))
+        # Calculate significant length upfront to avoid unnecessary computation.
+        significant_length = min(ns, int((truncation_factor * tau + t0) / dt))
 
-        # Only create time array for needed samples
+        # Only create time array for needed samples.
         t = np.arange(significant_length) * dt
 
-        # Create exponential decay pulse only for significant portion
+        # Create exponential decay pulse only for significant portion.
         mask = t >= t0
         exponential = np.zeros(significant_length)
         exponential[mask] = np.exp(-(t[mask] - t0) / tau)
 
-        # Convert sigma to samples
+        # Convert sigma to samples.
         sigma_sample = int(sigma / dt)
 
-        # Apply Gaussian smoothing
+        # Apply Gaussian smoothing.
         pulse_kernal = gaussian_filter1d(exponential, sigma=sigma_sample)
 
         # No need for truncation since we already computed only the significant portion
