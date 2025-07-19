@@ -163,6 +163,8 @@ class PulseProcessing(strax.Plugin):
 
         self.finescan = self.load_finescan_files(self.config["iq_finescan_dir"])
         self.finescan_available_channels = sorted(self.finescan.keys())
+
+        # Pre-compute pulse kernel.
         self.kernel = np.flip(
             self.pulse_kernel_emg(
                 self.record_length,
@@ -174,7 +176,7 @@ class PulseProcessing(strax.Plugin):
             )
         )
 
-        # Pre-compute moving average kernel
+        # Pre-compute moving average kernel.
         moving_average_kernel_width = int(self.config["moving_average_width"] / self.dt)
         self.moving_average_kernel = (
             np.ones(moving_average_kernel_width) / moving_average_kernel_width
