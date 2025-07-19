@@ -162,6 +162,7 @@ class PulseProcessing(strax.Plugin):
         self.dt = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
 
         self.finescan = self.load_finescan_files(self.config["iq_finescan_dir"])
+        self.finescan_available_channels = sorted(self.finescan.keys())
         self.kernel = self.pulse_kernel_emg(
             self.record_length,
             self.config["fs"],
@@ -179,7 +180,7 @@ class PulseProcessing(strax.Plugin):
 
         # Pre-compute circle fits for each channel to avoid repeated computation.
         self.channel_centers = {}
-        for channel in self.finescan.keys():
+        for channel in self.finescan_available_channels:
             finescan = self.finescan[channel]
             finescan_i = finescan[:, 1]
             finescan_q = finescan[:, 2]
