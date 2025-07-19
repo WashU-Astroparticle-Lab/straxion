@@ -163,13 +163,15 @@ class PulseProcessing(strax.Plugin):
 
         self.finescan = self.load_finescan_files(self.config["iq_finescan_dir"])
         self.finescan_available_channels = sorted(self.finescan.keys())
-        self.kernel = self.pulse_kernel_emg(
-            self.record_length,
-            self.config["fs"],
-            self.config["pulse_kernel_start_time"],
-            self.config["pulse_kernel_decay_time"],
-            self.config["pulse_kernel_gaussian_smearing_width"],
-            self.config["pulse_kernel_truncation_factor"],
+        self.kernel = np.flip(
+            self.pulse_kernel_emg(
+                self.record_length,
+                self.config["fs"],
+                self.config["pulse_kernel_start_time"],
+                self.config["pulse_kernel_decay_time"],
+                self.config["pulse_kernel_gaussian_smearing_width"],
+                self.config["pulse_kernel_truncation_factor"],
+            )
         )
 
         # Pre-compute moving average kernel
