@@ -162,6 +162,7 @@ class PulseProcessing(strax.Plugin):
         self.dt = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
 
         self.finescan = self.load_finescan_files(self.config["iq_finescan_dir"])
+        self.finescan_available_channels = sorted(self.finescan.keys())
         self.kernel = self.pulse_kernel_emg(
             self.record_length,
             self.config["fs"],
@@ -177,15 +178,15 @@ class PulseProcessing(strax.Plugin):
             np.ones(moving_average_kernel_width) / moving_average_kernel_width
         )
 
-        # Pre-compute circle fits for each channel to avoid repeated computation
+        # Pre-compute circle fits for each channel to avoid repeated computation.
         self.channel_centers = {}
-        for channel in self.finescan.keys():
+        for channel in self.finescan_available_channels:
             finescan = self.finescan[channel]
             finescan_i = finescan[:, 1]
             finescan_q = finescan[:, 2]
             i_center, q_center, _, _ = self.circfit(finescan_i, finescan_q)
             theta_f_min = np.arctan2(finescan_q[0] - q_center, finescan_i[0] - i_center)
-            self.channel_centers[channel] = (i_center, q_center, theta_f_min)
+            self.channel_centers[int(channel)] = (i_center, q_center, theta_f_min)
 
     @staticmethod
     def load_finescan_files(directory):
@@ -254,19 +255,19 @@ class PulseProcessing(strax.Plugin):
 
         Args:
             ns (int): Number of samples.
-            fs (int): Sampling frequency.
-            t0 (int): Start time of the pulse.
-            tau (int): Decay time constant.
-            sigma (int): Smearing width constant.
-            truncation_factor (float): Factor for truncating the kernel. After
-                truncation_factor * tau, the exponential is less than
+            fs (int): Sampling frequency in unit of Hz.
+            t0 (int): Start time of the pulse in unit of ns.
+            tau (int): Decay time constant in unit of ns.
+            sigma (int): Smearing width constant in unit of ns in unit of ns.
+            truncation_factor (float): Factor for truncating the kernel in unit of tau.
+                After truncation_factor * tau, the exponential is less than
                 exp(-truncation_factor) of its peak value.
 
         Returns:
             pulse_kernal (np.ndarray): Smoothed pulse train
 
         """
-        dt = int(1 / fs * 1e9)
+        dt = int(1 / fs * SECOND_TO_NANOSECOND)
 
         # Calculate significant length upfront to avoid unnecessary computation
         significant_length = min(ns, int(truncation_factor * tau / dt))
@@ -401,7 +402,7 @@ class PulseProcessing(strax.Plugin):
 
         """
         # Use pre-computed circle centers from setup
-        i_center, q_center, theta_f_min = self.channel_centers[channel]
+        i_center, q_center, theta_f_min = self.channel_centers[int(channel)]
 
         # Compute theta timestream.
         thetas = np.arctan2(data_q - q_center, data_i - i_center)
@@ -449,7 +450,7 @@ class PulseProcessing(strax.Plugin):
             r["channel"] = rr["channel"]
 
             # Get phase from IQ timestream.
-            _thetas = self.convert_iq_to_theta(rr["data_i"], rr["data_q"], rr["channel"])
+            _thetas = self.convert_iq_to_theta(rr["data_i"], rr["data_q"], int(rr["channel"]))
             # Flipping thetas to make largest hits positive.
             if np.abs(np.mean(_thetas) - np.min(_thetas)) > np.abs(
                 np.mean(_thetas) - np.max(_thetas)
