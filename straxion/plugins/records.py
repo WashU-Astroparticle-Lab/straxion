@@ -449,7 +449,7 @@ class PulseProcessing(strax.Plugin):
             r["channel"] = rr["channel"]
 
             # Get phase from IQ timestream.
-            _thetas = self.convert_iq_to_theta(rr["data_i"], rr["data_q"], rr["channel"])
+            _thetas = self.convert_iq_to_theta(rr["data_i"], rr["data_q"], int(rr["channel"]))
             # Flipping thetas to make largest hits positive.
             if np.abs(np.mean(_thetas) - np.min(_thetas)) > np.abs(
                 np.mean(_thetas) - np.max(_thetas)
