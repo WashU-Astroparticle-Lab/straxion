@@ -44,7 +44,7 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "pulse_kernel_gaussian_smearing_width",
-        default=700_000,  # The original Matlab code says 7 samples (with fs = 1E5Hz).
+        default=14_000,  # The original Matlab code says 7 samples (with fs = 1E5Hz).
         track=True,
         type=int,
         help=(
@@ -61,13 +61,13 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "pulse_kernel_truncation_factor",
-        default=5,
+        default=10,
         track=True,
         type=float,
         help=(
             "Factor for truncating the pulse kernel to improve performance. "
             "The kernel is truncated after truncation_factor * tau samples, "
-            "where the exponential decay becomes negligible (< 0.7% of peak value)."
+            "where the exponential decay becomes negligible."
         ),
     ),
 )
@@ -248,7 +248,7 @@ class PulseProcessing(strax.Plugin):
 
     @staticmethod
     def pulse_kernel_emg(ns, fs, t0, tau, sigma, truncation_factor=5):
-        """Generate a pulse train with exponential decay and Gaussian smoothing.
+        """Generate a pulse train with truncated exponential decay and Gaussian smoothing.
 
         Translated from Chris Albert's Matlab codes:
         https://caltechobscosgroup.slack.com/archives/C07SZDKRNF9/p1752010145654029.
@@ -286,15 +286,15 @@ class PulseProcessing(strax.Plugin):
         # Apply Gaussian smoothing.
         pulse_kernal = gaussian_filter1d(exponential, sigma=sigma_sample)
 
-        # No need for truncation since we already computed only the significant portion
-        # But we still need to normalize
+        # No need for truncation since we already computed only the significant portion.
+        # But we still need to normalize.
         kernel_sum = np.sum(pulse_kernal)
-        if kernel_sum > 0:  # Avoid division by zero
+        if kernel_sum > 0:  # Avoid division by zero.
             pulse_kernal /= kernel_sum
 
         # Normalize again to make sure the integral is 1.
         kernel_sum = np.sum(pulse_kernal)
-        if kernel_sum > 0:  # Avoid division by zero
+        if kernel_sum > 0:  # Avoid division by zero.
             pulse_kernal /= kernel_sum
 
         return pulse_kernal
