@@ -165,15 +165,13 @@ class PulseProcessing(strax.Plugin):
         self.finescan_available_channels = sorted(self.finescan.keys())
 
         # Pre-compute pulse kernel.
-        self.kernel = np.flip(
-            self.pulse_kernel_emg(
-                self.record_length,
-                self.config["fs"],
-                self.config["pulse_kernel_start_time"],
-                self.config["pulse_kernel_decay_time"],
-                self.config["pulse_kernel_gaussian_smearing_width"],
-                self.config["pulse_kernel_truncation_factor"],
-            )
+        self.kernel = self.pulse_kernel(
+            self.record_length,
+            self.config["fs"],
+            self.config["pulse_kernel_start_time"],
+            self.config["pulse_kernel_decay_time"],
+            self.config["pulse_kernel_gaussian_smearing_width"],
+            self.config["pulse_kernel_truncation_factor"],
         )
 
         # Pre-compute moving average kernel.
@@ -251,8 +249,8 @@ class PulseProcessing(strax.Plugin):
         return finescan
 
     @staticmethod
-    def pulse_kernel_emg(ns, fs, t0, tau, sigma, truncation_factor=5):
-        """Generate a pulse train with truncated exponential decay and Gaussian smoothing.
+    def pulse_kernel(ns, fs, t0, tau, sigma, truncation_factor=5):
+        """Generate a pulse train with flipped, truncated exponential decay and Gaussian smoothing.
 
         Translated from Chris Albert's Matlab codes:
         https://caltechobscosgroup.slack.com/archives/C07SZDKRNF9/p1752010145654029.
@@ -300,6 +298,9 @@ class PulseProcessing(strax.Plugin):
         kernel_sum = np.sum(pulse_kernal)
         if kernel_sum > 0:  # Avoid division by zero.
             pulse_kernal /= kernel_sum
+
+        # Flip the kernel.
+        pulse_kernal = np.flip(pulse_kernal)
 
         return pulse_kernal
 
@@ -472,7 +473,7 @@ class PulseProcessing(strax.Plugin):
                 mode="same",
             )
 
-            # Convolve with EMG pulse kernel.
+            # Convolve with pulse kernel.
             # Use FFT-based convolution for large kernels (faster than np.convolve).
             if len(self.kernel) > 10000:  # Use FFT for kernels larger than 10k samples.
                 _convolved = fftconvolve(r["data_theta"], self.kernel, mode="full")
