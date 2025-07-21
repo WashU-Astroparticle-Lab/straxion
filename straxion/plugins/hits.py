@@ -4,6 +4,8 @@ from straxion.utils import (
     DATA_DTYPE,
     INDEX_DTYPE,
     SECOND_TO_NANOSECOND,
+    HIT_WINDOW_LENGTH_LEFT,
+    HIT_WINDOW_LENGTH_RIGHT,
     base_waveform_dtype,
 )
 
@@ -56,20 +58,6 @@ export, __all__ = strax.exporter()
         ),
     ),
     strax.Option(
-        "hit_window_length_left",
-        default=40,
-        track=True,
-        type=int,
-        help="Length of the hit window extended to the left in unit of samples.",
-    ),
-    strax.Option(
-        "hit_window_length_right",
-        default=40,
-        track=True,
-        type=int,
-        help="Length of the hit window extended to the right in unit of samples.",
-    ),
-    strax.Option(
         "hit_inspection_window_length",
         default=60,
         track=True,
@@ -106,6 +94,9 @@ class Hits(strax.Plugin):
     save_when = strax.SaveWhen.ALWAYS
 
     def setup(self):
+        self.hit_window_length_left = HIT_WINDOW_LENGTH_LEFT
+        self.hit_window_length_right = HIT_WINDOW_LENGTH_RIGHT
+
         self.record_length = self.config["record_length"]
         self.dt = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
 
@@ -115,9 +106,7 @@ class Hits(strax.Plugin):
         )
 
     def infer_dtype(self):
-        self.hit_waveform_length = (
-            self.config["hit_window_length_left"] + self.config["hit_window_length_right"]
-        )
+        self.hit_waveform_length = HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
 
         dtype = base_waveform_dtype()
         dtype.append(

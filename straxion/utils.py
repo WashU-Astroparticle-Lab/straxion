@@ -10,6 +10,10 @@ CHANNEL_DTYPE = np.int16
 DATA_DTYPE = np.dtype(">f8")
 INDEX_DTYPE = np.int32
 
+# Hit window length.
+HIT_WINDOW_LENGTH_LEFT = 40
+HIT_WINDOW_LENGTH_RIGHT = 40
+
 
 def base_waveform_dtype():
     """Return the base dtype list for a waveform record, without the data fields.
