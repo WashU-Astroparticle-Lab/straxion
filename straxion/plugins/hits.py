@@ -224,6 +224,8 @@ class Hits(strax.Plugin):
             )
         )
 
+        return dtype
+
     @staticmethod
     def calculate_hit_threshold(signal, hit_threshold_sigma, noisy_channel_signal_std_multiplier):
         """Calculate hit threshold based on signal statistics.
