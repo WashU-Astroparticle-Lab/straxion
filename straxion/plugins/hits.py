@@ -45,7 +45,7 @@ export, __all__ = strax.exporter()
         ),
     ),
     strax.Option(
-        "min_pulse_widths_samples",
+        "min_pulse_widths",
         default=[20, 20, 20, 20, 20, 20, 20, 20, 20, 20],
         track=True,
         type=list,
@@ -118,6 +118,13 @@ class Hits(strax.Plugin):
 
     def infer_dtype(self):
         dtype = base_waveform_dtype()
+        dtype.append(
+            (
+                "Width of the hit waveform (length above the hit threshold) in unit of samples.",
+                "width",
+            ),
+            np.int32,
+        )
         dtype.append(
             (
                 (
@@ -239,7 +246,7 @@ class Hits(strax.Plugin):
             signal = r["data_theta_convolved"]
             signal_ma = r["data_theta_moving_average"]
             signal_raw = r["data_theta"]
-            min_pulse_width = self.config["min_pulse_widths_samples"][ch]
+            min_pulse_width = self.config["min_pulse_widths"][ch]
 
             hit_threshold = self.calculate_hit_threshold(
                 signal, self.hit_thresholds_sigma[ch], self.noisy_channel_signal_std_multipliers[ch]
@@ -249,11 +256,11 @@ class Hits(strax.Plugin):
             if len(below_threshold_indices) == 0:
                 continue
             # Find the start of the hits.
-            hit_start_indicies = below_threshold_indices[
-                np.diff(below_threshold_indices) > min_pulse_width
-            ]
+            hits_width = np.diff(below_threshold_indices)
+            hit_start_indicies = below_threshold_indices[hits_width > min_pulse_width]
 
             hits = np.zeros(len(hit_start_indicies), dtype=self.infer_dtype())
+            hits["width"] = hits_width[hit_start_indicies]
 
             # Find the maximum and minimum of the hits.
             for i, h_i in enumerate(hit_start_indicies):
