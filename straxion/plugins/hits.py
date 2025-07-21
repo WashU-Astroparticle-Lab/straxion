@@ -302,23 +302,26 @@ class Hits(strax.Plugin):
                 hits[i]["amplitude_min"] = np.min(hit_inspection_waveform)
                 hits[i]["amplitude_max_ext"] = np.max(hit_extended_inspection_waveform)
                 hits[i]["amplitude_min_ext"] = np.min(hit_extended_inspection_waveform)
+
+                # Index of kernel-convolved signal in records.
                 hit_max_i = np.argmax(hit_inspection_waveform) + h_i
 
                 # Align waveforms of the hits at the maximum of the moving averaged signal.
                 argmax_ma = np.argmax(
                     signal_ma[
-                        max(h_i - self.hit_window_length_left, 0) : min(
-                            h_i + self.hit_window_length_right, self.record_length
+                        max(hit_max_i - self.hit_window_length_left, 0) : min(
+                            hit_max_i + self.hit_window_length_right, self.record_length
                         )
                     ]
                 )
+
                 # For a physical hit, the left window is expected to be noise dominated.
                 # While the right window is expected to be signal dominated.
-                hit_wf_start_i = argmax_ma + hit_max_i - self.hit_window_length_left
-                hit_wf_end_i = argmax_ma + hit_max_i + self.hit_window_length_right
+                hit_wf_start_i = max(argmax_ma - self.hit_window_length_left, 0)
+                hit_wf_end_i = min(argmax_ma + self.hit_window_length_right, self.record_length)
                 hits[i]["time"] = r["time"] + hit_wf_start_i * self.dt
                 hits[i]["endtime"] = r["time"] + hit_wf_end_i * self.dt
-                hits[i]["aligned_at_records_i"] = argmax_ma + hit_max_i
+                hits[i]["aligned_at_records_i"] = argmax_ma
                 hits[i]["data_theta"] = signal_raw[hit_wf_start_i:hit_wf_end_i]
                 hits[i]["data_theta_moving_average"] = signal_ma[hit_wf_start_i:hit_wf_end_i]
                 hits[i]["data_theta_convolved"] = signal[hit_wf_start_i:hit_wf_end_i]
