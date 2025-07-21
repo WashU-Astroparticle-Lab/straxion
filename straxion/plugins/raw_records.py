@@ -95,7 +95,7 @@ class DAQReader(strax.Plugin):
 
     def infer_dtype(self):
         """Data type for a waveform raw_record."""
-        dtype = base_waveform_dtype(self.config["record_length"])
+        dtype = base_waveform_dtype()
         dtype.append(
             (
                 ("Waveform data of I in raw ADC counts", "data_i"),

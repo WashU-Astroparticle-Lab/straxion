@@ -10,11 +10,8 @@ CHANNEL_DTYPE = np.int16
 DATA_DTYPE = np.dtype(">f8")
 
 
-def base_waveform_dtype(record_length):
+def base_waveform_dtype():
     """Return the base dtype list for a waveform record, without the data fields.
-
-    Args:
-        record_length (int): Number of samples in each dataset.
 
     Returns:
         list: List of dtype tuples for the base waveform record fields.

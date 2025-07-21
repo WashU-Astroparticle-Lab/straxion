@@ -115,7 +115,7 @@ class PulseProcessing(strax.Plugin):
             raw_records_dtype = self.deps["raw_records"].dtype_for("raw_records")
             record_length = len(np.zeros(1, raw_records_dtype)[0]["data_i"])
 
-        dtype = base_waveform_dtype(record_length)
+        dtype = base_waveform_dtype()
         dtype.append(
             (
                 (
