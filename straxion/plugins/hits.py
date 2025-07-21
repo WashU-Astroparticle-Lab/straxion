@@ -307,15 +307,15 @@ class Hits(strax.Plugin):
                 # Align waveforms of the hits at the maximum of the moving averaged signal.
                 argmax_ma = np.argmax(
                     signal_ma[
-                        max(h_i - self.config["hit_window_length_left"], 0) : min(
-                            h_i + self.config["hit_window_length_right"], self.record_length
+                        max(h_i - self.hit_window_length_left, 0) : min(
+                            h_i + self.hit_window_length_right, self.record_length
                         )
                     ]
                 )
                 # For a physical hit, the left window is expected to be noise dominated.
                 # While the right window is expected to be signal dominated.
-                hit_wf_start_i = argmax_ma + hit_max_i - self.config["hit_window_length_left"]
-                hit_wf_end_i = argmax_ma + hit_max_i + self.config["hit_window_length_right"]
+                hit_wf_start_i = argmax_ma + hit_max_i - self.hit_window_length_left
+                hit_wf_end_i = argmax_ma + hit_max_i + self.hit_window_length_right
                 hits[i]["time"] = r["time"] + hit_wf_start_i * self.dt
                 hits[i]["endtime"] = r["time"] + hit_wf_end_i * self.dt
                 hits[i]["aligned_at_records_i"] = argmax_ma + hit_max_i
