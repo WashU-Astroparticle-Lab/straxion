@@ -272,11 +272,12 @@ class Hits(strax.Plugin):
             if len(below_threshold_indices) == 0:
                 continue
             # Find the start of the hits.
-            hits_width = np.diff(below_threshold_indices)
-            hit_start_indicies = below_threshold_indices[hits_width > min_pulse_width]
+            _hits_width = np.diff(below_threshold_indices)
+            hit_start_indicies = below_threshold_indices[_hits_width >= min_pulse_width]
 
             hits = np.zeros(len(hit_start_indicies), dtype=self.infer_dtype())
-            hits["width"] = hits_width[hit_start_indicies]
+            hits_width = _hits_width[hit_start_indicies]
+            hits["width"] = hits_width
 
             # Find the maximum and minimum of the hits.
             for i, h_i in enumerate(hit_start_indicies):
