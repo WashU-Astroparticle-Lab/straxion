@@ -106,9 +106,6 @@ class Hits(strax.Plugin):
 
     def setup(self):
         self.record_length = self.config["record_length"]
-        self.hit_waveform_length = (
-            self.config["hit_window_length_left"] + self.config["hit_window_length_right"]
-        )
         self.dt = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
 
         self.hit_thresholds_sigma = np.array(self.config["hit_thresholds_sigma"])
@@ -117,6 +114,10 @@ class Hits(strax.Plugin):
         )
 
     def infer_dtype(self):
+        self.hit_waveform_length = (
+            self.config["hit_window_length_left"] + self.config["hit_window_length_right"]
+        )
+
         dtype = base_waveform_dtype()
         dtype.append(
             (
