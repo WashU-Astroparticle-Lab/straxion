@@ -8,6 +8,7 @@ TIME_DTYPE = np.int64
 LENGTH_DTYPE = np.int64
 CHANNEL_DTYPE = np.int16
 DATA_DTYPE = np.dtype(">f8")
+INDEX_DTYPE = np.int32
 
 
 def base_waveform_dtype():

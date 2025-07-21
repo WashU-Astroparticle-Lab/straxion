@@ -2,6 +2,7 @@ import strax
 import numpy as np
 from straxion.utils import (
     DATA_DTYPE,
+    INDEX_DTYPE,
     SECOND_TO_NANOSECOND,
     base_waveform_dtype,
 )
@@ -128,7 +129,7 @@ class Hits(strax.Plugin):
                     ),
                     "width",
                 ),
-                np.int32,
+                INDEX_DTYPE,
             )
         )
         dtype.append(
@@ -182,7 +183,7 @@ class Hits(strax.Plugin):
         dtype.append(
             (
                 ("Index of alignment point (the maximum) in the records", "aligned_at_records_i"),
-                np.int32,
+                INDEX_DTYPE,
             )
         )
         dtype.append(
