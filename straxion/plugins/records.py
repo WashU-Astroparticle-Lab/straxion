@@ -119,10 +119,7 @@ class PulseProcessing(strax.Plugin):
         dtype.append(
             (
                 (
-                    (
-                        "Waveform data of phase angle (theta), "
-                        "which has been convoled by a pulse kernel."
-                    ),
+                    ("Waveform data of phase angle (theta) after baseline corrections",),
                     "data_theta",
                 ),
                 DATA_DTYPE,
