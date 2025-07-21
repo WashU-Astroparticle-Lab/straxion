@@ -119,7 +119,7 @@ class PulseProcessing(strax.Plugin):
         dtype.append(
             (
                 (
-                    ("Waveform data of phase angle (theta) after baseline corrections",),
+                    "Waveform data of phase angle (theta) after baseline corrections",
                     "data_theta",
                 ),
                 DATA_DTYPE,
