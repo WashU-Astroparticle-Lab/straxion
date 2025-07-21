@@ -295,7 +295,7 @@ class Hits(strax.Plugin):
             hits["width"] = hits_width
 
             # Find the maximum and minimum of the hits.
-            for i, h_i in enumerate(hit_start_indicies):
+            for i, h_start_i in enumerate(hit_start_indicies):
                 hits[i]["hit_threshold"] = hit_threshold
                 hits[i]["channel"] = ch
                 hits[i]["length"] = self.hit_waveform_length
@@ -303,14 +303,14 @@ class Hits(strax.Plugin):
 
                 # Find the maximum and minimum of the hit in the inspection windows.
                 hit_inspection_waveform = signal[
-                    h_i : min(
-                        h_i + self.config["hit_convolved_inspection_window_length"],
+                    h_start_i : min(
+                        h_start_i + self.config["hit_convolved_inspection_window_length"],
                         self.record_length,
                     )
                 ]
                 hit_extended_inspection_waveform = signal[
-                    h_i : min(
-                        h_i + self.config["hit_extended_inspection_window_length"],
+                    h_start_i : min(
+                        h_start_i + self.config["hit_extended_inspection_window_length"],
                         self.record_length,
                     )
                 ]
@@ -320,16 +320,20 @@ class Hits(strax.Plugin):
                 hits[i]["amplitude_min_ext"] = np.min(hit_extended_inspection_waveform)
 
                 # Index of kernel-convolved signal in records.
-                hit_max_i = np.argmax(hit_inspection_waveform) + h_i
+                hit_max_i = np.argmax(hit_inspection_waveform) + h_start_i
 
                 # Align waveforms of the hits at the maximum of the moving averaged signal.
-                argmax_ma_i = np.argmax(
-                    signal_ma[
-                        max(hit_max_i - self.hit_ma_inspection_window_length, 0) : min(
-                            hit_max_i + self.hit_ma_inspection_window_length, self.record_length
-                        )
-                    ]
-                ) + max(hit_max_i - self.hit_window_length_left, 0)
+                # Search the maximum in the moving averaged signal within the inspection window.
+                argmax_ma_i = (
+                    np.argmax(
+                        signal_ma[
+                            max(hit_max_i - self.hit_ma_inspection_window_length, 0) : min(
+                                hit_max_i + self.hit_ma_inspection_window_length, self.record_length
+                            )
+                        ]
+                    )
+                    + hit_max_i
+                )
 
                 # For a physical hit, the left window is expected to be noise dominated.
                 # While the right window is expected to be signal dominated.
