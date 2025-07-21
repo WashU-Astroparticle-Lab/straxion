@@ -273,10 +273,12 @@ class Hits(strax.Plugin):
                 continue
             # Find the start of the hits.
             _hits_width = np.diff(below_threshold_indices, prepend=0)
+            # Minimum continuous length of waveform above the hit threshold is
+            # required to define a hit.
             hit_start_indicies = below_threshold_indices[_hits_width >= min_pulse_width]
 
             hits = np.zeros(len(hit_start_indicies), dtype=self.infer_dtype())
-            hits_width = _hits_width[hit_start_indicies]
+            hits_width = _hits_width[_hits_width >= min_pulse_width]
             hits["width"] = hits_width
 
             # Find the maximum and minimum of the hits.
