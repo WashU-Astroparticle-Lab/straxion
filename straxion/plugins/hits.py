@@ -120,10 +120,15 @@ class Hits(strax.Plugin):
         dtype = base_waveform_dtype()
         dtype.append(
             (
-                "Width of the hit waveform (length above the hit threshold) in unit of samples.",
-                "width",
-            ),
-            np.int32,
+                (
+                    (
+                        "Width of the hit waveform (length above the hit threshold) "
+                        "in unit of samples.",
+                    ),
+                    "width",
+                ),
+                np.int32,
+            )
         )
         dtype.append(
             (
@@ -166,48 +171,66 @@ class Hits(strax.Plugin):
         )
         dtype.append(
             (
-                "Hit finding threshold determined by signal statistics in unit of rad.",
-                "hit_threshold",
-            ),
-            DATA_DTYPE,
-        )
-        dtype.append(
-            ("Index of alignment point (the maximum) in the records", "aligned_at_records_i"),
-            np.int32,
-        )
-        dtype.append(
-            (
-                "Maximum amplitude of the hit waveform (within the hit window) in unit of rad.",
-                "amplitude_max",
-            ),
-            DATA_DTYPE,
+                (
+                    "Hit finding threshold determined by signal statistics in unit of rad.",
+                    "hit_threshold",
+                ),
+                DATA_DTYPE,
+            )
         )
         dtype.append(
             (
-                "Minimum amplitude of the hit waveform (within the hit window) in unit of rad.",
-                "amplitude_min",
-            ),
-            DATA_DTYPE,
+                ("Index of alignment point (the maximum) in the records", "aligned_at_records_i"),
+                np.int32,
+            )
         )
         dtype.append(
             (
                 (
-                    "Maximum amplitude of the hit waveform (within the extended hit window) "
-                    "in unit of rad.",
+                    (
+                        "Maximum amplitude of the hit waveform (within the hit window) "
+                        "in unit of rad.",
+                    ),
+                    "amplitude_max",
                 ),
-                "amplitude_max_ext",
-            ),
-            DATA_DTYPE,
+                DATA_DTYPE,
+            )
         )
         dtype.append(
             (
                 (
-                    "Minimum amplitude of the hit waveform (within the extended hit window) "
-                    "in unit of rad.",
+                    (
+                        "Minimum amplitude of the hit waveform (within the hit window) "
+                        "in unit of rad.",
+                    ),
+                    "amplitude_min",
                 ),
-                "amplitude_min_ext",
-            ),
-            DATA_DTYPE,
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    (
+                        "Maximum amplitude of the hit waveform (within the extended hit window) "
+                        "in unit of rad.",
+                    ),
+                    "amplitude_max_ext",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    (
+                        "Minimum amplitude of the hit waveform (within the extended hit window) "
+                        "in unit of rad.",
+                    ),
+                    "amplitude_min_ext",
+                ),
+                DATA_DTYPE,
+            )
         )
 
     @staticmethod
