@@ -307,24 +307,42 @@ class Hits(strax.Plugin):
                 hit_max_i = np.argmax(hit_inspection_waveform) + h_i
 
                 # Align waveforms of the hits at the maximum of the moving averaged signal.
-                argmax_ma = np.argmax(
+                argmax_ma_i = np.argmax(
                     signal_ma[
                         max(hit_max_i - self.hit_window_length_left, 0) : min(
                             hit_max_i + self.hit_window_length_right, self.record_length
                         )
                     ]
-                )
+                ) + max(hit_max_i - self.hit_window_length_left, 0)
 
                 # For a physical hit, the left window is expected to be noise dominated.
                 # While the right window is expected to be signal dominated.
-                hit_wf_start_i = max(argmax_ma - self.hit_window_length_left, 0)
-                hit_wf_end_i = min(argmax_ma + self.hit_window_length_right, self.record_length)
+                n_right_valid_samples = min(
+                    self.record_length - argmax_ma_i, self.hit_window_length_right
+                )
+                n_left_valid_samples = min(argmax_ma_i, self.hit_window_length_left)
+
+                hit_wf_start_i = max(argmax_ma_i - self.hit_window_length_left, 0)
+                hit_wf_end_i = min(argmax_ma_i + self.hit_window_length_right, self.record_length)
                 hits[i]["time"] = r["time"] + hit_wf_start_i * self.dt
                 hits[i]["endtime"] = r["time"] + hit_wf_end_i * self.dt
-                hits[i]["aligned_at_records_i"] = argmax_ma
-                hits[i]["data_theta"] = signal_raw[hit_wf_start_i:hit_wf_end_i]
-                hits[i]["data_theta_moving_average"] = signal_ma[hit_wf_start_i:hit_wf_end_i]
-                hits[i]["data_theta_convolved"] = signal[hit_wf_start_i:hit_wf_end_i]
+                hits[i]["length"] = hit_wf_end_i - hit_wf_start_i
+                hits[i]["aligned_at_records_i"] = argmax_ma_i
+                hits[i]["data_theta"][
+                    self.hit_window_length_left
+                    - n_left_valid_samples : self.hit_window_length_left
+                    + n_right_valid_samples
+                ] = signal_raw[hit_wf_start_i:hit_wf_end_i]
+                hits[i]["data_theta_moving_average"][
+                    self.hit_window_length_left
+                    - n_left_valid_samples : self.hit_window_length_left
+                    + n_right_valid_samples
+                ] = signal_ma[hit_wf_start_i:hit_wf_end_i]
+                hits[i]["data_theta_convolved"][
+                    self.hit_window_length_left
+                    - n_left_valid_samples : self.hit_window_length_left
+                    + n_right_valid_samples
+                ] = signal[hit_wf_start_i:hit_wf_end_i]
 
             results.append(hits)
 
