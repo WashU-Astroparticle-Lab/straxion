@@ -58,12 +58,12 @@ export, __all__ = strax.exporter()
         ),
     ),
     strax.Option(
-        "hit_inspection_window_length",
+        "hit_convolved_inspection_window_length",
         default=60,
         track=True,
         type=int,
         help=(
-            "Length of the hit inspection window (to find maximum and minimum) "
+            "Length of the convolved hit inspection window (to find maximum and minimum) "
             "in unit of samples."
         ),
     ),
@@ -73,7 +73,17 @@ export, __all__ = strax.exporter()
         track=True,
         type=int,
         help=(
-            "Length of the extended hit inspection window (to find maximum and minimum) "
+            "Length of the extended convolved hit inspection window (to find maximum and minimum) "
+            "in unit of samples."
+        ),
+    ),
+    strax.Option(
+        "hit_moving_average_inspection_window_length",
+        default=40,
+        track=True,
+        type=int,
+        help=(
+            "Length of the moving averaged hit inspection window (to find maximum and minimum) "
             "in unit of samples."
         ),
     ),
@@ -104,6 +114,9 @@ class Hits(strax.Plugin):
         self.noisy_channel_signal_std_multipliers = np.array(
             self.config["noisy_channel_signal_std_multipliers"]
         )
+        self.hit_ma_inspection_window_length = self.config[
+            "hit_moving_average_inspection_window_length"
+        ]
 
     def infer_dtype(self):
         self.hit_waveform_length = HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
@@ -290,7 +303,10 @@ class Hits(strax.Plugin):
 
                 # Find the maximum and minimum of the hit in the inspection windows.
                 hit_inspection_waveform = signal[
-                    h_i : min(h_i + self.config["hit_inspection_window_length"], self.record_length)
+                    h_i : min(
+                        h_i + self.config["hit_convolved_inspection_window_length"],
+                        self.record_length,
+                    )
                 ]
                 hit_extended_inspection_waveform = signal[
                     h_i : min(
@@ -309,8 +325,8 @@ class Hits(strax.Plugin):
                 # Align waveforms of the hits at the maximum of the moving averaged signal.
                 argmax_ma_i = np.argmax(
                     signal_ma[
-                        max(hit_max_i - self.hit_window_length_left, 0) : min(
-                            hit_max_i + self.hit_window_length_right, self.record_length
+                        max(hit_max_i - self.hit_ma_inspection_window_length, 0) : min(
+                            hit_max_i + self.hit_ma_inspection_window_length, self.record_length
                         )
                     ]
                 ) + max(hit_max_i - self.hit_window_length_left, 0)
