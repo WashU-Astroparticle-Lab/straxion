@@ -26,6 +26,7 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "fs",
+        default=50_000,
         track=True,
         type=int,
         help="Sampling frequency (assumed the same for all channels) in unit of Hz",
@@ -324,16 +325,13 @@ class Hits(strax.Plugin):
 
                 # Align waveforms of the hits at the maximum of the moving averaged signal.
                 # Search the maximum in the moving averaged signal within the inspection window.
-                argmax_ma_i = (
-                    np.argmax(
-                        signal_ma[
-                            max(hit_max_i - self.hit_ma_inspection_window_length, 0) : min(
-                                hit_max_i + self.hit_ma_inspection_window_length, self.record_length
-                            )
-                        ]
-                    )
-                    + hit_max_i
-                )
+                argmax_ma_i = np.argmax(
+                    signal_ma[
+                        max(hit_max_i - self.hit_ma_inspection_window_length, 0) : min(
+                            hit_max_i + self.hit_ma_inspection_window_length, self.record_length
+                        )
+                    ]
+                ) + max(hit_max_i - self.hit_ma_inspection_window_length, 0)
 
                 # For a physical hit, the left window is expected to be noise dominated.
                 # While the right window is expected to be signal dominated.
