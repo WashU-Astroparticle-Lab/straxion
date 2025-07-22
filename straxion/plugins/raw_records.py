@@ -29,7 +29,7 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "fs",
-        default=500_000,
+        default=50_000,
         track=True,
         type=int,
         help="Sampling frequency (assumed the same for all channels) in unit of Hz",
