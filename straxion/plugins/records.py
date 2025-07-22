@@ -44,7 +44,7 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "pulse_kernel_gaussian_smearing_width",
-        default=14_000,  # The original Matlab code says 7 samples (with fs = 1E5Hz).
+        default=140_000,  # The original Matlab code says 7 samples (with fs = 5E4Hz).
         track=True,
         type=int,
         help=(
@@ -54,7 +54,7 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "moving_average_width",
-        default=500_000,  # The original Matlab code says 5 samples (with fs = 1E5Hz).
+        default=50_000,  # The original Matlab code says 5 samples (with fs = 5E4Hz).
         track=True,
         type=int,
         help="Moving average width for smoothed reference waveform, in unit of ns.",
@@ -172,7 +172,7 @@ class PulseProcessing(strax.Plugin):
         )
 
         # Pre-compute moving average kernel.
-        moving_average_kernel_width = int(self.config["moving_average_width"] / self.dt)
+        moving_average_kernel_width = self.config["moving_average_width"] / self.dt
         self.moving_average_kernel = (
             np.ones(moving_average_kernel_width) / moving_average_kernel_width
         )
