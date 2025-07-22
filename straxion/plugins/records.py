@@ -31,21 +31,21 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "pulse_kernel_start_time",
-        default=40_000,
+        default=200_000,
         track=True,
         type=int,
         help="Relative start time of the exponential decay in pulse kernel (t0), in unit of ns.",
     ),
     strax.Option(
         "pulse_kernel_decay_time",
-        default=120_000,
+        default=600_000,
         track=True,
         type=int,
         help="Decay time of the exponential falling in pulse kernel (tau), in unit of ns.",
     ),
     strax.Option(
         "pulse_kernel_gaussian_smearing_width",
-        default=56_000,
+        default=28_000,
         track=True,
         type=int,
         help=(
