@@ -300,7 +300,6 @@ class Hits(strax.Plugin):
             for i, h_start_i in enumerate(hit_start_indicies):
                 hits[i]["hit_threshold"] = hit_threshold
                 hits[i]["channel"] = ch
-                hits[i]["length"] = self.hit_waveform_length
                 hits[i]["dt"] = self.dt
 
                 # Find the maximum and minimum of the hit in the inspection windows.
@@ -333,6 +332,7 @@ class Hits(strax.Plugin):
                         )
                     ]
                 ) + max(hit_max_i - self.hit_ma_inspection_window_length, 0)
+                hits[i]["aligned_at_records_i"] = argmax_ma_i
 
                 # For a physical hit, the left window is expected to be noise dominated.
                 # While the right window is expected to be signal dominated.
@@ -346,7 +346,6 @@ class Hits(strax.Plugin):
                 hits[i]["time"] = r["time"] + hit_wf_start_i * self.dt
                 hits[i]["endtime"] = r["time"] + hit_wf_end_i * self.dt
                 hits[i]["length"] = hit_wf_end_i - hit_wf_start_i
-                hits[i]["aligned_at_records_i"] = argmax_ma_i
                 hits[i]["data_theta"][
                     self.hit_window_length_left
                     - n_left_valid_samples : self.hit_window_length_left
