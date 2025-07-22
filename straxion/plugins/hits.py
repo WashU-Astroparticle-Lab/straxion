@@ -16,6 +16,7 @@ export, __all__ = strax.exporter()
 @strax.takes_config(
     strax.Option(
         "record_length",
+        default=5_000_000,
         track=False,  # Not tracking record length, but we will have to check if it is as promised
         type=int,
         help=(
