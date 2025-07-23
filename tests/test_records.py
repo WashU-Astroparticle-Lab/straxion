@@ -365,7 +365,7 @@ class TestLoadFinescanFilesWithRealData:
 
             # Check data integrity
             assert np.all(np.isfinite(data))
-            assert data.dtype == np.float64
+            assert data.dtype == np.float32
 
         print(f"Successfully loaded finescan data for {len(result)} channels")
 
@@ -463,11 +463,11 @@ class TestLoadFinescanFilesWithRealData:
             assert r["length"].dtype == np.int64
             assert r["dt"].dtype == np.int64
             assert r["channel"].dtype == np.int16
-            assert r["data_theta"].dtype == np.float64
-            assert r["data_theta_moving_average"].dtype == np.float64
-            assert r["data_theta_convolved"].dtype == np.float64
-            assert r["baseline"].dtype == np.float64
-            assert r["baseline_std"].dtype == np.float64
+            assert r["data_theta"].dtype == np.float32
+            assert r["data_theta_moving_average"].dtype == np.float32
+            assert r["data_theta_convolved"].dtype == np.float32
+            assert r["baseline"].dtype == np.float32
+            assert r["baseline_std"].dtype == np.float32
 
             # Check that all records have the expected length
             expected_length = config["record_length"]

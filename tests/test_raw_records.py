@@ -106,8 +106,8 @@ def test_raw_records_processing():
         # Check data types
         assert rr["time"].dtype == np.int64
         assert rr["channel"].dtype == np.int16
-        assert rr["data_i"].dtype == np.float64
-        assert rr["data_q"].dtype == np.float64
+        assert rr["data_i"].dtype == np.float32
+        assert rr["data_q"].dtype == np.float32
 
         # Check that all records have the expected length
         expected_length = config["record_length"]
