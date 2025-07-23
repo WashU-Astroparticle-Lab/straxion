@@ -287,7 +287,7 @@ class Hits(strax.Plugin):
             if len(below_threshold_indices) == 0:
                 continue
             # Find the start of the hits.
-            _hits_width = np.diff(below_threshold_indices, prepend=0)
+            _hits_width = np.diff(below_threshold_indices, prepend=1)
             # Minimum continuous length of waveform above the hit threshold is
             # required to define a hit.
             hit_start_indicies = below_threshold_indices[_hits_width >= min_pulse_width]
