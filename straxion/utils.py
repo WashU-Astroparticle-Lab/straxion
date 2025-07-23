@@ -7,7 +7,7 @@ SECOND_TO_NANOSECOND = 1_000_000_000
 TIME_DTYPE = np.int64
 LENGTH_DTYPE = np.int64
 CHANNEL_DTYPE = np.int16
-DATA_DTYPE = np.dtype("f8")
+DATA_DTYPE = np.dtype("f4")
 INDEX_DTYPE = np.int32
 
 # Hit waveform recording window length.
