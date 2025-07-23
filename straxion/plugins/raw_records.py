@@ -29,7 +29,7 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "fs",
-        default=500_000,
+        default=50_000,
         track=True,
         type=int,
         help="Sampling frequency (assumed the same for all channels) in unit of Hz",
@@ -95,7 +95,7 @@ class DAQReader(strax.Plugin):
 
     def infer_dtype(self):
         """Data type for a waveform raw_record."""
-        dtype = base_waveform_dtype(self.config["record_length"])
+        dtype = base_waveform_dtype()
         dtype.append(
             (
                 ("Waveform data of I in raw ADC counts", "data_i"),

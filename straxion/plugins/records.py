@@ -24,27 +24,28 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "fs",
+        default=50_000,
         track=True,
         type=int,
         help="Sampling frequency (assumed the same for all channels) in unit of Hz",
     ),
     strax.Option(
         "pulse_kernel_start_time",
-        default=100_000,
+        default=200_000,
         track=True,
         type=int,
         help="Relative start time of the exponential decay in pulse kernel (t0), in unit of ns.",
     ),
     strax.Option(
         "pulse_kernel_decay_time",
-        default=300_000,
+        default=600_000,
         track=True,
         type=int,
         help="Decay time of the exponential falling in pulse kernel (tau), in unit of ns.",
     ),
     strax.Option(
         "pulse_kernel_gaussian_smearing_width",
-        default=14_000,  # The original Matlab code says 7 samples (with fs = 1E5Hz).
+        default=28_000,
         track=True,
         type=int,
         help=(
@@ -54,7 +55,7 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "moving_average_width",
-        default=500_000,  # The original Matlab code says 5 samples (with fs = 1E5Hz).
+        default=100_000,  # The original Matlab code says 5 samples (with fs = 5E4Hz).
         track=True,
         type=int,
         help="Moving average width for smoothed reference waveform, in unit of ns.",
@@ -115,14 +116,11 @@ class PulseProcessing(strax.Plugin):
             raw_records_dtype = self.deps["raw_records"].dtype_for("raw_records")
             record_length = len(np.zeros(1, raw_records_dtype)[0]["data_i"])
 
-        dtype = base_waveform_dtype(record_length)
+        dtype = base_waveform_dtype()
         dtype.append(
             (
                 (
-                    (
-                        "Waveform data of phase angle (theta), "
-                        "which has been convoled by a pulse kernel."
-                    ),
+                    "Waveform data of phase angle (theta) after baseline corrections",
                     "data_theta",
                 ),
                 DATA_DTYPE,

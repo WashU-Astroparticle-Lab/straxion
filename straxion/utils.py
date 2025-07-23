@@ -7,14 +7,16 @@ SECOND_TO_NANOSECOND = 1_000_000_000
 TIME_DTYPE = np.int64
 LENGTH_DTYPE = np.int64
 CHANNEL_DTYPE = np.int16
-DATA_DTYPE = np.dtype(">f8")
+DATA_DTYPE = np.dtype("f8")
+INDEX_DTYPE = np.int32
+
+# Hit waveform recording window length.
+HIT_WINDOW_LENGTH_LEFT = 300
+HIT_WINDOW_LENGTH_RIGHT = 300
 
 
-def base_waveform_dtype(record_length):
+def base_waveform_dtype():
     """Return the base dtype list for a waveform record, without the data fields.
-
-    Args:
-        record_length (int): Number of samples in each dataset.
 
     Returns:
         list: List of dtype tuples for the base waveform record fields.
