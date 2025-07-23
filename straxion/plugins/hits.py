@@ -1,5 +1,6 @@
 import strax
 import numpy as np
+import warnings
 from straxion.utils import (
     DATA_DTYPE,
     INDEX_DTYPE,
@@ -106,11 +107,9 @@ class Hits(strax.Plugin):
     save_when = strax.SaveWhen.ALWAYS
 
     def setup(self):
+        self.hit_waveform_length = HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
         self.hit_window_length_left = HIT_WINDOW_LENGTH_LEFT
         self.hit_window_length_right = HIT_WINDOW_LENGTH_RIGHT
-
-        self.record_length = self.config["record_length"]
-        self.dt = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
 
         self.hit_thresholds_sigma = np.array(self.config["hit_thresholds_sigma"])
         self.noisy_channel_signal_std_multipliers = np.array(
@@ -119,6 +118,40 @@ class Hits(strax.Plugin):
         self.hit_ma_inspection_window_length = self.config[
             "hit_moving_average_inspection_window_length"
         ]
+        self.hit_convolved_inspection_window_length = self.config[
+            "hit_convolved_inspection_window_length"
+        ]
+        self.hit_extended_inspection_window_length = self.config[
+            "hit_extended_inspection_window_length"
+        ]
+
+        self.record_length = self.config["record_length"]
+        self.dt = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
+
+        self._check_hit_parameters()
+
+    def _check_hit_parameters(self):
+        """Check for potentially problematic parameters and issue warnings."""
+        if self.hit_ma_inspection_window_length > self.hit_waveform_length:
+            warnings.warn(
+                "The hit-waveform recording window might be too short to save enough information: "
+                f"hit_ma_inspection_window_length={self.hit_ma_inspection_window_length} "
+                f"is larger than hit_waveform_length={self.hit_waveform_length}."
+            )
+        if self.hit_convolved_inspection_window_length > self.hit_waveform_length:
+            warnings.warn(
+                "The hit-waveform recording window might be too short to save enough information: "
+                "hit_convolved_inspection_window_length="
+                f"{self.hit_convolved_inspection_window_length} "
+                f"is larger than hit_waveform_length={self.hit_waveform_length}."
+            )
+        if self.hit_extended_inspection_window_length > self.hit_waveform_length:
+            warnings.warn(
+                "The hit-waveform recording window might be too short to save enough information: "
+                "hit_extended_inspection_window_length="
+                f"{self.hit_extended_inspection_window_length} "
+                f"is larger than hit_waveform_length={self.hit_waveform_length}."
+            )
 
     def infer_dtype(self):
         self.hit_waveform_length = HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
@@ -270,103 +303,240 @@ class Hits(strax.Plugin):
         return hit_threshold
 
     def compute(self, records):
+        """Process records to find and characterize hits.
+
+        Args:
+            records: Array of processed records containing signal data.
+
+        Returns:
+            np.ndarray: Array of hits with waveform data and characteristics.
+
+        """
         results = []
 
         for r in records:
-            ch = int(r["channel"])
-            signal = r["data_theta_convolved"]
-            signal_ma = r["data_theta_moving_average"]
-            signal_raw = r["data_theta"]
-            min_pulse_width = self.config["min_pulse_widths"][ch]
-
-            hit_threshold = self.calculate_hit_threshold(
-                signal, self.hit_thresholds_sigma[ch], self.noisy_channel_signal_std_multipliers[ch]
-            )
-
-            below_threshold_indices = np.where(signal < hit_threshold)[0]
-            if len(below_threshold_indices) == 0:
-                continue
-            # Find the start of the hits.
-            _hits_width = np.diff(below_threshold_indices, prepend=1)
-            # Minimum continuous length of waveform above the hit threshold is
-            # required to define a hit.
-            hit_end_indicies = below_threshold_indices[_hits_width >= min_pulse_width]
-
-            hits = np.zeros(len(hit_end_indicies), dtype=self.infer_dtype())
-            hits_width = _hits_width[_hits_width >= min_pulse_width]
-            hit_start_indicies = hit_end_indicies - hits_width
-            hits["width"] = hits_width
-
-            # Find the maximum and minimum of the hits.
-            for i, h_start_i in enumerate(hit_start_indicies):
-                hits[i]["hit_threshold"] = hit_threshold
-                hits[i]["channel"] = ch
-                hits[i]["dt"] = self.dt
-
-                # Find the maximum and minimum of the hit in the inspection windows.
-                hit_inspection_waveform = signal[
-                    h_start_i : min(
-                        h_start_i + self.config["hit_convolved_inspection_window_length"],
-                        self.record_length,
-                    )
-                ]
-                hit_extended_inspection_waveform = signal[
-                    h_start_i : min(
-                        h_start_i + self.config["hit_extended_inspection_window_length"],
-                        self.record_length,
-                    )
-                ]
-                hits[i]["amplitude_max"] = np.max(hit_inspection_waveform)
-                hits[i]["amplitude_min"] = np.min(hit_inspection_waveform)
-                hits[i]["amplitude_max_ext"] = np.max(hit_extended_inspection_waveform)
-                hits[i]["amplitude_min_ext"] = np.min(hit_extended_inspection_waveform)
-
-                # Index of kernel-convolved signal in records.
-                hit_max_i = np.argmax(hit_inspection_waveform) + h_start_i
-
-                # Align waveforms of the hits at the maximum of the moving averaged signal.
-                # Search the maximum in the moving averaged signal within the inspection window.
-                argmax_ma_i = np.argmax(
-                    signal_ma[
-                        max(hit_max_i - self.hit_ma_inspection_window_length, 0) : min(
-                            hit_max_i + self.hit_ma_inspection_window_length, self.record_length
-                        )
-                    ]
-                ) + max(hit_max_i - self.hit_ma_inspection_window_length, 0)
-                hits[i]["aligned_at_records_i"] = argmax_ma_i
-
-                # For a physical hit, the left window is expected to be noise dominated.
-                # While the right window is expected to be signal dominated.
-                n_right_valid_samples = min(
-                    self.record_length - argmax_ma_i, self.hit_window_length_right
-                )
-                n_left_valid_samples = min(argmax_ma_i, self.hit_window_length_left)
-
-                hit_wf_start_i = max(argmax_ma_i - self.hit_window_length_left, 0)
-                hit_wf_end_i = min(argmax_ma_i + self.hit_window_length_right, self.record_length)
-                hits[i]["time"] = r["time"] + hit_wf_start_i * self.dt
-                hits[i]["endtime"] = r["time"] + hit_wf_end_i * self.dt
-                hits[i]["length"] = hit_wf_end_i - hit_wf_start_i
-                hits[i]["data_theta"][
-                    self.hit_window_length_left
-                    - n_left_valid_samples : self.hit_window_length_left
-                    + n_right_valid_samples
-                ] = signal_raw[hit_wf_start_i:hit_wf_end_i]
-                hits[i]["data_theta_moving_average"][
-                    self.hit_window_length_left
-                    - n_left_valid_samples : self.hit_window_length_left
-                    + n_right_valid_samples
-                ] = signal_ma[hit_wf_start_i:hit_wf_end_i]
-                hits[i]["data_theta_convolved"][
-                    self.hit_window_length_left
-                    - n_left_valid_samples : self.hit_window_length_left
-                    + n_right_valid_samples
-                ] = signal[hit_wf_start_i:hit_wf_end_i]
-
-            results.append(hits)
+            hits = self._process_single_record(r)
+            if hits is not None:
+                results.append(hits)
 
         # Sort hits by time.
         results = np.concatenate(results)
         results = results[np.argsort(results["time"])]
 
         return results
+
+    def _process_single_record(self, record):
+        """Process a single record to find hits.
+
+        Args:
+            record: Single record containing signal data.
+
+        Returns:
+            np.ndarray or None: Array of hits found in the record, or None if no hits.
+
+        """
+        ch = int(record["channel"])
+        signal = record["data_theta_convolved"]
+        signal_ma = record["data_theta_moving_average"]
+        signal_raw = record["data_theta"]
+        min_pulse_width = self.config["min_pulse_widths"][ch]
+
+        # Calculate hit threshold and find hit candidates
+        hit_threshold = self.calculate_hit_threshold(
+            signal, self.hit_thresholds_sigma[ch], self.noisy_channel_signal_std_multipliers[ch]
+        )
+
+        hit_candidates = self._find_hit_candidates(signal, hit_threshold, min_pulse_width)
+        if len(hit_candidates) == 0:
+            return None
+
+        # Process each hit candidate
+        hits = self._process_hit_candidates(
+            hit_candidates, record, signal, signal_ma, signal_raw, hit_threshold, ch
+        )
+
+        return hits
+
+    def _find_hit_candidates(self, signal, hit_threshold, min_pulse_width):
+        """Find potential hit candidates based on threshold crossing.
+
+        Args:
+            signal: The convolved signal array.
+            hit_threshold: Threshold value for hit detection.
+            min_pulse_width: Minimum width required for a valid hit.
+
+        Returns:
+            tuple: (hit_start_indices, hit_widths) for valid hits.
+
+        """
+        below_threshold_indices = np.where(signal < hit_threshold)[0]
+        if len(below_threshold_indices) == 0:
+            return [], []
+
+        # Find the start of the hits
+        hits_width = np.diff(below_threshold_indices, prepend=1)
+
+        # Filter by minimum pulse width
+        valid_mask = hits_width >= min_pulse_width
+        hit_end_indices = below_threshold_indices[valid_mask]
+        hit_widths = hits_width[valid_mask]
+        hit_start_indices = hit_end_indices - hit_widths
+
+        return hit_start_indices, hit_widths
+
+    def _process_hit_candidates(
+        self, hit_candidates, record, signal, signal_ma, signal_raw, hit_threshold, channel
+    ):
+        """Process hit candidates to extract hit characteristics and waveforms.
+
+        Args:
+            hit_candidates: Tuple of (hit_start_indices, hit_widths).
+            record: The original record.
+            signal: The convolved signal array.
+            signal_ma: The moving average signal array.
+            signal_raw: The raw signal array.
+            hit_threshold: The hit threshold value.
+            channel: The channel number.
+
+        Returns:
+            np.ndarray: Array of processed hits.
+
+        """
+        hit_start_indices, hit_widths = hit_candidates
+
+        hits = np.zeros(len(hit_start_indices), dtype=self.infer_dtype())
+        hits["width"] = hit_widths
+
+        for i, h_start_i in enumerate(hit_start_indices):
+            self._process_single_hit(
+                hits[i], h_start_i, record, signal, signal_ma, signal_raw, hit_threshold, channel
+            )
+
+        return hits
+
+    def _process_single_hit(
+        self, hit, hit_start_i, record, signal, signal_ma, signal_raw, hit_threshold, channel
+    ):
+        """Process a single hit to extract its characteristics and waveform.
+
+        Args:
+            hit: The hit array element to populate.
+            hit_start_i: Start index of the hit.
+            record: The original record.
+            signal: The convolved signal array.
+            signal_ma: The moving average signal array.
+            signal_raw: The raw signal array.
+            hit_threshold: The hit threshold value.
+            channel: The channel number.
+
+        """
+        # Set basic hit properties
+        hit["hit_threshold"] = hit_threshold
+        hit["channel"] = channel
+        hit["dt"] = self.dt
+
+        # Calculate amplitude characteristics
+        self._calculate_hit_amplitudes(hit, hit_start_i, signal)
+
+        # Find alignment point and extract waveforms
+        aligned_index = self._find_alignment_point(hit_start_i, signal, signal_ma)
+        hit["aligned_at_records_i"] = aligned_index
+
+        # Extract and align waveforms
+        self._extract_hit_waveforms(hit, aligned_index, record, signal_raw, signal_ma, signal)
+
+    def _calculate_hit_amplitudes(self, hit, hit_start_i, signal):
+        """Calculate amplitude characteristics for a hit.
+
+        Args:
+            hit: The hit array element to populate.
+            hit_start_i: Start index of the hit.
+            signal: The convolved signal array.
+
+        """
+        # Find the maximum and minimum of the hit in the inspection windows
+        hit_inspection_waveform = signal[
+            hit_start_i : min(
+                hit_start_i + self.hit_convolved_inspection_window_length,
+                self.record_length,
+            )
+        ]
+        hit_extended_inspection_waveform = signal[
+            hit_start_i : min(
+                hit_start_i + self.hit_extended_inspection_window_length,
+                self.record_length,
+            )
+        ]
+
+        hit["amplitude_max"] = np.max(hit_inspection_waveform)
+        hit["amplitude_min"] = np.min(hit_inspection_waveform)
+        hit["amplitude_max_ext"] = np.max(hit_extended_inspection_waveform)
+        hit["amplitude_min_ext"] = np.min(hit_extended_inspection_waveform)
+
+    def _find_alignment_point(self, hit_start_i, signal, signal_ma):
+        """Find the alignment point for waveform extraction.
+
+        Args:
+            hit_start_i: Start index of the hit.
+            signal: The convolved signal array.
+            signal_ma: The moving average signal array.
+
+        Returns:
+            int: Index of the alignment point.
+
+        """
+        # Index of kernel-convolved signal in records
+        hit_inspection_waveform = signal[
+            hit_start_i : min(
+                hit_start_i + self.hit_convolved_inspection_window_length,
+                self.record_length,
+            )
+        ]
+        hit_max_i = np.argmax(hit_inspection_waveform) + hit_start_i
+
+        # Align waveforms at the maximum of the moving averaged signal
+        # Search the maximum in the moving averaged signal within the inspection window
+        search_start = max(hit_max_i - self.hit_ma_inspection_window_length, 0)
+        search_end = min(hit_max_i + self.hit_ma_inspection_window_length, self.record_length)
+
+        argmax_ma_i = np.argmax(signal_ma[search_start:search_end]) + search_start
+
+        return argmax_ma_i
+
+    def _extract_hit_waveforms(self, hit, aligned_index, record, signal_raw, signal_ma, signal):
+        """Extract and align hit waveforms.
+
+        Args:
+            hit: The hit array element to populate.
+            aligned_index: Index of the alignment point.
+            record: The original record.
+            signal_raw: The raw signal array.
+            signal_ma: The moving average signal array.
+            signal: The convolved signal array.
+
+        """
+        # Calculate valid sample ranges
+        n_right_valid_samples = min(
+            self.record_length - aligned_index, self.hit_window_length_right
+        )
+        n_left_valid_samples = min(aligned_index, self.hit_window_length_left)
+
+        # Calculate waveform extraction boundaries
+        hit_wf_start_i = max(aligned_index - self.hit_window_length_left, 0)
+        hit_wf_end_i = min(aligned_index + self.hit_window_length_right, self.record_length)
+
+        # Set timing information
+        hit["time"] = record["time"] + hit_wf_start_i * self.dt
+        hit["endtime"] = record["time"] + hit_wf_end_i * self.dt
+        hit["length"] = hit_wf_end_i - hit_wf_start_i
+
+        # Calculate target indices in the hit waveform arrays
+        target_start = self.hit_window_length_left - n_left_valid_samples
+        target_end = self.hit_window_length_left + n_right_valid_samples
+
+        # Extract waveforms
+        hit["data_theta"][target_start:target_end] = signal_raw[hit_wf_start_i:hit_wf_end_i]
+        hit["data_theta_moving_average"][target_start:target_end] = signal_ma[
+            hit_wf_start_i:hit_wf_end_i
+        ]
+        hit["data_theta_convolved"][target_start:target_end] = signal[hit_wf_start_i:hit_wf_end_i]
