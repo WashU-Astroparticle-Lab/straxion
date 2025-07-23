@@ -232,7 +232,7 @@ class PulseProcessing(strax.Plugin):
                 continue
             channel = int(m.group(1))
             try:
-                arr = np.loadtxt(f, delimiter=None)  # Use autodetect delimiter.
+                arr = np.loadtxt(f, delimiter=None, dtype=DATA_DTYPE)  # Use autodetect delimiter.
             except Exception as e:
                 raise RuntimeError(f"Failed to load fine scan file {f}: {e}")
             if arr.ndim == 1:

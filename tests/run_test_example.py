@@ -48,8 +48,8 @@ def test_raw_records_processing(data_dir):
         # Check data types
         assert rr["time"].dtype == np.int64
         assert rr["channel"].dtype == np.int16
-        assert rr["data_i"].dtype == np.dtype(">f8")
-        assert rr["data_q"].dtype == np.dtype(">f8")
+        assert rr["data_i"].dtype == np.float32
+        assert rr["data_q"].dtype == np.float32
         print("✓ Data types are correct")
 
         # Check that all records have the expected length
