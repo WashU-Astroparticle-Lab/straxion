@@ -92,6 +92,24 @@ export, __all__ = strax.exporter()
     ),
 )
 class Hits(strax.Plugin):
+    """Find and characterize hits in processed phase angle data.
+
+    This plugin identifies significant signal excursions (hits) in processed phase angle
+    data and extracts their characteristics including amplitude, timing, and waveform
+    data. The hit-finding algorithm uses adaptive thresholds based on signal statistics
+    and applies various filtering criteria to distinguish real hits from noise.
+
+    Processing workflow:
+    1. Calculate adaptive hit thresholds based on signal statistics for each channel.
+    2. Identify hit candidates using threshold crossing and minimum width criteria.
+    3. Calculate hit characteristics (amplitude, timing, alignment point).
+    4. Extract and align hit waveforms for further analysis.
+
+    Provides:
+    - hits: Characterized hits with waveform data and timing information.
+
+    """
+
     __version__ = "0.0.0"
 
     # Inherited from straxen. Not optimized outside XENONnT.
