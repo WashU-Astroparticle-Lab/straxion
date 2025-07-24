@@ -70,7 +70,6 @@ def test_hits_minimal_valid_input():
             ("data_theta_moving_average", np.float32, 10),
             ("data_theta", np.float32, 10),
             ("time", np.int64),
-            ("data_theta_convolved", np.float32, 10),
         ],
     )
     result = plugin.compute(record)
@@ -93,15 +92,15 @@ def test_hits_detects_synthetic_hit():
     st = straxion.qualiphide()
     plugin = st.get_single_plugin("timeS429", "hits")
     # Create a record with a clear "hit" above threshold
-    data = np.zeros(20, dtype=np.float32)
-    data[5:10] = 100  # Simulate a hit
+    data = np.zeros(100, dtype=np.float32)
+    data[40:60] = 100  # Simulate a hit
     record = np.zeros(
         1,
         dtype=[
             ("channel", np.int16),
-            ("data_theta_convolved", np.float32, 20),
-            ("data_theta_moving_average", np.float32, 20),
-            ("data_theta", np.float32, 20),
+            ("data_theta_convolved", np.float32, 100),
+            ("data_theta_moving_average", np.float32, 100),
+            ("data_theta", np.float32, 100),
             ("time", np.int64),
         ],
     )
