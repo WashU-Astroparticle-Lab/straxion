@@ -20,10 +20,21 @@ def test_hits_dtype_inference():
     dtype = plugin.infer_dtype()
     # List of expected fields (add/remove as needed)
     expected_fields = [
-        "time", "endtime", "length", "dt", "channel", "width",
-        "data_theta", "data_theta_moving_average", "data_theta_convolved",
-        "hit_threshold", "aligned_at_records_i",
-        "amplitude_max", "amplitude_min", "amplitude_max_ext", "amplitude_min_ext"
+        "time",
+        "endtime",
+        "length",
+        "dt",
+        "channel",
+        "width",
+        "data_theta",
+        "data_theta_moving_average",
+        "data_theta_convolved",
+        "hit_threshold",
+        "aligned_at_records_i",
+        "amplitude_max",
+        "amplitude_min",
+        "amplitude_max_ext",
+        "amplitude_min_ext",
     ]
     field_names = [name[1] for name, *_ in dtype]
     for field in expected_fields:
@@ -34,7 +45,15 @@ def test_hits_empty_input():
     """Test that Hits returns empty output for empty input."""
     st = straxion.qualiphide()
     plugin = st.get_single_plugin("timeS429", "hits")
-    empty_records = np.array([], dtype=[("channel", np.int16), ("data_theta_convolved", np.float32, 10), ("data_theta_moving_average", np.float32, 10), ("data_theta", np.float32, 10)])
+    empty_records = np.array(
+        [],
+        dtype=[
+            ("channel", np.int16),
+            ("data_theta_convolved", np.float32, 10),
+            ("data_theta_moving_average", np.float32, 10),
+            ("data_theta", np.float32, 10),
+        ],
+    )
     result = plugin.compute(empty_records)
     assert isinstance(result, np.ndarray)
     assert result.size == 0
@@ -45,14 +64,17 @@ def test_hits_minimal_valid_input():
     st = straxion.qualiphide()
     plugin = st.get_single_plugin("timeS429", "hits")
     # Minimal record with all zeros (should not trigger any hits)
-    record = np.zeros(1, dtype=[
-        ("channel", np.int16),
-        ("data_theta_convolved", np.float32, 10),
-        ("data_theta_moving_average", np.float32, 10),
-        ("data_theta", np.float32, 10),
-        ("time", np.int64),
-        ("data_theta_convolved", np.float32, 10),
-    ])
+    record = np.zeros(
+        1,
+        dtype=[
+            ("channel", np.int16),
+            ("data_theta_convolved", np.float32, 10),
+            ("data_theta_moving_average", np.float32, 10),
+            ("data_theta", np.float32, 10),
+            ("time", np.int64),
+            ("data_theta_convolved", np.float32, 10),
+        ],
+    )
     result = plugin.compute(record)
     assert isinstance(result, np.ndarray)
     assert result.size == 0
@@ -75,13 +97,16 @@ def test_hits_detects_synthetic_hit():
     # Create a record with a clear "hit" above threshold
     data = np.zeros(20, dtype=np.float32)
     data[5:10] = 100  # Simulate a hit
-    record = np.zeros(1, dtype=[
-        ("channel", np.int16),
-        ("data_theta_convolved", np.float32, 20),
-        ("data_theta_moving_average", np.float32, 20),
-        ("data_theta", np.float32, 20),
-        ("time", np.int64),
-    ])
+    record = np.zeros(
+        1,
+        dtype=[
+            ("channel", np.int16),
+            ("data_theta_convolved", np.float32, 20),
+            ("data_theta_moving_average", np.float32, 20),
+            ("data_theta", np.float32, 20),
+            ("time", np.int64),
+        ],
+    )
     record["data_theta_convolved"][0] = data
     record["data_theta_moving_average"][0] = data
     record["data_theta"][0] = data
@@ -101,4 +126,3 @@ def test_hits_invalid_config():
     st.set_config({"record_length": -1})
     with pytest.raises(Exception):
         st.get_single_plugin("timeS429", "hits")
-
