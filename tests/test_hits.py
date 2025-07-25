@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 import straxion
+import scipy.signal
 from straxion.plugins.hits import Hits
 
 
@@ -88,25 +89,37 @@ def test_hits_malformed_input():
 
 
 def test_hits_detects_synthetic_hit():
-    """Test that Hits detects a synthetic hit in the input."""
+    """Test that Hits detects a synthetic hit in the input using a noisy truncated exponential pulse."""
     st = straxion.qualiphide()
     plugin = st.get_single_plugin("timeS429", "hits")
-    # Create a record with a clear "hit" above threshold
-    data = np.zeros(100, dtype=np.float32)
-    data[40:60] = 100  # Simulate a hit
+    n_samples = 1000
+    pulse_start = 400
+    pulse_length = 100
+    tau = 20  # decay constant
+
+    # Generate truncated exponential pulse
+    t = np.arange(pulse_length)
+    pulse_shape = np.exp(-t / tau)
+    pulse = np.zeros(n_samples)
+    pulse[pulse_start:pulse_start + pulse_length] = pulse_shape
+
+    # Add Gaussian noise
+    noise_sigma = 0.05
+    noisy_signal = pulse + np.random.normal(0, noise_sigma, n_samples)
+
+    # Use the same noisy signal for all three fields
     record = np.zeros(
         1,
         dtype=[
             ("channel", np.int16),
-            ("data_theta_convolved", np.float32, 100),
-            ("data_theta_moving_average", np.float32, 100),
-            ("data_theta", np.float32, 100),
+            ("data_theta_convolved", np.float32, n_samples),
+            ("data_theta_moving_average", np.float32, n_samples),
+            ("data_theta", np.float32, n_samples),
             ("time", np.int64),
         ],
     )
-    record["data_theta_convolved"][0] = data
-    record["data_theta_moving_average"][0] = data
-    record["data_theta"][0] = data
+    record["data_theta_convolved"][0] = noisy_signal
+
     result = plugin.compute(record)
     assert isinstance(result, np.ndarray)
     # Should find at least one hit
