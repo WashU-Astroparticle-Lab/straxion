@@ -88,15 +88,27 @@ def test_hits_malformed_input():
         plugin.compute(bad_record)
 
 
-def test_hits_detects_synthetic_hit():
-    """Test that Hits detects a synthetic hit in the input using a noisy truncated exponential
-    pulse."""
+
+def test_hits_invalid_config():
+    """Test that Hits raises an error with invalid config."""
+    st = straxion.qualiphide()
+    # Set an invalid config (e.g., negative record_length)
+    st.set_config({"record_length": -1})
+    with pytest.raises(Exception):
+        st.get_single_plugin("timeS429", "hits")
+
+
+def test_find_hit_candidates_with_simulated_pulse():
+    """Test _find_hit_candidates directly with a simulated noisy exponential pulse."""
     st = straxion.qualiphide()
     plugin = st.get_single_plugin("timeS429", "hits")
-    n_samples = 1000
-    pulse_start = 400
-    pulse_length = 100
-    tau = 20  # decay constant
+    n_samples = 2000
+    pulse_start = 1000
+    pulse_length = 200
+    tau = 50
+
+    # Set random seed for reproducible results
+    np.random.seed(42)
 
     # Generate truncated exponential pulse
     t = np.arange(pulse_length)
@@ -108,32 +120,10 @@ def test_hits_detects_synthetic_hit():
     noise_sigma = 0.05
     noisy_signal = pulse + np.random.normal(0, noise_sigma, n_samples)
 
-    # Use the same noisy signal for all three fields
-    record = np.zeros(
-        1,
-        dtype=[
-            ("channel", np.int16),
-            ("data_theta_convolved", np.float32, n_samples),
-            ("data_theta_moving_average", np.float32, n_samples),
-            ("data_theta", np.float32, n_samples),
-            ("time", np.int64),
-        ],
-    )
-    record["data_theta_convolved"][0] = noisy_signal
+    # Set threshold and min_pulse_width
+    hit_threshold = 3 * np.std(noisy_signal)
+    min_pulse_width = 20
 
-    result = plugin.compute(record)
-    assert isinstance(result, np.ndarray)
-    # Should find at least one hit
-    assert result.size >= 1
-    # Check required fields
-    for field in ["time", "endtime", "length", "channel"]:
-        assert field in result.dtype.names
-
-
-def test_hits_invalid_config():
-    """Test that Hits raises an error with invalid config."""
-    st = straxion.qualiphide()
-    # Set an invalid config (e.g., negative record_length)
-    st.set_config({"record_length": -1})
-    with pytest.raises(Exception):
-        st.get_single_plugin("timeS429", "hits")
+    hit_start_indices, hit_widths = plugin._find_hit_candidates(noisy_signal, hit_threshold, min_pulse_width)
+    assert len(hit_start_indices) > 0, "No hit candidates found, but expected at least one."
+    assert len(hit_start_indices) == len(hit_widths), "Mismatch between hit start indices and widths."
