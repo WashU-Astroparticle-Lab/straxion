@@ -231,9 +231,9 @@ def test_hits_processing():
             assert hit["data_theta_convolved"].shape == (expected_waveform_length,)
 
         # Check that timing information is consistent
-        for hit in hits:
+        for h_i, hit in enumerate(hits):
             expected_endtime = hit["time"] + hit["length"] * hit["dt"]
-            assert hit["endtime"] == expected_endtime
+            assert hit["endtime"] == expected_endtime, f"Hit #{h_i} endtime mismatch."
 
         # Check that hit characteristics are reasonable
         for hit in hits:
