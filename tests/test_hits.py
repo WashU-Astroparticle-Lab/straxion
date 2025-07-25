@@ -88,7 +88,6 @@ def test_hits_malformed_input():
         plugin.compute(bad_record)
 
 
-
 def test_hits_invalid_config():
     """Test that Hits raises an error with invalid config."""
     st = straxion.qualiphide()
@@ -124,6 +123,10 @@ def test_find_hit_candidates_with_simulated_pulse():
     hit_threshold = 3 * np.std(noisy_signal)
     min_pulse_width = 20
 
-    hit_start_indices, hit_widths = plugin._find_hit_candidates(noisy_signal, hit_threshold, min_pulse_width)
+    hit_start_indices, hit_widths = plugin._find_hit_candidates(
+        noisy_signal, hit_threshold, min_pulse_width
+    )
     assert len(hit_start_indices) > 0, "No hit candidates found, but expected at least one."
-    assert len(hit_start_indices) == len(hit_widths), "Mismatch between hit start indices and widths."
+    assert len(hit_start_indices) == len(
+        hit_widths
+    ), "Mismatch between hit start indices and widths."
