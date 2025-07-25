@@ -547,8 +547,8 @@ class Hits(strax.Plugin):
         hit_wf_end_i = min(aligned_index + self.hit_window_length_right, self.record_length)
 
         # Set timing information
-        hit["time"] = record["time"] + hit_wf_start_i * self.dt
-        hit["endtime"] = record["time"] + hit_wf_end_i * self.dt
+        hit["time"] = record["time"] + np.int64(hit_wf_start_i * self.dt)
+        hit["endtime"] = record["time"] + np.int64(hit_wf_end_i * self.dt)
         hit["length"] = hit_wf_end_i - hit_wf_start_i
 
         # Calculate target indices in the hit waveform arrays
