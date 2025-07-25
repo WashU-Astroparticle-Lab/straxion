@@ -89,7 +89,8 @@ def test_hits_malformed_input():
 
 
 def test_hits_detects_synthetic_hit():
-    """Test that Hits detects a synthetic hit in the input using a noisy truncated exponential pulse."""
+    """Test that Hits detects a synthetic hit in the input using a noisy truncated exponential
+    pulse."""
     st = straxion.qualiphide()
     plugin = st.get_single_plugin("timeS429", "hits")
     n_samples = 1000
@@ -101,7 +102,7 @@ def test_hits_detects_synthetic_hit():
     t = np.arange(pulse_length)
     pulse_shape = np.exp(-t / tau)
     pulse = np.zeros(n_samples)
-    pulse[pulse_start:pulse_start + pulse_length] = pulse_shape
+    pulse[pulse_start : pulse_start + pulse_length] = pulse_shape
 
     # Add Gaussian noise
     noise_sigma = 0.05
