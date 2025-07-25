@@ -1,3 +1,4 @@
+import os
 import pytest
 import numpy as np
 import straxion
@@ -129,3 +130,122 @@ def test_find_hit_candidates_with_simulated_pulse():
     assert len(hit_start_indices) == len(
         hit_widths
     ), "Mismatch between hit start indices and widths."
+
+
+@pytest.mark.skipif(
+    not os.getenv("STRAXION_TEST_DATA_DIR") or not os.getenv("STRAXION_FINESCAN_DATA_DIR"),
+    reason=(
+        "Finescan test data directory not provided via "
+        "STRAXION_FINESCAN_DATA_DIR environment variable"
+    ),
+)
+def test_hits_processing():
+    """Test the complete hits processing pipeline with real data.
+
+    This test requires both STRAXION_TEST_DATA_DIR and STRAXION_FINESCAN_DATA_DIR environment
+    variables to be set to the paths containing the test data directories.
+
+    """
+    test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+    finescan_data_dir = os.getenv("STRAXION_FINESCAN_DATA_DIR")
+
+    if not test_data_dir:
+        pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+    if not finescan_data_dir:
+        pytest.fail("STRAXION_FINESCAN_DATA_DIR environment variable is not set")
+
+    if not os.path.exists(test_data_dir):
+        pytest.fail(f"Test data directory {test_data_dir} does not exist")
+    if not os.path.exists(finescan_data_dir):
+        pytest.fail(f"Finescan data directory {finescan_data_dir} does not exist")
+
+    # Create context and process hits
+    st = straxion.qualiphide()
+    st.set_config(
+        dict(
+            daq_input_dir=test_data_dir,
+            iq_finescan_dir=finescan_data_dir,
+            record_length=5_000_000,
+            fs=500_000,
+        )
+    )
+
+    try:
+        hits = st.get_array("timeS429", "hits")
+
+        # Basic validation of the output
+        assert hits is not None
+        assert len(hits) >= 0  # Can be empty if no hits found
+
+        # Check that all required fields are present
+        required_fields = [
+            "time",
+            "endtime",
+            "length",
+            "dt",
+            "channel",
+            "width",
+            "data_theta",
+            "data_theta_moving_average",
+            "data_theta_convolved",
+            "hit_threshold",
+            "aligned_at_records_i",
+            "amplitude_max",
+            "amplitude_min",
+            "amplitude_max_ext",
+            "amplitude_min_ext",
+        ]
+        for field in required_fields:
+            assert field in hits.dtype.names, f"Required field '{field}' missing from hits"
+
+        # Check data types
+        assert hits["time"].dtype == np.int64
+        assert hits["endtime"].dtype == np.int64
+        assert hits["length"].dtype == np.int64
+        assert hits["dt"].dtype == np.int64
+        assert hits["channel"].dtype == np.int16
+        assert hits["width"].dtype == np.int32
+        assert hits["data_theta"].dtype == np.float32
+        assert hits["data_theta_moving_average"].dtype == np.float32
+        assert hits["data_theta_convolved"].dtype == np.float32
+        assert hits["hit_threshold"].dtype == np.float32
+        assert hits["aligned_at_records_i"].dtype == np.int32
+        assert hits["amplitude_max"].dtype == np.float32
+        assert hits["amplitude_min"].dtype == np.float32
+        assert hits["amplitude_max_ext"].dtype == np.float32
+        assert hits["amplitude_min_ext"].dtype == np.float32
+
+        # Check that all hits have the expected dt
+        expected_dt = int(1 / 500_000 * 1_000_000_000)  # Convert to nanoseconds
+        assert all(hits["dt"] == expected_dt)
+
+        # Check that channels are within expected range (0-9 based on context config)
+        if len(hits) > 0:
+            assert all(0 <= hits["channel"]) and all(hits["channel"] <= 9)
+
+        # Check that waveform data has the correct shape
+        expected_waveform_length = 600  # HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
+        for hit in hits:
+            assert hit["data_theta"].shape == (expected_waveform_length,)
+            assert hit["data_theta_moving_average"].shape == (expected_waveform_length,)
+            assert hit["data_theta_convolved"].shape == (expected_waveform_length,)
+
+        # Check that timing information is consistent
+        for hit in hits:
+            expected_endtime = hit["time"] + hit["length"] * hit["dt"]
+            assert hit["endtime"] == expected_endtime
+
+        # Check that hit characteristics are reasonable
+        for hit in hits:
+            assert hit["amplitude_max"] >= hit["amplitude_min"]
+            assert hit["amplitude_max_ext"] >= hit["amplitude_min_ext"]
+            assert hit["width"] > 0
+            assert hit["hit_threshold"] > 0
+
+        print(
+            f"Successfully processed {len(hits)} hits "
+            f"from {len(np.unique(hits['channel'])) if len(hits) > 0 else 0} channels"
+        )
+
+    except Exception as e:
+        pytest.fail(f"Failed to process hits: {str(e)}")
