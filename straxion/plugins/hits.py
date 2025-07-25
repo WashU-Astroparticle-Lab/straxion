@@ -334,10 +334,13 @@ class Hits(strax.Plugin):
 
         for r in records:
             hits = self._process_single_record(r)
-            if hits is not None:
+            if hits is not None and len(hits) > 0:
                 results.append(hits)
 
         # Sort hits by time.
+        if not results:
+            return np.zeros(0, dtype=self.infer_dtype())
+
         results = np.concatenate(results)
         results = results[np.argsort(results["time"])]
 
