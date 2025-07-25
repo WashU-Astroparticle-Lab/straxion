@@ -334,10 +334,13 @@ class Hits(strax.Plugin):
 
         for r in records:
             hits = self._process_single_record(r)
-            if hits is not None:
+            if hits is not None and len(hits) > 0:
                 results.append(hits)
 
         # Sort hits by time.
+        if not results:
+            return np.zeros(0, dtype=self.infer_dtype())
+
         results = np.concatenate(results)
         results = results[np.argsort(results["time"])]
 
@@ -544,8 +547,8 @@ class Hits(strax.Plugin):
         hit_wf_end_i = min(aligned_index + self.hit_window_length_right, self.record_length)
 
         # Set timing information
-        hit["time"] = record["time"] + hit_wf_start_i * self.dt
-        hit["endtime"] = record["time"] + hit_wf_end_i * self.dt
+        hit["time"] = record["time"] + np.int64(hit_wf_start_i * self.dt)
+        hit["endtime"] = record["time"] + np.int64(hit_wf_end_i * self.dt)
         hit["length"] = hit_wf_end_i - hit_wf_start_i
 
         # Calculate target indices in the hit waveform arrays
