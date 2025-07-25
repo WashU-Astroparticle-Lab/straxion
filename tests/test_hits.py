@@ -1,7 +1,6 @@
 import pytest
 import numpy as np
 import straxion
-import scipy.signal
 from straxion.plugins.hits import Hits
 
 
