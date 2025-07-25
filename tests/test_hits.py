@@ -233,7 +233,13 @@ def test_hits_processing():
         # Check that timing information is consistent
         for h_i, hit in enumerate(hits):
             expected_endtime = hit["time"] + hit["length"] * hit["dt"]
-            assert hit["endtime"] == expected_endtime, f"Hit #{h_i} endtime mismatch."
+            assert hit["endtime"] == expected_endtime, (
+                f"Hit #{h_i} endtime mismatch. "
+                f"Note that hit['endtime'] is {hit['endtime']} and "
+                f"hit['time'] is {hit['time']} and "
+                f"hit['length'] is {hit['length']} and "
+                f"hit['dt'] is {hit['dt']}"
+            )
 
         # Check that hit characteristics are reasonable
         for hit in hits:
