@@ -1,4 +1,4 @@
-# Data structure 
+# Data structure
 
 The figures presented are dependency diagrams, meaning that an arrow stemming from a node points to a node that the stem depends on (i.e. “A depends on B” is equivalent to “A —> B”).
 
