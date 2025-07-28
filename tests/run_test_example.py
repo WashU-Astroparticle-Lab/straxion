@@ -17,7 +17,6 @@ import straxion
 
 def test_raw_records_processing(data_dir):
     """Test the raw_records processing with the provided data directory."""
-
     if not os.path.exists(data_dir):
         print(f"Error: Data directory {data_dir} does not exist")
         return False
