@@ -521,6 +521,7 @@ class Hits(strax.Plugin):
             hit: The hit array element to populate.
             hit_start_i: Start index of the hit.
             signal: The convolved signal array.
+            signal_ma: The moving average signal array.
 
         """
         hit_end_i = min(
@@ -533,8 +534,8 @@ class Hits(strax.Plugin):
         )
         # Find the maximum and minimum of the hit in the inspection windows
         hit_convolved_inspection_waveform = signal[hit_start_i:hit_end_i]
-        hit_convolved_extended_inspection_waveform = signal[hit_start_i:hit_end_i]
-        hit_ma_inspection_waveform = signal_ma[hit_start_i:hit_extended_end_i]
+        hit_convolved_extended_inspection_waveform = signal[hit_start_i:hit_extended_end_i]
+        hit_ma_inspection_waveform = signal_ma[hit_start_i:hit_end_i]
         hit_ma_extended_inspection_waveform = signal_ma[hit_start_i:hit_extended_end_i]
 
         hit["amplitude_convolved_max"] = np.max(hit_convolved_inspection_waveform)
