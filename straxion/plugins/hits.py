@@ -505,7 +505,7 @@ class Hits(strax.Plugin):
         hit["dt"] = self.dt
 
         # Calculate amplitude characteristics
-        self._calculate_hit_amplitudes(hit, hit_start_i, signal)
+        self._calculate_hit_amplitudes(hit, hit_start_i, signal, signal_ma)
 
         # Find alignment point and extract waveforms
         aligned_index = self._find_alignment_point(hit_start_i, signal, signal_ma)
