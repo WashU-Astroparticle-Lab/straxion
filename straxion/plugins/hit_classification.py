@@ -100,7 +100,7 @@ class HitClassification(strax.Plugin):
 
         return base_dtype + hit_id_dtype + hit_feature_dtype
 
-    def compute_ma_rise_edge_slope(self, hits):
+    def compute_ma_rise_edge_slope(self, hits, hit_classification):
         """Compute the rise edge slope of the moving averaged signal."""
         assert (
             len(np.unique(hits["dt"])) == 1
@@ -115,9 +115,9 @@ class HitClassification(strax.Plugin):
             :, HIT_WINDOW_LENGTH_LEFT - self.ss_window : HIT_WINDOW_LENGTH_LEFT
         ]
         # Fit a linear model to the inspected window.
-        hits["ma_rise_edge_slope"] = np.polyfit(times, inspected_wfs.T, 1)[0]
+        hit_classification["ma_rise_edge_slope"] = np.polyfit(times, inspected_wfs.T, 1)[0]
 
-    def is_unidentified_hit(self, hits):
+    def is_unidentified_hit(self, hits, hit_classification):
         """Identify unidentified hits.
 
         The hit is identified as an unidentified hit if the amplitude of the hit is
@@ -127,9 +127,11 @@ class HitClassification(strax.Plugin):
             hits (np.ndarray): Hit array.
 
         """
-        hits["is_unidentified"] = hits["amplitude_convolved_max"] < hits["hit_threshold"]
+        hit_classification["is_unidentified"] = (
+            hits["amplitude_convolved_max"] < hits["hit_threshold"]
+        )
 
-    def is_cr_hit(self, hits):
+    def is_cr_hit(self, hits, hit_classification):
         """Identify cosmic ray hits.
 
         The hit is identified as a cosmic ray hit if it satisfies either of the following
@@ -153,13 +155,14 @@ class HitClassification(strax.Plugin):
         mask_ma &= hits["amplitude_ma_max"] >= (
             hits["record_ma_mean"] + hits["record_ma_std"] * self.cr_ma_std_coeff[hits["channel"]]
         )
-        hits["is_cr"] = mask_convolved | mask_ma
+        hit_classification["is_cr"] = mask_convolved | mask_ma
 
     def is_symmetric_spike_hit(self, hits):
         self.compute_ma_rise_edge_slope(hits)
         hits["is_symmetric_spike"] = hits["ma_rise_edge_slope"] > self.ss_min_slope[hits["channel"]]
 
     def compute(self, hits):
-        self.is_unidentified_hit(hits)
-        self.is_cr_hit(hits)
-        self.is_symmetric_spike_hit(hits)
+        hit_classification = np.zeros(len(hits), dtype=self.infer_dtype())
+        self.is_unidentified_hit(hits, hit_classification)
+        self.is_cr_hit(hits, hit_classification)
+        self.is_symmetric_spike_hit(hits, hit_classification)
