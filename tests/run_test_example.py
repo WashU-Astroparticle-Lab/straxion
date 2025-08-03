@@ -27,7 +27,7 @@ def test_raw_records_processing(data_dir):
     # Create context and process raw_records
     st = straxion.qualiphide()
 
-    config = {"daq_input_dir": data_dir, "record_length": 5_000_000, "fs": 500_000}
+    config = {"daq_input_dir": data_dir, "record_length": 5_000_000, "fs": 50_000}
 
     try:
         print("Processing raw_records...")
