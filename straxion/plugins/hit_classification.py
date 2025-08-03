@@ -1,6 +1,12 @@
 import strax
 import numpy as np
-from straxion.utils import TIME_DTYPE, CHANNEL_DTYPE
+from straxion.utils import (
+    TIME_DTYPE,
+    CHANNEL_DTYPE,
+    SECOND_TO_NANOSECOND,
+    HIT_WINDOW_LENGTH_LEFT,
+    DATA_DTYPE,
+)
 
 export, __all__ = strax.exporter()
 
@@ -9,8 +15,8 @@ export, __all__ = strax.exporter()
 @strax.takes_config(
     strax.Option(
         "cr_ma_std_coeff",
-        type=np.float32,
-        default=20.0,
+        type=list,
+        default=[20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
         help=(
             "Coefficients applied to the moving averaged signal's "
             "standard deviation for identifying cosmic ray hits."
@@ -18,8 +24,8 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "cr_convolved_std_coeff",
-        type=np.float32,
-        default=20.0,
+        type=list,
+        default=[20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
         help=(
             "Coefficients applied to the convolved signal's "
             "standard deviation for identifying cosmic ray hits."
@@ -27,10 +33,28 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "cr_min_ma_amplitude",
-        type=np.float32,
-        default=1.0,
+        type=list,
+        default=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
         help=(
             "Minimum amplitude of the moving averaged signal's " "for identifying cosmic ray hits."
+        ),
+    ),
+    strax.Option(
+        "symmetric_spike_min_slope",
+        type=list,
+        default=[75.0, 75.0, 75.0, 75.0, 75.0, 75.0, 75.0, 75.0, 75.0, 75.0],
+        help=(
+            "Minimum slope for identifying a physical hit against symmetric spikes, "
+            "in unit of rad/second."
+        ),
+    ),
+    strax.Option(
+        "symmetric_spike_inspection_window_length",
+        type=int,
+        default=25,
+        help=(
+            "Length of the inspection window for identifying symmetric spikes, "
+            "in unit of samples."
         ),
     ),
 )
@@ -45,9 +69,11 @@ class HitClassification(strax.Plugin):
     save_when = strax.SaveWhen.ALWAYS
 
     def setup(self):
-        self.cr_ma_std_coeff = self.config["cr_ma_std_coeff"]
-        self.cr_convolved_std_coeff = self.config["cr_convolved_std_coeff"]
-        self.cr_min_ma_amplitude = self.config["cr_min_ma_amplitude"]
+        self.cr_ma_std_coeff = np.array(self.config["cr_ma_std_coeff"])
+        self.cr_convolved_std_coeff = np.array(self.config["cr_convolved_std_coeff"])
+        self.cr_min_ma_amplitude = np.array(self.config["cr_min_ma_amplitude"])
+        self.ss_min_slope = np.array(self.config["symmetric_spike_min_slope"])
+        self.ss_window = self.config["symmetric_spike_inspection_window_length"]
 
     def infer_dtype(self):
         base_dtype = [
@@ -62,24 +88,78 @@ class HitClassification(strax.Plugin):
             (("Is unidentified hit", "is_unidentified"), bool),
         ]
 
-        return base_dtype + hit_id_dtype
+        hit_feature_dtype = [
+            (
+                (
+                    "Rise edge slope of the moving averaged signal, in unit of rad/second",
+                    "ma_rise_edge_slope",
+                ),
+                DATA_DTYPE,
+            ),
+        ]
+
+        return base_dtype + hit_id_dtype + hit_feature_dtype
+
+    def compute_ma_rise_edge_slope(self, hits):
+        """Compute the rise edge slope of the moving averaged signal."""
+        assert (
+            len(np.unique(hits["dt"])) == 1
+        ), "The sampling frequency is not constant!? We found {} unique values: {}".format(
+            len(np.unique(hits["dt"])), np.unique(hits["dt"])
+        )
+        # Temporary time stamps for the inspected window, in unit of seconds.
+        dt = hits["dt"][0]
+        times = np.arange(self.ss_window) * dt / SECOND_TO_NANOSECOND
+
+        inspected_wfs = hits["data_theta_moving_average"][
+            :, HIT_WINDOW_LENGTH_LEFT - self.ss_window : HIT_WINDOW_LENGTH_LEFT
+        ]
+        # Fit a linear model to the inspected window.
+        hits["ma_rise_edge_slope"] = np.polyfit(times, inspected_wfs.T, 1)[0]
 
     def is_unidentified_hit(self, hits):
+        """Identify unidentified hits.
+
+        The hit is identified as an unidentified hit if the amplitude of the hit is
+        less than the threshold.
+
+        Args:
+            hits (np.ndarray): Hit array.
+
+        """
         hits["is_unidentified"] = hits["amplitude_convolved_max"] < hits["hit_threshold"]
 
     def is_cr_hit(self, hits):
-        mask = hits["amplitude_convolved_max"] >= hits["hit_threshold"]
-        mask &= hits["amplitude_convolved_max"] >= (
-            hits["record_convolved_std"] * self.cr_convolved_std_coeff
+        """Identify cosmic ray hits.
+
+        The hit is identified as a cosmic ray hit if it satisfies either of the following
+        conditions, for both convolved and moving averaged signals:
+        1. The amplitude of the hit is greater than the threshold.
+        2. The amplitude of the hit is greater than the standard deviation of the signal
+        multiplied by the coefficient.
+
+        Args:
+            hits (np.ndarray): Hit array.
+
+        Returns:
+            np.ndarray: Hit array with `is_cr` field.
+
+        """
+        mask_convolved = hits["amplitude_convolved_max"] >= hits["hit_threshold"]
+        mask_convolved &= hits["amplitude_convolved_max"] >= (
+            hits["record_convolved_std"] * self.cr_convolved_std_coeff[hits["channel"]]
         )
-        mask |= (hits["amplitude_ma_max"] >= self.cr_min_ma_amplitude) & (
-            hits["amplitude_ma_max"]
-            >= (hits["record_ma_mean"] + hits["record_ma_std"] * self.cr_ma_std_coeff)
+        mask_ma = hits["amplitude_ma_max"] >= self.cr_min_ma_amplitude[hits["channel"]]
+        mask_ma &= hits["amplitude_ma_max"] >= (
+            hits["record_ma_mean"] + hits["record_ma_std"] * self.cr_ma_std_coeff[hits["channel"]]
         )
-        hits["is_cr"] = mask | hits["is_unidentified"]
+        hits["is_cr"] = mask_convolved | mask_ma
 
     def is_symmetric_spike_hit(self, hits):
-        pass
+        self.compute_ma_rise_edge_slope(hits)
+        hits["is_symmetric_spike"] = hits["ma_rise_edge_slope"] > self.ss_min_slope[hits["channel"]]
 
     def compute(self, hits):
-        pass
+        self.is_unidentified_hit(hits)
+        self.is_cr_hit(hits)
+        self.is_symmetric_spike_hit(hits)
