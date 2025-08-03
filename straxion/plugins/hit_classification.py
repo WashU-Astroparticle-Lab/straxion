@@ -165,6 +165,9 @@ class HitClassification(strax.Plugin):
 
     def compute(self, hits):
         hit_classification = np.zeros(len(hits), dtype=self.infer_dtype())
+        hit_classification["time"] = hits["time"]
+        hit_classification["endtime"] = hits["endtime"]
+        hit_classification["channel"] = hits["channel"]
 
         self.is_unidentified_hit(hits, hit_classification)
         self.is_cr_hit(hits, hit_classification)
