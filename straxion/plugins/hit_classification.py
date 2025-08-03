@@ -148,11 +148,11 @@ class HitClassification(strax.Plugin):
 
         """
         mask_convolved = hits["amplitude_convolved_max"] >= hits["hit_threshold"]
-        mask_convolved &= hits["amplitude_convolved_max"] >= (
+        mask_convolved &= hits["amplitude_convolved_max_ext"] >= (
             hits["record_convolved_std"] * self.cr_convolved_std_coeff[hits["channel"]]
         )
-        mask_ma = hits["amplitude_ma_max"] >= self.cr_min_ma_amplitude[hits["channel"]]
-        mask_ma |= hits["amplitude_ma_max"] >= (
+        mask_ma = hits["amplitude_ma_max_ext"] >= self.cr_min_ma_amplitude[hits["channel"]]
+        mask_ma |= hits["amplitude_ma_max_ext"] >= (
             hits["record_ma_mean"] + hits["record_ma_std"] * self.cr_ma_std_coeff[hits["channel"]]
         )
         hit_classification["is_cr"] = mask_convolved | mask_ma
