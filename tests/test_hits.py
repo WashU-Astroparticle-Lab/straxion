@@ -169,8 +169,6 @@ def test_hits_processing():
         dict(
             daq_input_dir=test_data_dir,
             iq_finescan_dir=finescan_data_dir,
-            record_length=5_000_000,
-            fs=500_000,
         )
     )
 

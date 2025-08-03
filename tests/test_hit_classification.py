@@ -61,14 +61,7 @@ def test_hit_classification_processing():
 
     # Create context and process hit classification
     st = straxion.qualiphide()
-    st.set_config(
-        dict(
-            daq_input_dir=test_data_dir,
-            iq_finescan_dir=finescan_data_dir,
-            record_length=5_000_000,
-            fs=500_000,
-        )
-    )
+    st.set_config(dict(daq_input_dir=test_data_dir, iq_finescan_dir=finescan_data_dir))
 
     try:
         hit_classification = st.get_array("timeS429", "hit_classification")
