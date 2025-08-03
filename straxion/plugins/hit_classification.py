@@ -163,6 +163,9 @@ class HitClassification(strax.Plugin):
 
     def compute(self, hits):
         hit_classification = np.zeros(len(hits), dtype=self.infer_dtype())
+
         self.is_unidentified_hit(hits, hit_classification)
         self.is_cr_hit(hits, hit_classification)
         self.is_symmetric_spike_hit(hits, hit_classification)
+
+        return hit_classification
