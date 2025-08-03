@@ -226,7 +226,7 @@ def test_hits_processing():
         assert hits["amplitude_ma_min_ext"].dtype == np.float32
 
         # Check that all hits have the expected dt
-        expected_dt = int(1 / 500_000 * 1_000_000_000)  # Convert to nanoseconds
+        expected_dt = int(1 / 50_000 * 1_000_000_000)  # Convert to nanoseconds
         assert all(hits["dt"] == expected_dt)
 
         # Check that channels are within expected range (0-9 based on context config)
