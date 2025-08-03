@@ -130,8 +130,8 @@ def test_hit_classification_processing():
                 f"{n_unidentified} unidentified"
             )
 
-            assert n_cr == 60, "Expected 60 cosmic rays, got {}".format(n_cr)
-            assert n_unidentified == 0, "Expected 0 unidentified hits, got {}".format(
+            assert int(n_cr) == 60, "Expected 60 cosmic rays, got {}".format(n_cr)
+            assert int(n_unidentified) == 0, "Expected 0 unidentified hits, got {}".format(
                 n_unidentified
             )
 
