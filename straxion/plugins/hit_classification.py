@@ -159,7 +159,9 @@ class HitClassification(strax.Plugin):
 
     def is_symmetric_spike_hit(self, hits, hit_classification):
         self.compute_ma_rise_edge_slope(hits, hit_classification)
-        hits["is_symmetric_spike"] = hits["ma_rise_edge_slope"] > self.ss_min_slope[hits["channel"]]
+        hits["is_symmetric_spike"] = (
+            hit_classification["ma_rise_edge_slope"] > self.ss_min_slope[hits["channel"]]
+        )
 
     def compute(self, hits):
         hit_classification = np.zeros(len(hits), dtype=self.infer_dtype())
