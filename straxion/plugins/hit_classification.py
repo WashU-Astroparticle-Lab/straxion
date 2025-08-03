@@ -157,8 +157,8 @@ class HitClassification(strax.Plugin):
         )
         hit_classification["is_cr"] = mask_convolved | mask_ma
 
-    def is_symmetric_spike_hit(self, hits):
-        self.compute_ma_rise_edge_slope(hits)
+    def is_symmetric_spike_hit(self, hits, hit_classification):
+        self.compute_ma_rise_edge_slope(hits, hit_classification)
         hits["is_symmetric_spike"] = hits["ma_rise_edge_slope"] > self.ss_min_slope[hits["channel"]]
 
     def compute(self, hits):
