@@ -337,6 +337,60 @@ class Hits(strax.Plugin):
                 DATA_DTYPE,
             )
         )
+        dtype.append(
+            (
+                (
+                    "Mean of the convolved signal in the record.",
+                    "record_convolved_mean",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Standard deviation of the convolved signal in the record.",
+                    "record_convolved_std",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Mean of the moving averaged signal in the record.",
+                    "record_ma_mean",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Standard deviation of the moving averaged signal in the record.",
+                    "record_ma_std",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Mean of the raw signal in the record.",
+                    "record_raw_mean",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Standard deviation of the raw signal in the record.",
+                    "record_raw_std",
+                ),
+                DATA_DTYPE,
+            )
+        )
 
         return dtype
 
@@ -423,6 +477,13 @@ class Hits(strax.Plugin):
         hits = self._process_hit_candidates(
             hit_candidates, record, signal, signal_ma, signal_raw, hit_threshold, ch
         )
+
+        hits["record_raw_mean"] = np.mean(signal_raw)
+        hits["record_raw_std"] = np.std(signal_raw)
+        hits["record_convolved_std"] = np.std(signal)
+        hits["record_convolved_mean"] = np.mean(signal)
+        hits["record_ma_mean"] = np.mean(signal_ma)
+        hits["record_ma_std"] = np.std(signal_ma)
 
         return hits
 
