@@ -165,12 +165,13 @@ def test_hits_processing():
 
     # Create context and process hits
     st = straxion.qualiphide()
-    st.set_config(
-        dict(
-            daq_input_dir=test_data_dir,
-            iq_finescan_dir=finescan_data_dir,
-        )
-    )
+    config = {
+        "daq_input_dir": test_data_dir,
+        "iq_finescan_dir": finescan_data_dir,
+        "record_length": 5_000_000,
+        "fs": 50_000,
+    }
+    st.set_config(config)
 
     try:
         hits = st.get_array("timeS429", "hits")
@@ -226,7 +227,7 @@ def test_hits_processing():
         assert hits["amplitude_ma_min_ext"].dtype == np.float32
 
         # Check that all hits have the expected dt
-        expected_dt = int(1 / 50_000 * 1_000_000_000)  # Convert to nanoseconds
+        expected_dt = int(1 / config["fs"] * 1_000_000_000)  # Convert to nanoseconds
         assert all(hits["dt"] == expected_dt)
 
         # Check that channels are within expected range (0-9 based on context config)
