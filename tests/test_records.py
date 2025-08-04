@@ -429,9 +429,9 @@ class TestLoadFinescanFilesWithRealData:
 
         config = {
             "daq_input_dir": "timeS429",
-            "record_length": 5_000_000,
-            "fs": 500_000,
             "iq_finescan_dir": test_data_dir,
+            "record_length": 5_000_000,
+            "fs": 50_000,
         }
 
         try:

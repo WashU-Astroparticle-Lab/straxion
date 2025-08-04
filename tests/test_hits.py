@@ -30,10 +30,14 @@ def test_hits_dtype_inference():
         "data_theta_convolved",
         "hit_threshold",
         "aligned_at_records_i",
-        "amplitude_max",
-        "amplitude_min",
-        "amplitude_max_ext",
-        "amplitude_min_ext",
+        "amplitude_convolved_max",
+        "amplitude_convolved_min",
+        "amplitude_convolved_max_ext",
+        "amplitude_convolved_min_ext",
+        "amplitude_ma_max",
+        "amplitude_ma_min",
+        "amplitude_ma_max_ext",
+        "amplitude_ma_min_ext",
     ]
     field_names = [name[1] for name, *_ in dtype]
     for field in expected_fields:
@@ -161,14 +165,13 @@ def test_hits_processing():
 
     # Create context and process hits
     st = straxion.qualiphide()
-    st.set_config(
-        dict(
-            daq_input_dir=test_data_dir,
-            iq_finescan_dir=finescan_data_dir,
-            record_length=5_000_000,
-            fs=500_000,
-        )
-    )
+    config = {
+        "daq_input_dir": test_data_dir,
+        "iq_finescan_dir": finescan_data_dir,
+        "record_length": 5_000_000,
+        "fs": 50_000,
+    }
+    st.set_config(config)
 
     try:
         hits = st.get_array("timeS429", "hits")
@@ -190,10 +193,14 @@ def test_hits_processing():
             "data_theta_convolved",
             "hit_threshold",
             "aligned_at_records_i",
-            "amplitude_max",
-            "amplitude_min",
-            "amplitude_max_ext",
-            "amplitude_min_ext",
+            "amplitude_convolved_max",
+            "amplitude_convolved_min",
+            "amplitude_convolved_max_ext",
+            "amplitude_convolved_min_ext",
+            "amplitude_ma_max",
+            "amplitude_ma_min",
+            "amplitude_ma_max_ext",
+            "amplitude_ma_min_ext",
         ]
         for field in required_fields:
             assert field in hits.dtype.names, f"Required field '{field}' missing from hits"
@@ -210,13 +217,17 @@ def test_hits_processing():
         assert hits["data_theta_convolved"].dtype == np.float32
         assert hits["hit_threshold"].dtype == np.float32
         assert hits["aligned_at_records_i"].dtype == np.int32
-        assert hits["amplitude_max"].dtype == np.float32
-        assert hits["amplitude_min"].dtype == np.float32
-        assert hits["amplitude_max_ext"].dtype == np.float32
-        assert hits["amplitude_min_ext"].dtype == np.float32
+        assert hits["amplitude_convolved_max"].dtype == np.float32
+        assert hits["amplitude_convolved_min"].dtype == np.float32
+        assert hits["amplitude_convolved_max_ext"].dtype == np.float32
+        assert hits["amplitude_convolved_min_ext"].dtype == np.float32
+        assert hits["amplitude_ma_max"].dtype == np.float32
+        assert hits["amplitude_ma_min"].dtype == np.float32
+        assert hits["amplitude_ma_max_ext"].dtype == np.float32
+        assert hits["amplitude_ma_min_ext"].dtype == np.float32
 
         # Check that all hits have the expected dt
-        expected_dt = int(1 / 500_000 * 1_000_000_000)  # Convert to nanoseconds
+        expected_dt = int(1 / config["fs"] * 1_000_000_000)  # Convert to nanoseconds
         assert all(hits["dt"] == expected_dt)
 
         # Check that channels are within expected range (0-9 based on context config)
@@ -243,8 +254,10 @@ def test_hits_processing():
 
         # Check that hit characteristics are reasonable
         for hit in hits:
-            assert hit["amplitude_max"] >= hit["amplitude_min"]
-            assert hit["amplitude_max_ext"] >= hit["amplitude_min_ext"]
+            assert hit["amplitude_convolved_max"] >= hit["amplitude_convolved_min"]
+            assert hit["amplitude_convolved_max_ext"] >= hit["amplitude_convolved_min_ext"]
+            assert hit["amplitude_ma_max"] >= hit["amplitude_ma_min"]
+            assert hit["amplitude_ma_max_ext"] >= hit["amplitude_ma_min_ext"]
             assert hit["width"] > 0
             assert hit["hit_threshold"] > 0
 

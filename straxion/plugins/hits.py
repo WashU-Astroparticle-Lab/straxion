@@ -245,10 +245,10 @@ class Hits(strax.Plugin):
             (
                 (
                     (
-                        "Maximum amplitude of the hit waveform (within the hit window) "
-                        "in unit of rad.",
+                        "Maximum amplitude of the convolved hit waveform (within the "
+                        "hit window) in unit of rad.",
                     ),
-                    "amplitude_max",
+                    "amplitude_convolved_max",
                 ),
                 DATA_DTYPE,
             )
@@ -257,10 +257,10 @@ class Hits(strax.Plugin):
             (
                 (
                     (
-                        "Minimum amplitude of the hit waveform (within the hit window) "
-                        "in unit of rad.",
+                        "Minimum amplitude of the convolved hit waveform (within the "
+                        "hit window) in unit of rad.",
                     ),
-                    "amplitude_min",
+                    "amplitude_convolved_min",
                 ),
                 DATA_DTYPE,
             )
@@ -269,10 +269,10 @@ class Hits(strax.Plugin):
             (
                 (
                     (
-                        "Maximum amplitude of the hit waveform (within the extended hit window) "
-                        "in unit of rad.",
+                        "Maximum amplitude of the convolved hit waveform (within the "
+                        "extended hit window) in unit of rad.",
                     ),
-                    "amplitude_max_ext",
+                    "amplitude_convolved_max_ext",
                 ),
                 DATA_DTYPE,
             )
@@ -281,10 +281,112 @@ class Hits(strax.Plugin):
             (
                 (
                     (
-                        "Minimum amplitude of the hit waveform (within the extended hit window) "
-                        "in unit of rad.",
+                        "Minimum amplitude of the convolved hit waveform (within the "
+                        "extended hit window) in unit of rad.",
                     ),
-                    "amplitude_min_ext",
+                    "amplitude_convolved_min_ext",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    (
+                        "Maximum amplitude of the moving averaged hit waveform (within the "
+                        "hit window) in unit of rad.",
+                    ),
+                    "amplitude_ma_max",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    (
+                        "Minimum amplitude of the moving averaged hit waveform (within the "
+                        "hit window) in unit of rad.",
+                    ),
+                    "amplitude_ma_min",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    (
+                        "Maximum amplitude of the moving averaged hit waveform (within the "
+                        "extended hit window) in unit of rad.",
+                    ),
+                    "amplitude_ma_max_ext",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    (
+                        "Minimum amplitude of the moving averaged hit waveform (within the "
+                        "extended hit window) in unit of rad.",
+                    ),
+                    "amplitude_ma_min_ext",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Mean of the convolved signal in the record.",
+                    "record_convolved_mean",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Standard deviation of the convolved signal in the record.",
+                    "record_convolved_std",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Mean of the moving averaged signal in the record.",
+                    "record_ma_mean",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Standard deviation of the moving averaged signal in the record.",
+                    "record_ma_std",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Mean of the raw signal in the record.",
+                    "record_raw_mean",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Standard deviation of the raw signal in the record.",
+                    "record_raw_std",
                 ),
                 DATA_DTYPE,
             )
@@ -376,6 +478,13 @@ class Hits(strax.Plugin):
             hit_candidates, record, signal, signal_ma, signal_raw, hit_threshold, ch
         )
 
+        hits["record_raw_mean"] = np.mean(signal_raw)
+        hits["record_raw_std"] = np.std(signal_raw)
+        hits["record_convolved_std"] = np.std(signal)
+        hits["record_convolved_mean"] = np.mean(signal)
+        hits["record_ma_mean"] = np.mean(signal_ma)
+        hits["record_ma_std"] = np.std(signal_ma)
+
         return hits
 
     def _find_hit_candidates(self, signal, hit_threshold, min_pulse_width):
@@ -457,7 +566,7 @@ class Hits(strax.Plugin):
         hit["dt"] = self.dt
 
         # Calculate amplitude characteristics
-        self._calculate_hit_amplitudes(hit, hit_start_i, signal)
+        self._calculate_hit_amplitudes(hit, hit_start_i, signal, signal_ma)
 
         # Find alignment point and extract waveforms
         aligned_index = self._find_alignment_point(hit_start_i, signal, signal_ma)
@@ -466,33 +575,38 @@ class Hits(strax.Plugin):
         # Extract and align waveforms
         self._extract_hit_waveforms(hit, aligned_index, record, signal_raw, signal_ma, signal)
 
-    def _calculate_hit_amplitudes(self, hit, hit_start_i, signal):
+    def _calculate_hit_amplitudes(self, hit, hit_start_i, signal, signal_ma):
         """Calculate amplitude characteristics for a hit.
 
         Args:
             hit: The hit array element to populate.
             hit_start_i: Start index of the hit.
             signal: The convolved signal array.
+            signal_ma: The moving average signal array.
 
         """
+        hit_end_i = min(
+            hit_start_i + self.hit_convolved_inspection_window_length,
+            self.record_length,
+        )
+        hit_extended_end_i = min(
+            hit_start_i + self.hit_extended_inspection_window_length,
+            self.record_length,
+        )
         # Find the maximum and minimum of the hit in the inspection windows
-        hit_inspection_waveform = signal[
-            hit_start_i : min(
-                hit_start_i + self.hit_convolved_inspection_window_length,
-                self.record_length,
-            )
-        ]
-        hit_extended_inspection_waveform = signal[
-            hit_start_i : min(
-                hit_start_i + self.hit_extended_inspection_window_length,
-                self.record_length,
-            )
-        ]
+        hit_convolved_inspection_waveform = signal[hit_start_i:hit_end_i]
+        hit_convolved_extended_inspection_waveform = signal[hit_start_i:hit_extended_end_i]
+        hit_ma_inspection_waveform = signal_ma[hit_start_i:hit_end_i]
+        hit_ma_extended_inspection_waveform = signal_ma[hit_start_i:hit_extended_end_i]
 
-        hit["amplitude_max"] = np.max(hit_inspection_waveform)
-        hit["amplitude_min"] = np.min(hit_inspection_waveform)
-        hit["amplitude_max_ext"] = np.max(hit_extended_inspection_waveform)
-        hit["amplitude_min_ext"] = np.min(hit_extended_inspection_waveform)
+        hit["amplitude_convolved_max"] = np.max(hit_convolved_inspection_waveform)
+        hit["amplitude_convolved_min"] = np.min(hit_convolved_inspection_waveform)
+        hit["amplitude_convolved_max_ext"] = np.max(hit_convolved_extended_inspection_waveform)
+        hit["amplitude_convolved_min_ext"] = np.min(hit_convolved_extended_inspection_waveform)
+        hit["amplitude_ma_max"] = np.max(hit_ma_inspection_waveform)
+        hit["amplitude_ma_min"] = np.min(hit_ma_inspection_waveform)
+        hit["amplitude_ma_max_ext"] = np.max(hit_ma_extended_inspection_waveform)
+        hit["amplitude_ma_min_ext"] = np.min(hit_ma_extended_inspection_waveform)
 
     def _find_alignment_point(self, hit_start_i, signal, signal_ma):
         """Find the alignment point for waveform extraction.

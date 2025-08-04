@@ -41,7 +41,7 @@ def test_daq_reader_plugin_registration():
 def test_daq_reader_dtype_inference():
     """Test that DAQReader can infer the correct data type."""
     st = straxion.qualiphide()
-    config = {"daq_input_dir": "abracadabra", "record_length": 5_000_000, "fs": 500_000}
+    config = {"daq_input_dir": "abracadabra", "record_length": 5_000_000, "fs": 50_000}
     st.set_config(config)
     plugin = st.get_single_plugin("timeS429", "raw_records")
 
@@ -88,7 +88,7 @@ def test_raw_records_processing():
     # Create context and process raw_records
     st = straxion.qualiphide()
 
-    config = {"daq_input_dir": timeS429_dir, "record_length": 5_000_000, "fs": 500_000}
+    config = {"daq_input_dir": timeS429_dir, "record_length": 5_000_000, "fs": 50_000}
 
     clean_strax_data()
     try:
@@ -171,7 +171,7 @@ def test_raw_records_data_consistency():
     if not os.path.exists(timeS429_dir):
         pytest.fail(f"Test data directory {timeS429_dir} does not exist")
     st = straxion.qualiphide()
-    config = {"daq_input_dir": timeS429_dir, "record_length": 5_000_000, "fs": 500_000}
+    config = {"daq_input_dir": timeS429_dir, "record_length": 5_000_000, "fs": 50_000}
 
     clean_strax_data()
     try:
@@ -187,7 +187,7 @@ def test_daq_reader_missing_data_directory():
     """Test that DAQReader raises appropriate errors when data directory is missing."""
     st = straxion.qualiphide()
 
-    config = {"daq_input_dir": "/nonexistent/path", "record_length": 5_000_000, "fs": 500_000}
+    config = {"daq_input_dir": "/nonexistent/path", "record_length": 5_000_000, "fs": 50_000}
 
     clean_strax_data()
     with pytest.raises((ValueError, FileNotFoundError)):
@@ -202,7 +202,7 @@ def test_daq_reader_invalid_config():
     config = {
         "daq_input_dir": "/nonexistent/path",  # Use a non-existent path
         "record_length": -1,  # Invalid negative value
-        "fs": 500_000,
+        "fs": 50_000,
     }
 
     clean_strax_data()
