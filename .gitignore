@@ -1,3 +1,6 @@
+# Example data for internal use
+.example_data/
+
 # Debugging
 .vscode/
 
@@ -6,6 +9,7 @@
 
 # strax related
 *strax_data/*
+notebooks/strax_data/*
 
 # Coverage
 .coverage
