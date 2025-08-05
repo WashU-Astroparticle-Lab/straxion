@@ -103,7 +103,7 @@ class PulseProcessing(strax.Plugin):
 
     depends_on = "raw_records"
     provides = "records"
-    data_kind = provides
+    data_kind = "records"
     save_when = strax.SaveWhen.ALWAYS
 
     def infer_dtype(self):
