@@ -36,7 +36,7 @@ export, __all__ = strax.exporter()
         type=list,
         default=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
         help=(
-            "Minimum amplitude of the moving averaged signal's " "for identifying cosmic ray hits."
+            "Minimum amplitude of the moving averaged signal's "  "for identifying cosmic ray hits."
         ),
     ),
     strax.Option(
