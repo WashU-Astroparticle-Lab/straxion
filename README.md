@@ -9,7 +9,7 @@
 ## Installation
 ```
 cd straxion
-pip install -e ./ --user
+pip install -e ./
 ```
 
 ## Tutorials
