@@ -47,6 +47,7 @@ class BaselineMonitor(strax.Plugin):
     def setup(self):
         total_length_ns = self.config["record_length"] / self.config["fs"] * SECOND_TO_NANOSECOND
         self.baseline_monitor_interval = total_length_ns // N_BASELINE_MONITOR_INTERVAL
+        # Window size for computing std.
         self.chunk_size = int(
             self.baseline_monitor_interval / SECOND_TO_NANOSECOND * self.config["fs"]
         )
