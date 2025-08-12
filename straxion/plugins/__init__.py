@@ -9,3 +9,6 @@ from .hits import *
 
 from . import hit_classification
 from .hit_classification import *
+
+from . import baseline_monitor
+from .baseline_monitor import *
