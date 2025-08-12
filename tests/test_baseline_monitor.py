@@ -4,6 +4,13 @@ import os
 import straxion
 
 
+@pytest.mark.skipif(
+    not os.getenv("STRAXION_FINESCAN_DATA_DIR"),
+    reason=(
+        "Finescan test data directory not provided via "
+        "STRAXION_FINESCAN_DATA_DIR environment variable"
+    ),
+)
 class TestBaselineMonitor:
     """Test the BaselineMonitor plugin."""
 
