@@ -134,6 +134,8 @@ class DAQReader(strax.Plugin):
             np.ndarray: Structured array with fields 'time', 'I', and 'Q'.
 
         """
+
+
         def _read_header(f):
             header = np.fromfile(f, dtype=">d", count=2)
             n_coeffs = int(header[0])
