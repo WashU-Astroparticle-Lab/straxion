@@ -48,9 +48,7 @@ class BaselineMonitor(strax.Plugin):
         total_length_ns = self.config["record_length"] / self.config["fs"] * SECOND_TO_NANOSECOND
         self.baseline_monitor_interval = total_length_ns // N_BASELINE_MONITOR_INTERVAL
         # Window size for computing std.
-        self.chunk_size = int(
-            self.baseline_monitor_interval / SECOND_TO_NANOSECOND * self.config["fs"]
-        )
+        self.chunk_size = int(self.config["record_length"] / N_BASELINE_MONITOR_INTERVAL)
 
     def infer_dtype(self):
         dtype = base_waveform_dtype()
@@ -103,17 +101,18 @@ class BaselineMonitor(strax.Plugin):
         results["baseline_monitor_interval"] = self.baseline_monitor_interval
 
         # Compute baseline std for every chunk.
-        for i in range(self.chunk_size):
-            results["baseline_monitor_std"][i] = np.std(
-                records["data_theta"][i * self.chunk_size : (i + 1) * self.chunk_size]
+        for i in range(N_BASELINE_MONITOR_INTERVAL):
+            start_idx = i * self.chunk_size
+            end_idx = start_idx + self.chunk_size
+
+            results["baseline_monitor_std"][:, i] = np.std(
+                records["data_theta"][:, start_idx:end_idx], axis=1
             )
-            results["baseline_monitor_std_moving_average"][i] = np.std(
-                records["data_theta_moving_average"][
-                    i * self.chunk_size : (i + 1) * self.chunk_size
-                ]
+            results["baseline_monitor_std_moving_average"][:, i] = np.std(
+                records["data_theta_moving_average"][:, start_idx:end_idx], axis=1
             )
-            results["baseline_monitor_std_convolved"][i] = np.std(
-                records["data_theta_convolved"][i * self.chunk_size : (i + 1) * self.chunk_size]
+            results["baseline_monitor_std_convolved"][:, i] = np.std(
+                records["data_theta_convolved"][:, start_idx:end_idx], axis=1
             )
 
         return results
