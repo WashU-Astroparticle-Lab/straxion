@@ -10,6 +10,9 @@ CHANNEL_DTYPE = np.int16
 DATA_DTYPE = np.dtype("f4")
 INDEX_DTYPE = np.int32
 
+# Baseline monitor interval.
+N_BASELINE_MONITOR_INTERVAL = 100
+
 # Hit waveform recording window length.
 HIT_WINDOW_LENGTH_LEFT = 300
 HIT_WINDOW_LENGTH_RIGHT = 300
