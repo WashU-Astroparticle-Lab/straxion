@@ -135,7 +135,6 @@ class DAQReader(strax.Plugin):
 
         """
 
-
         def _read_header(f):
             header = np.fromfile(f, dtype=">d", count=2)
             n_coeffs = int(header[0])
