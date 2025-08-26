@@ -10,8 +10,160 @@ from straxion.utils import (
     SECOND_TO_NANOSECOND,
     base_waveform_dtype,
 )
+from straxion.utils import timestamp_to_nanoseconds
 
 export, __all__ = strax.exporter()
+
+
+@export
+@strax.takes_config(
+    strax.Option(
+        "record_length",
+        default=5_000_000,
+        track=False,  # Not tracking record length, but we will have to check if it is as promised
+        type=int,
+        help=(
+            "Number of samples in each dataset."
+            "We assumed that each sample is equally spaced in time, with interval 1/fs."
+            "It should not go beyond a billion so that numpy can still handle."
+        ),
+    ),
+    strax.Option(
+        "fs",
+        default=38_000,
+        track=True,
+        type=int,
+        help="Sampling frequency (assumed the same for all channels) in unit of Hz",
+    ),
+    strax.Option(
+        "daq_input_dir",
+        type=str,
+        track=False,
+        help="Directory where readers put data. For example: '/my/path/to/timeS66'.",
+    ),
+    strax.Option(
+        "channel_map",
+        track=False,
+        type=immutabledict,
+        infer_type=False,
+        help="Immutabledict mapping subdetector to (min, max) channel number.",
+    ),
+    strax.Option(
+        "sub_detector",
+        track=True,
+        type=str,
+        default="kids",
+        help="Name of the sub detector of interest (eg. 'kid').",
+    ),
+)
+class QUALIPHIDETHzReader(strax.Plugin):
+    """DAQ reader for the QUALIPHIDE THz detector.
+
+    Assumed the IQ timestream is already in an npy file, where axis 0 is the channel, axis 1 is the
+    time of equal spacing. The time stream is complex.
+
+    """
+
+    __version__ = "0.0.0"  # Should be very careful to bump the version of this plugin!
+
+    # Data structure topology related:
+    provides: str = "raw_records"
+    data_kind = provides
+    depends_on: Tuple = tuple()  # This is the lowest level of strax data in processing.
+
+    # Memory management related:
+    rechunk_on_load = False  # Assumed no single dataset will be larger than 1 GB.
+    chunk_source_size_mb = strax.DEFAULT_CHUNK_SIZE_MB  # 200 MB; Neglected if no rechunk on load.
+    rechunk_on_save = False  # Assumed no chunking at DAQ.
+    chunk_target_size_mb = 1000  # Meaningless if rechunk_on_save is False.
+    compressor = "lz4"  # Inherited from straxen. Not optimized outside XENONnT.
+
+    def infer_dtype(self):
+        """Data type for a waveform raw_record."""
+        dtype = base_waveform_dtype()
+        dtype.append(
+            (
+                ("Waveform data of I in raw ADC counts", "data_i"),
+                DATA_DTYPE,
+                self.config["record_length"],
+            )
+        )
+        dtype.append(
+            (
+                ("Waveform data of Q in raw ADC counts", "data_q"),
+                DATA_DTYPE,
+                self.config["record_length"],
+            )
+        )
+        return dtype
+
+    def setup(self):
+        self.dt = int(1 / self.config["fs"] * SECOND_TO_NANOSECOND)  # In unit of ns.
+
+    def source_finished(self):
+        """Return whether all chunks the plugin wants to read have been written by DAQ.
+
+        FIXME: We assumed that the DAQ will only produce one chunk for each run!
+
+        """
+        return True
+
+    def is_ready(self, chunk_i):
+        """Return whether the chunk chunk_i is ready for reading."""
+        # We assume there is only one chunk for all runs.
+        if chunk_i == 0:
+            return True
+        # There is no other chunk, so it will never be ready.
+        return False
+
+    def _get_time_stream_filename(self):
+        """Assumed the time stream file is in format of "timeS<RUN_ID>-<YYYYMMDDHHmmSS>.npy".
+
+        Returns:
+            str: The path to the time stream file.
+
+        """
+        files = glob(os.path.join(self.config["daq_input_dir"], "timeS*-*.npy"))
+        assert len(files) == 1, "Expected only one time stream file, but found multiple."
+        self.run_id = files[0].split("-")[1].split(".")[0]
+        self.run_start_time = timestamp_to_nanoseconds(self.run_id)
+
+        return files[0]
+
+    def load_time_stream(self):
+        """Load the time stream from the npy file.
+
+        Returns:
+            np.ndarray: The time stream.
+
+        """
+        file_path = self._get_time_stream_filename()
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+        return np.load(file_path)
+
+    def compute(self):
+        # Load the time stream.
+        time_stream = self.load_time_stream()
+        found_channels = np.shape(time_stream)[0]
+
+        results = np.zeros(found_channels, dtype=self.infer_dtype())
+        results["time"] = self.run_start_time
+        results["length"] = np.shape(time_stream)[1]
+        results["dt"] = self.dt
+        results["endtime"] = results["time"] + results["length"] * results["dt"]
+        results["channel"] = np.arange(found_channels)
+        results["data_i"] = time_stream.real
+        results["data_q"] = time_stream.imag
+
+        # We must build a chunk for the lowest data type, as required by strax.
+        results = self.chunk(
+            start=np.min(results["time"]),
+            end=np.max(results["time"]) + self.dt * self.config["record_length"],
+            data=results,
+            data_type="raw_records",
+        )
+        return results
 
 
 @export
@@ -62,11 +214,11 @@ export, __all__ = strax.exporter()
         help="Name of the sub detector of interest (eg. 'kid').",
     ),
 )
-class DAQReader(strax.Plugin):
+class NX3LikeReader(strax.Plugin):
     """Read the raw data from citkid. It does nothing beyond reading data into a Python format.
     The functionality was adapted from "eConvertLVBinS.m":
     https://caltechobscosgroup.slack.com/archives/C07SZDKRNF9/p1752010145654029.
-    The hyper-parametrization is inspired by straxen.DAQReader:
+    The hyper-parametrization is inspired by straxen.NX3LikeReader:
     https://github.com/XENONnT/straxen/blob/master/straxen/plugins/raw_records/daqreader.py.
 
     Important assumptions:
@@ -134,7 +286,6 @@ class DAQReader(strax.Plugin):
             np.ndarray: Structured array with fields 'time', 'I', and 'Q'.
 
         """
-
 
         def _read_header(f):
             header = np.fromfile(f, dtype=">d", count=2)
