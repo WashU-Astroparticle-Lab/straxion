@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Example script to test the DAQReader plugin with real data.
+"""Example script to test the NX3LikeReader plugin with real data.
 
 Usage:
     python run_test_example.py /path/to/timeS429/directory

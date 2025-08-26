@@ -32,3 +32,31 @@ def base_waveform_dtype():
         (("Width of one sample [ns]", "dt"), TIME_DTYPE),
         (("Channel number defined by channel_map", "channel"), CHANNEL_DTYPE),
     ]
+
+
+def timestamp_to_nanoseconds(timestamp_str):
+    """Convert a timestamp string in format YYYYMMDDHHmmSS to nanoseconds since Unix epoch.
+
+    Args:
+        timestamp_str (str): Timestamp string in format YYYYMMDDHHmmSS
+
+    Returns:
+        int: Timestamp in nanoseconds since Unix epoch
+
+    Example:
+        >>> timestamp_to_nanoseconds("19980717223000")
+        900714600000000000
+
+    """
+    from datetime import datetime
+
+    # Parse the timestamp string
+    dt = datetime.strptime(timestamp_str, "%Y%m%d%H%M%S")
+
+    # Convert to Unix timestamp (seconds since epoch)
+    unix_timestamp = dt.timestamp()
+
+    # Convert to nanoseconds
+    nanoseconds = int(unix_timestamp * 1_000_000_000)
+
+    return nanoseconds

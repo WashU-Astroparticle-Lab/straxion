@@ -1,11 +1,11 @@
 # Testing Guide
 
-Unless you are a developer for `straxion`, please feel free to skip reading. This directory contains tests for the straxion package, including comprehensive tests for the `DAQReader` plugin.
+Unless you are a developer for `straxion`, please feel free to skip reading. This directory contains tests for the straxion package, including comprehensive tests for the `NX3LikeReader` plugin.
 
 ## Test Structure
 
 - `test_contexts.py`: Basic tests for the straxion context creation
-- `test_raw_records.py`: Comprehensive tests for the DAQReader plugin
+- `test_raw_records.py`: Comprehensive tests for the NX3LikeReader plugin
 
 ## Running Tests Locally
 
@@ -51,7 +51,7 @@ The tests expect the following directory structure:
 
 ### Using the Example Script
 
-If you have access to `timeS429` locally, you can also use the standalone example script to test the DAQReader,
+If you have access to `timeS429` locally, you can also use the standalone example script to test the NX3LikeReader,
 
 ```bash
 python run_test_example.py /path/to/timeS429/directory
@@ -106,7 +106,7 @@ If tests fail:
 
 1. Check that your test data directory exists and contains the expected files
 2. Verify the file naming convention matches `<RUN>-ch<CHANNEL>.bin`
-3. Ensure the binary files are in the correct format expected by the DAQReader
+3. Ensure the binary files are in the correct format expected by the NX3LikeReader
 4. Check that the configuration parameters (record_length, fs) match your data
 
 For more detailed debugging, use the standalone example script:
