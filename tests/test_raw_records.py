@@ -2,7 +2,7 @@ import os
 import pytest
 import numpy as np
 import straxion
-from straxion.plugins.raw_records import DAQReader
+from straxion.plugins.raw_records import NX3LikeReader
 import shutil
 
 
@@ -32,14 +32,14 @@ def test_straxion_test_data_dir_exists_and_not_empty():
 
 
 def test_daq_reader_plugin_registration():
-    """Test that the DAQReader plugin is properly registered in the context."""
+    """Test that the NX3LikeReader plugin is properly registered in the context."""
     st = straxion.qualiphide()
     assert "raw_records" in st._plugin_class_registry
-    assert st._plugin_class_registry["raw_records"] == DAQReader
+    assert st._plugin_class_registry["raw_records"] == NX3LikeReader
 
 
 def test_daq_reader_dtype_inference():
-    """Test that DAQReader can infer the correct data type."""
+    """Test that NX3LikeReader can infer the correct data type."""
     st = straxion.qualiphide()
     config = {"daq_input_dir": "abracadabra", "record_length": 5_000_000, "fs": 50_000}
     st.set_config(config)
@@ -184,7 +184,7 @@ def test_raw_records_data_consistency():
 
 
 def test_daq_reader_missing_data_directory():
-    """Test that DAQReader raises appropriate errors when data directory is missing."""
+    """Test that NX3LikeReader raises appropriate errors when data directory is missing."""
     st = straxion.qualiphide()
 
     config = {"daq_input_dir": "/nonexistent/path", "record_length": 5_000_000, "fs": 50_000}
@@ -195,7 +195,7 @@ def test_daq_reader_missing_data_directory():
 
 
 def test_daq_reader_invalid_config():
-    """Test that DAQReader handles invalid configuration gracefully."""
+    """Test that NX3LikeReader handles invalid configuration gracefully."""
     st = straxion.qualiphide()
 
     # Test with invalid record_length

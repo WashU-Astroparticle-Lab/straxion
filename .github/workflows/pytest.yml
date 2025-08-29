@@ -130,7 +130,7 @@ jobs:
           coverage report
 
       - name: Test raw_records with data (if available)
-        # Test the DAQReader plugin with real data if test data is provided
+        # Test the NX3LikeReader plugin with real data if test data is provided
         if: matrix.test == 'pytest'
         run: |
           if [ -n "$STRAXION_TEST_DATA_DIR" ] && [ -d "$STRAXION_TEST_DATA_DIR" ]; then

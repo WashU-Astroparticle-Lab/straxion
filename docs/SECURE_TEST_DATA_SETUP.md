@@ -91,4 +91,4 @@ Add this to your workflow for debugging:
 
 ## Summary
 
-This setup provides a secure, simple, and free way to test your DAQReader plugin with real data in GitHub Actions. The workflow will automatically download test data from a private draft release and run comprehensive tests without exposing the data publicly.
+This setup provides a secure, simple, and free way to test your NX3LikeReader plugin with real data in GitHub Actions. The workflow will automatically download test data from a private draft release and run comprehensive tests without exposing the data publicly.
