@@ -54,6 +54,7 @@ def qualiphide_thz(
 
     st = strax.Context(config=test_context_config, **context_options)
     st.register(straxion.plugins.raw_records.QUALIPHIDETHzReader)
+    st.register(straxion.plugins.records.PulseProcessing)
     # st.register_all(straxion.plugins.records)
     # st.register_all(straxion.plugins.baseline_monitor)
     # st.register_all(straxion.plugins.hits)

@@ -8,8 +8,6 @@ from straxion.utils import (
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import fftconvolve
 import os
-import re
-import glob
 
 export, __all__ = strax.exporter()
 
@@ -18,13 +16,23 @@ export, __all__ = strax.exporter()
 @strax.takes_config(
     strax.Option(
         "iq_finescan_dir",
-        track=False,  # FIXME: Ideally it should be tracked, by correction rather than config.
+        track=False,
         type=str,
-        help=("Direcotry to fine frequency scan (IQ loop) of resonator (txt, csv or similar)."),
+        help=("Direcotry to fine frequency scan (IQ loop) of resonatorm."),
+    ),
+    strax.Option(
+        "iq_finescan_filename",
+        track=True,
+        type=str,
+        help=(
+            "Filename of the fine frequency scan (IQ loop) of resonator (txt, csv or similar), "
+            "just the filename, not the path. If not provided, the plugin will try to find the file"
+            " in the iq_finescan_dir directory.",
+        ),
     ),
     strax.Option(
         "fs",
-        default=50_000,
+        default=38_000,
         track=True,
         type=int,
         help="Sampling frequency (assumed the same for all channels) in unit of Hz",
@@ -97,7 +105,7 @@ class PulseProcessing(strax.Plugin):
 
     """
 
-    __version__ = "0.0.0"
+    __version__ = "0.0.1"
     rechunk_on_save = False
     compressor = "zstd"  # Inherited from straxen. Not optimized outside XENONnT.
 
@@ -159,8 +167,10 @@ class PulseProcessing(strax.Plugin):
         self.record_length = len(np.zeros(1, raw_records_dtype)[0]["data_i"])
         self.dt = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
 
-        self.finescan = self.load_finescan_files(self.config["iq_finescan_dir"])
-        self.finescan_available_channels = sorted(self.finescan.keys())
+        self.finescan = self.load_finescan_files(
+            os.path.join(self.config["iq_finescan_dir"], self.config["iq_finescan_filename"])
+        )
+        self.finescan_available_channels = np.shape(self.finescan)[0]
 
         # Pre-compute pulse kernel.
         self.kernel = self.pulse_kernel(
@@ -180,71 +190,17 @@ class PulseProcessing(strax.Plugin):
 
         # Pre-compute circle fits for each channel to avoid repeated computation.
         self.channel_centers = {}
-        for channel in self.finescan_available_channels:
+        for channel in np.arange(self.finescan_available_channels):
             finescan = self.finescan[channel]
-            finescan_i = finescan[:, 1]
-            finescan_q = finescan[:, 2]
+            finescan_i = finescan.real
+            finescan_q = finescan.imag
             i_center, q_center, _, _ = self.circfit(finescan_i, finescan_q)
             theta_f_min = np.arctan2(finescan_q[0] - q_center, finescan_i[0] - i_center)
             self.channel_centers[int(channel)] = (i_center, q_center, theta_f_min)
 
     @staticmethod
     def load_finescan_files(directory):
-        """Load fine scan files for all channels from a directory.
-
-        Workflow:
-        - Expects files named as '*-ch<CHANNEL>.txt' or '*-ch<CHANNEL>.csv', e.g.:
-            finescan-kid-2025042808-ch0.txt
-            finescan-kid-2025042808-ch1.txt
-            finescan-kid-2025042808-ch2.txt
-        - Each file should be a text or CSV file with three columns: index, data_i, data_q.
-        - The channel number is extracted from the filename.
-        - Files are loaded as numpy arrays and returned in a dict indexed by channel number.
-
-        Args:
-            directory (str): Path to the directory containing fine scan files.
-
-        Returns:
-            dict: Mapping from channel number (int) to numpy.ndarray of fine scan data.
-
-        Raises:
-            FileNotFoundError: If the directory or expected files are not found.
-            ValueError: If a file does not have at least three columns.
-            RuntimeError: If no valid fine scan files are found or a file cannot be loaded.
-
-        """
-        if not os.path.isdir(directory):
-            raise FileNotFoundError(f"Fine scan directory not found: {directory}")
-
-        pattern_txt = os.path.join(directory, "*-ch*.txt")
-        pattern_csv = os.path.join(directory, "*-ch*.csv")
-        files = glob.glob(pattern_txt) + glob.glob(pattern_csv)
-        if not files:
-            raise FileNotFoundError(
-                f"No fine scan files found in {directory}. "
-                f"Expected files like '*-ch<CHANNEL>.txt' or '*-ch<CHANNEL>.csv'."
-            )
-        channel_re = re.compile(r"-ch(\d+)\.(txt|csv)$")
-        finescan = {}
-        for f in files:
-            m = channel_re.search(f)
-            if not m:
-                continue
-            channel = int(m.group(1))
-            try:
-                arr = np.loadtxt(f, delimiter=None, dtype=DATA_DTYPE)  # Use autodetect delimiter.
-            except Exception as e:
-                raise RuntimeError(f"Failed to load fine scan file {f}: {e}")
-            if arr.ndim == 1:
-                arr = arr.reshape(1, -1)
-            if arr.shape[1] < 3:
-                raise ValueError(
-                    f"File {f} does not have at least 3 columns (index, data_i, data_q)"
-                )
-            finescan[channel] = arr
-        if not finescan:
-            raise RuntimeError(f"No valid fine scan files found in {directory}.")
-        return finescan
+        return np.load(directory)
 
     @staticmethod
     def pulse_kernel(ns, fs, t0, tau, sigma, truncation_factor=5):
