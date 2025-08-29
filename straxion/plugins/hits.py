@@ -17,7 +17,7 @@ export, __all__ = strax.exporter()
 @strax.takes_config(
     strax.Option(
         "record_length",
-        default=5_000_000,
+        default=1_900_000,
         track=False,  # Not tracking record length, but we will have to check if it is as promised
         type=int,
         help=(
@@ -28,21 +28,21 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "fs",
-        default=50_000,
+        default=38_000,
         track=True,
         type=int,
         help="Sampling frequency (assumed the same for all channels) in unit of Hz",
     ),
     strax.Option(
         "hit_thresholds_sigma",
-        default=[3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0],
+        default=[3.0 for _ in range(41)],
         track=True,
         type=list,
         help="Threshold for hit finding in units of sigma of standard deviation of the noise.",
     ),
     strax.Option(
         "noisy_channel_signal_std_multipliers",
-        default=[2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0],
+        default=[2.0 for _ in range(41)],
         track=True,
         type=list,
         help=(
@@ -52,7 +52,7 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "min_pulse_widths",
-        default=[20, 20, 20, 20, 20, 20, 20, 20, 20, 20],
+        default=[20 for _ in range(41)],
         track=True,
         type=list,
         help=(
@@ -662,7 +662,7 @@ class Hits(strax.Plugin):
 
         # Set timing information
         hit["time"] = record["time"] + np.int64(hit_wf_start_i * self.dt)
-        hit["endtime"] = record["time"] + np.int64(hit_wf_end_i * self.dt)
+        hit["endtime"] = min(record["time"] + np.int64(hit_wf_end_i * self.dt), record["endtime"])
         hit["length"] = hit_wf_end_i - hit_wf_start_i
 
         # Calculate target indices in the hit waveform arrays
