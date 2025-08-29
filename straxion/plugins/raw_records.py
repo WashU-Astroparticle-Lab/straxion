@@ -61,6 +61,8 @@ class QUALIPHIDETHzReader(strax.Plugin):
     Assumed the IQ timestream is already in an npy file, where axis 0 is the channel, axis 1 is the
     time of equal spacing. The time stream is complex.
 
+    Truncate the time stream to the record length.
+
     """
 
     __version__ = "0.0.0"  # Should be very careful to bump the version of this plugin!
