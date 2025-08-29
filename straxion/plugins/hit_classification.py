@@ -16,7 +16,7 @@ export, __all__ = strax.exporter()
     strax.Option(
         "cr_ma_std_coeff",
         type=list,
-        default=[20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
+        default=[20.0 for _ in range(41)],
         help=(
             "Coefficients applied to the moving averaged signal's "
             "standard deviation for identifying cosmic ray hits."
@@ -25,7 +25,7 @@ export, __all__ = strax.exporter()
     strax.Option(
         "cr_convolved_std_coeff",
         type=list,
-        default=[20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
+        default=[20.0 for _ in range(41)],
         help=(
             "Coefficients applied to the convolved signal's "
             "standard deviation for identifying cosmic ray hits."
@@ -34,7 +34,7 @@ export, __all__ = strax.exporter()
     strax.Option(
         "cr_min_ma_amplitude",
         type=list,
-        default=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        default=[1.0 for _ in range(41)],
         help=(
             "Minimum amplitude of the moving averaged signal's " "for identifying cosmic ray hits."
         ),
@@ -42,7 +42,7 @@ export, __all__ = strax.exporter()
     strax.Option(
         "symmetric_spike_min_slope",
         type=list,
-        default=[75.0, 75.0, 75.0, 75.0, 75.0, 75.0, 75.0, 75.0, 75.0, 75.0],
+        default=[75.0 for _ in range(41)],
         help=(
             "Minimum slope for identifying a physical hit against symmetric spikes, "
             "in unit of rad/second."

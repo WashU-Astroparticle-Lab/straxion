@@ -15,7 +15,7 @@ export, __all__ = strax.exporter()
 @strax.takes_config(
     strax.Option(
         "record_length",
-        default=5_000_000,
+        default=1_900_000,
         track=False,  # Not tracking record length, but we will have to check if it is as promised
         type=int,
         help=(
@@ -26,7 +26,7 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "fs",
-        default=50_000,
+        default=38_000,
         track=True,
         type=int,
         help="Sampling frequency (assumed the same for all channels) in unit of Hz",

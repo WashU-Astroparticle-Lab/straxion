@@ -54,10 +54,10 @@ def qualiphide_thz(
 
     st = strax.Context(config=test_context_config, **context_options)
     st.register(straxion.plugins.raw_records.QUALIPHIDETHzReader)
-    # st.register_all(straxion.plugins.records)
-    # st.register_all(straxion.plugins.baseline_monitor)
-    # st.register_all(straxion.plugins.hits)
-    # st.register_all(straxion.plugins.hit_classification)
+    st.register_all(straxion.plugins.records)
+    st.register_all(straxion.plugins.baseline_monitor)
+    st.register_all(straxion.plugins.hits)
+    st.register_all(straxion.plugins.hit_classification)
 
     # Add the output folder to the storage. This is where new data can be stored.
     st.storage = [
