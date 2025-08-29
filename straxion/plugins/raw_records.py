@@ -10,7 +10,6 @@ from straxion.utils import (
     SECOND_TO_NANOSECOND,
     base_waveform_dtype,
 )
-from straxion.utils import timestamp_to_nanoseconds
 
 export, __all__ = strax.exporter()
 
@@ -19,7 +18,7 @@ export, __all__ = strax.exporter()
 @strax.takes_config(
     strax.Option(
         "record_length",
-        default=5_000_000,
+        default=1_900_000,
         track=False,  # Not tracking record length, but we will have to check if it is as promised
         type=int,
         help=(
@@ -39,7 +38,7 @@ export, __all__ = strax.exporter()
         "daq_input_dir",
         type=str,
         track=False,
-        help="Directory where readers put data. For example: '/my/path/to/timeS66'.",
+        help="Directory where readers put data. For example: '/path/to/ts_38kHz-1756457052.npy'.",
     ),
     strax.Option(
         "channel_map",
@@ -116,20 +115,6 @@ class QUALIPHIDETHzReader(strax.Plugin):
         # There is no other chunk, so it will never be ready.
         return False
 
-    def _get_time_stream_filename(self):
-        """Assumed the time stream file is in format of "timeS<RUN_ID>-<YYYYMMDDHHmmSS>.npy".
-
-        Returns:
-            str: The path to the time stream file.
-
-        """
-        files = glob(os.path.join(self.config["daq_input_dir"], "timeS*-*.npy"))
-        assert len(files) == 1, "Expected only one time stream file, but found multiple."
-        self.run_id = files[0].split("-")[1].split(".")[0]
-        self.run_start_time = timestamp_to_nanoseconds(self.run_id)
-
-        return files[0]
-
     def load_time_stream(self):
         """Load the time stream from the npy file.
 
@@ -137,24 +122,40 @@ class QUALIPHIDETHzReader(strax.Plugin):
             np.ndarray: The time stream.
 
         """
-        file_path = self._get_time_stream_filename()
+        file_path = self.config["daq_input_dir"]
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
         return np.load(file_path)
 
+    def get_run_start_time(self):
+        return (
+            eval(self.config["daq_input_dir"].split("/")[-1].split("-")[1].split(".")[0])
+            * SECOND_TO_NANOSECOND
+        )
+
     def compute(self):
         # Load the time stream.
         time_stream = self.load_time_stream()
+        self.run_start_time = self.get_run_start_time()
         found_channels = np.shape(time_stream)[0]
 
         results = np.zeros(found_channels, dtype=self.infer_dtype())
         results["time"] = self.run_start_time
-        results["length"] = np.shape(time_stream)[1]
+        results["length"] = self.config["record_length"]
         results["dt"] = self.dt
         results["endtime"] = results["time"] + results["length"] * results["dt"]
         results["channel"] = np.arange(found_channels)
-        results["data_i"] = time_stream.real
-        results["data_q"] = time_stream.imag
+
+        if len(time_stream[0]) > self.config["record_length"]:
+            results["data_i"] = time_stream.real[:, : self.config["record_length"]]
+            results["data_q"] = time_stream.imag[:, : self.config["record_length"]]
+        else:
+            raise ValueError(
+                f"The time stream length is {len(time_stream[0])} "
+                f"but the record length is {self.config['record_length']}. "
+                f"The time stream length should be at least as long as the record "
+                f"length {self.config['record_length']}."
+            )
 
         # We must build a chunk for the lowest data type, as required by strax.
         results = self.chunk(
