@@ -60,3 +60,89 @@ def timestamp_to_nanoseconds(timestamp_str):
     nanoseconds = int(unix_timestamp * 1_000_000_000)
 
     return nanoseconds
+
+
+def circfit(x, y):
+    """Least squares fit of X-Y data to a circle.
+
+    Adapted from the Matlab implementation of Andrew D. Horchler (horchler@gmail.com).
+
+    Args:
+        x (array-like): 1D array of x position data.
+        y (array-like): 1D array of y position data.
+
+    Returns:
+        tuple: (x_center, y_center, radius, rms_error)
+            x_center (float): X-position of center of fitted circle.
+            y_center (float): Y-position of center of fitted circle.
+            radius (float): Radius of fitted circle.
+            rms_error (float): Root mean squared error of the fit.
+
+    Raises:
+        ValueError: If x and y are not the same length, have less than three points,
+            or are collinear.
+
+    """
+    x = np.asarray(x, dtype=float).flatten()
+    y = np.asarray(y, dtype=float).flatten()
+
+    # Sanity checks.
+    if x.size != y.size:
+        raise ValueError(
+            "x and y must be the same length. "
+            f"Got x.shape={x.shape}, y.shape={y.shape}, x.size={x.size}, y.size={y.size}"
+        )
+    if x.size < 3:
+        raise ValueError(
+            f"At least three points are required. Got x.size={x.size}, y.size={y.size}"
+        )
+
+    # Collinearity check.
+    collinearity_matrix = np.column_stack([x[: min(50, len(x))], y[: min(50, len(y))]])
+    diff_matrix = np.diff(collinearity_matrix, axis=0)
+    rank = np.linalg.matrix_rank(diff_matrix)
+    if rank == 1:
+        raise ValueError(
+            f"Points are collinear or nearly collinear.\n"
+            f"First 50 (or fewer) x: {x[:min(50, len(x))]}\n"
+            f"First 50 (or fewer) y: {y[:min(50, len(y))]}\n"
+            f"Collinearity diff matrix shape: {diff_matrix.shape}, rank: {rank}"
+        )
+
+    x2 = x * x
+    y2 = y * y
+    xy = x * y
+    sum_x = np.sum(x)
+    sum_y = np.sum(y)
+    sum_x2 = np.sum(x2)
+    sum_y2 = np.sum(y2)
+    sum_xy = np.sum(xy)
+    sum_x2y = np.sum((x2 + y2) * y)
+    sum_x2x = np.sum((x2 + y2) * x)
+    sum_x2y2 = np.sum(x2 + y2)
+    n_points = len(x)
+
+    # Solve Ax=b.
+    a_matrix = np.array(
+        [[sum_x, sum_y, n_points], [sum_xy, sum_y2, sum_y], [sum_x2, sum_xy, sum_x]]
+    )
+    b_vector = np.array([sum_x2y2, sum_x2y, sum_x2x])
+    try:
+        solution = np.linalg.solve(a_matrix, b_vector)
+    except np.linalg.LinAlgError as e:
+        raise ValueError(
+            f"Failed to solve linear system in circfit.\n"
+            f"a_matrix=\n{a_matrix}\n"
+            f"b_vector={b_vector}\n"
+            f"Error: {e}"
+        )
+    x_center = 0.5 * solution[0]
+    y_center = 0.5 * solution[1]
+    radius = np.sqrt(x_center**2 + y_center**2 + solution[2])
+
+    # Root mean squared error.
+    # Calculate the distance from each point to the fitted circle center.
+    distances = np.sqrt((x - x_center) ** 2 + (y - y_center) ** 2)
+    # Compute the RMS error between these distances and the fitted radius.
+    rms_error = np.sqrt(np.mean((distances - radius) ** 2))
+    return x_center, y_center, radius, rms_error
