@@ -204,7 +204,7 @@ class DxRecords(strax.Plugin):
             mask_calc_corr = mask_in_wide_resolution.copy()
             for ind in range(len(mask_in_wide_resolution)):
                 if wide_f[ch, ind] < fine_f[ch, 0] and wide_f[ch, ind] > fine_f[ch, -1]:
-                    mask_calc_corr[ch, ind] = 0
+                    mask_calc_corr[ind] = 0
 
             pfit_i = np.polyfit(
                 wide_f[ch, mask_calc_corr] - fres[ch],
@@ -223,7 +223,7 @@ class DxRecords(strax.Plugin):
             i_models.append(i_model)
             q_models.append(q_model)
 
-        return np.array(i_models), np.array(q_models)
+        return i_models, q_models
 
     def _setup_iq_correction_and_calibration(self):
         """Setup IQ correction models and calibrate IQ loop centers and phis.
@@ -277,7 +277,7 @@ class DxRecords(strax.Plugin):
 
             # Rotate back the centered IQ by the phi values.
             self.fine_z_corrected[ch] = np.mod(
-                fine_z_centered * np.exp(-1j * self.phis[ch]), 2 * np.pi
+                np.angle(fine_z_centered * np.exp(-1j * self.phis[ch])), 2 * np.pi
             )
 
     def _setup_frequency_interpolation_models(self):
