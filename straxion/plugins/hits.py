@@ -16,6 +16,217 @@ export, __all__ = strax.exporter()
 @export
 @strax.takes_config(
     strax.Option(
+        "hit_threshold_dx",
+        default=0.6e-6,
+        track=True,
+        type=float,
+        help="Threshold for hit finding in units of dx=df/f0.",
+    ),
+    strax.Option(
+        "hit_min_width",
+        default=1.5e-3,
+        track=True,
+        type=float,
+        help="Minimum width for hit finding in units of seconds.",
+    ),
+    strax.Option(
+        "fs",
+        default=38_000,
+        track=True,
+        type=int,
+        help="Sampling frequency (assumed the same for all channels) in unit of Hz",
+    ),
+)
+class DxHits(strax.Plugin):
+    """Find and characterize hits in dx=df/f0 data."""
+
+    __version__ = "0.0.0"
+
+    # Inherited from straxen. Not optimized outside XENONnT.
+    rechunk_on_save = False
+    compressor = "zstd"
+    chunk_target_size_mb = 2000
+    rechunk_on_load = True
+    chunk_source_size_mb = 100
+
+    depends_on = ["records"]
+    provides = "hits"
+    data_kind = "hits"
+    save_when = strax.SaveWhen.ALWAYS
+
+    def infer_dtype(self):
+        dtype = base_waveform_dtype()
+        self.hit_waveform_length = HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
+
+        dtype = base_waveform_dtype()
+        dtype.append(
+            (
+                (
+                    (
+                        "Width of the hit waveform (length above the hit threshold) "
+                        "in unit of samples.",
+                    ),
+                    "width",
+                ),
+                INDEX_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    (
+                        "Hit waveform of dx=df/f0 only after baseline corrections, "
+                        "aligned at the maximum of the dx=df/f0 waveform."
+                    ),
+                    "data_dx",
+                ),
+                DATA_DTYPE,
+                self.hit_waveform_length,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    ("Maximum amplitude of the dx hit waveform",),
+                    "amplitude_max",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        return dtype
+
+    def setup(self):
+        self.hit_waveform_length = HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
+        self.hit_window_length_left = HIT_WINDOW_LENGTH_LEFT
+        self.hit_window_length_right = HIT_WINDOW_LENGTH_RIGHT
+
+        self.hit_threshold_dx = self.config["hit_threshold_dx"]
+        self.hit_min_width_samples = self.config["hit_min_width"] * self.fs
+        self.fs = self.config["fs"]
+        self.dt = 1 / self.fs * SECOND_TO_NANOSECOND
+
+    @staticmethod
+    def find_hit_candidates(signal, hit_threshold, min_pulse_width):
+        """Find potential hit candidates based on threshold crossing.
+
+        Args:
+            signal: The signal array.
+            hit_threshold: Threshold value for hit detection.
+            min_pulse_width: Minimum width required for a valid hit.
+
+        Returns:
+            tuple: (hit_start_indices, hit_widths) for valid hits.
+
+        """
+        below_threshold_indices = np.where(signal < hit_threshold)[0]
+        if len(below_threshold_indices) == 0:
+            return [], []
+
+        # Find the start of the hits
+        hits_width = np.diff(below_threshold_indices, prepend=1)
+
+        # Filter by minimum pulse width
+        valid_mask = hits_width >= min_pulse_width
+        hit_end_indices = below_threshold_indices[valid_mask]
+        hit_widths = hits_width[valid_mask]
+        hit_start_indices = hit_end_indices - hit_widths
+
+        return hit_start_indices, hit_widths
+
+    def compute(self, records):
+        """Process records to find and characterize hits.
+
+        Args:
+            records: Array of records containing signal data.
+
+        Returns:
+            np.ndarray: Array of hits with waveform data and characteristics.
+        """
+        results = []
+
+        for record in records:
+            hits = self._process_single_record(record)
+            if hits is not None and len(hits) > 0:
+                results.append(hits)
+
+        if not results:
+            return np.zeros(0, dtype=self.infer_dtype())
+
+        results = np.concatenate(results)
+
+        # Order hits first by time and then by channel
+        results = results[np.argsort(results["time"])]
+        results = results[np.argsort(results["channel"])]
+
+        return results
+
+    def _process_single_record(self, record):
+        """Process a single record to find hits.
+
+        Args:
+            record: Single record containing signal data.
+
+        Returns:
+            np.ndarray or None: Array of hits found in the record, or None if no hits.
+        """
+        hit_start_i, hit_widths = self.find_hit_candidates(
+            record["data_dx"], self.hit_threshold_dx, self.hit_min_width_samples
+        )
+
+        if len(hit_start_i) == 0:
+            return None
+
+        hits = np.zeros(len(hit_start_i), dtype=self.infer_dtype())
+        hits["width"] = hit_widths
+        hits["channel"] = record["channel"]
+        hits["dt"] = self.dt
+
+        for i, start_i in enumerate(hit_start_i):
+            self._process_hit(hits[i], record["data_dx"], start_i, hit_widths[i])
+            # Calculate time and endtime
+            hits[i]["time"] = record["time"] + start_i * self.dt
+            hits[i]["endtime"] = hits[i]["time"] + hit_widths[i] * self.dt
+
+        return hits
+
+    def _process_hit(self, hit, signal, start_i, width):
+        """Process a single hit candidate.
+
+        Args:
+            hit: Hit array to populate
+            signal: Full signal array
+            start_i: Start index of the hit
+            width: Width of the hit in samples
+        """
+        # Extract hit waveform
+        hit_data = signal[start_i : start_i + width]
+
+        # Find maximum amplitude and its position
+        max_i = np.argmax(np.abs(hit_data))
+        hit["amplitude_max"] = hit_data[max_i]
+
+        # Align waveform around maximum
+        aligned_i = start_i + max_i
+        left_i = max(0, aligned_i - self.hit_window_length_left)
+        right_i = min(len(signal), aligned_i + self.hit_window_length_right)
+
+        # Calculate valid sample ranges
+        n_right_valid_samples = min(right_i - aligned_i, self.hit_window_length_right)
+        n_left_valid_samples = min(aligned_i - left_i, self.hit_window_length_left)
+
+        # Calculate target indices in the hit waveform array
+        target_start = self.hit_window_length_left - n_left_valid_samples
+        target_end = self.hit_window_length_left + n_right_valid_samples
+
+        # Extract waveform
+        hit["data_dx"][target_start:target_end] = signal[left_i:right_i]
+        hit["amplitude_max"] = hit_data[max_i]
+        hit["length"] = right_i - left_i
+
+
+@export
+@strax.takes_config(
+    strax.Option(
         "record_length",
         default=1_900_000,
         track=False,  # Not tracking record length, but we will have to check if it is as promised
