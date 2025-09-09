@@ -88,7 +88,7 @@ class DxHits(strax.Plugin):
             (
                 (
                     ("Maximum amplitude of the dx hit waveform",),
-                    "amplitude_max",
+                    "amplitude",
                 ),
                 DATA_DTYPE,
             )
@@ -154,9 +154,8 @@ class DxHits(strax.Plugin):
 
         results = np.concatenate(results)
 
-        # Order hits first by time and then by channel
+        # Order hits first by time
         results = results[np.argsort(results["time"])]
-        results = results[np.argsort(results["channel"])]
 
         return results
 
@@ -202,8 +201,8 @@ class DxHits(strax.Plugin):
         hit_data = signal[start_i : start_i + width]
 
         # Find maximum amplitude and its position
-        max_i = np.argmax(np.abs(hit_data))
-        hit["amplitude_max"] = hit_data[max_i]
+        max_i = np.argmax(hit_data)
+        hit["amplitude"] = hit_data[max_i]
 
         # Align waveform around maximum
         aligned_i = start_i + max_i
@@ -220,7 +219,7 @@ class DxHits(strax.Plugin):
 
         # Extract waveform
         hit["data_dx"][target_start:target_end] = signal[left_i:right_i]
-        hit["amplitude_max"] = hit_data[max_i]
+        hit["amplitude"] = hit_data[max_i]
         hit["length"] = right_i - left_i
 
 
