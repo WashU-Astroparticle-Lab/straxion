@@ -198,7 +198,7 @@ class DxHits(strax.Plugin):
                 start_i,
                 hit_widths[i],
                 record["time"],
-                previous_hit_end_i=hit_start_i[i - 1] if i > 0 else None,
+                previous_hit_end_i=hit_start_i[i - 1] + hit_widths[i - 1] if i > 0 else None,
                 next_hit_start_i=hit_start_i[i + 1] if i < len(hit_start_i) - 1 else None,
             )
 
