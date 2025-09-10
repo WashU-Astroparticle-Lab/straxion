@@ -24,7 +24,7 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "hit_min_width",
-        default=1.5e-3,
+        default=0.25e-3,
         track=True,
         type=float,
         help="Minimum width for hit finding in units of seconds.",
@@ -107,31 +107,42 @@ class DxHits(strax.Plugin):
 
     @staticmethod
     def find_hit_candidates(signal, hit_threshold, min_pulse_width):
-        """Find potential hit candidates based on threshold crossing.
+        """Finds potential hit candidates, correctly handling edge cases.
 
         Args:
             signal: The signal array.
             hit_threshold: Threshold value for hit detection.
-            min_pulse_width: Minimum width required for a valid hit.
+            min_pulse_width: Minimum width required for a valid hit in samples.
 
         Returns:
             tuple: (hit_start_indices, hit_widths) for valid hits.
-
         """
-        below_threshold_indices = np.where(signal < hit_threshold)[0]
-        if len(below_threshold_indices) == 0:
-            return [], []
+        # 1. Create a boolean array where True means the signal is at or above the threshold
+        above_threshold = signal >= hit_threshold
 
-        # Find the start of the hits
-        hits_width = np.diff(below_threshold_indices, prepend=1)
+        # 2. Pad the array with False at both ends. This is the key to finding
+        #    hits that start at index 0 or end at the last index.
+        padded_array = np.concatenate(([False], above_threshold, [False]))
 
-        # Filter by minimum pulse width
-        valid_mask = hits_width >= min_pulse_width
-        hit_end_indices = below_threshold_indices[valid_mask]
-        hit_widths = hits_width[valid_mask]
-        hit_start_indices = hit_end_indices - hit_widths
+        # 3. Find the changes from False to True (starts) and True to False (ends)
+        #    A change from 0 to 1 is a start (diff = 1).
+        #    A change from 1 to 0 is an end (diff = -1).
+        diffs = np.diff(padded_array.astype(int))
 
-        return hit_start_indices, hit_widths
+        hit_start_indices = np.where(diffs == 1)[0]
+        hit_end_indices = np.where(diffs == -1)[0]
+
+        # If no hits are found, return empty lists
+        if len(hit_start_indices) == 0:
+            return np.array([]), np.array([])
+
+        # 4. Calculate the width of each potential hit
+        hit_widths = hit_end_indices - hit_start_indices
+
+        # 5. Filter the hits by the minimum pulse width
+        valid_mask = hit_widths >= min_pulse_width
+
+        return hit_start_indices[valid_mask], hit_widths[valid_mask]
 
     def compute(self, records):
         """Process records to find and characterize hits.
@@ -181,14 +192,11 @@ class DxHits(strax.Plugin):
         hits["dt"] = self.dt
 
         for i, start_i in enumerate(hit_start_i):
-            self._process_hit(hits[i], record["data_dx"], start_i, hit_widths[i])
-            # Calculate time and endtime
-            hits[i]["time"] = record["time"] + start_i * self.dt
-            hits[i]["endtime"] = hits[i]["time"] + hit_widths[i] * self.dt
+            self._process_hit(hits[i], record["data_dx"], start_i, hit_widths[i], record["time"])
 
         return hits
 
-    def _process_hit(self, hit, signal, start_i, width):
+    def _process_hit(self, hit, signal, start_i, width, start_time):
         """Process a single hit candidate.
 
         Args:
@@ -196,6 +204,7 @@ class DxHits(strax.Plugin):
             signal: Full signal array
             start_i: Start index of the hit
             width: Width of the hit in samples
+            start_time: Start time of the record
         """
         # Extract hit waveform
         hit_data = signal[start_i : start_i + width]
@@ -221,6 +230,10 @@ class DxHits(strax.Plugin):
         hit["data_dx"][target_start:target_end] = signal[left_i:right_i]
         hit["amplitude"] = hit_data[max_i]
         hit["length"] = right_i - left_i
+
+        # Calculate time and endtime
+        hit["time"] = np.int64(start_time + np.int64(left_i * self.dt))
+        hit["endtime"] = np.int64(start_time + np.int64(right_i * self.dt))
 
 
 @export
