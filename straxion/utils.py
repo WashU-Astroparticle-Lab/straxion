@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.colors as mcolors
 
 # Common senses.
 SECOND_TO_NANOSECOND = 1_000_000_000
@@ -146,3 +147,49 @@ def circfit(x, y):
     # Compute the RMS error between these distances and the fitted radius.
     rms_error = np.sqrt(np.mean((distances - radius) ** 2))
     return x_center, y_center, radius, rms_error
+
+
+def register_xenon_colors():
+    """Register Xenon color palette as named colors in matplotlib and set as default color cycle.
+
+    This allows you to use colors like color="xenon_blue" in matplotlib plots.
+    It also sets the Xenon colors as the default color cycle for automatic coloring.
+    Call this function after importing matplotlib but before creating plots.
+
+    Example:
+        >>> import matplotlib.pyplot as plt
+        >>> import straxion
+        >>> straxion.register_xenon_colors()
+        >>> plt.plot([1, 2, 3], color="xenon_blue")  # Named color
+        >>> plt.plot([1, 2, 3], [1, 4, 2])  # Uses first color in cycle
+    """
+    import matplotlib.pyplot as plt
+    from cycler import cycler
+
+    xenon_colors = {
+        "xenon_black": "#000000",
+        "xenon_blue": "#4067b1",
+        "xenon_light_blue": "#6ccef5",
+        "xenon_red": "#B9123E",
+        "xenon_yellow": "#ffc74e",
+        "xenon_green": "#39a974",
+        "xenon_purple": "#8A1859",
+        "xenon_silver": "#bfc2c7",
+    }
+
+    # Register each color in matplotlib's color registry
+    for name, hex_color in xenon_colors.items():
+        mcolors.get_named_colors_mapping()[name] = hex_color
+
+    # Set the Xenon colors as the default color cycle
+    color_list = [
+        "#000000",
+        "#4067b1",
+        "#6ccef5",
+        "#B9123E",
+        "#ffc74e",
+        "#39a974",
+        "#8A1859",
+        "#bfc2c7",
+    ]
+    plt.rcParams["axes.prop_cycle"] = cycler("color", color_list)

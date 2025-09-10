@@ -39,7 +39,25 @@ axes.formatter.min_exponent:    2       # minimum exponent to format in scientif
 axes.formatter.use_mathtext:    True    # When True, use mathtext for scientific
                                         # notation.
 axes.formatter.useoffset:       False   # Omit numerical offset
-axes.prop_cycle:                cycler('color', ["000000","4067b1","6ccef5","B9123E","ffc74e","39a974","8A1859","bfc2c7"])
+# Xenon color palette
+# To use named colors like color="xenon_blue", register them first:
+# import matplotlib.colors as mcolors
+# xenon_colors = {
+#     'xenon_black': '#000000',
+#     'xenon_blue': '#4067b1',
+#     'xenon_light_blue': '#6ccef5',
+#     'xenon_red': '#B9123E',
+#     'xenon_yellow': '#ffc74e',
+#     'xenon_green': '#39a974',
+#     'xenon_purple': '#8A1859',
+#     'xenon_silver': '#bfc2c7'
+# }
+# for name, hex_color in xenon_colors.items():
+#     mcolors.get_named_colors_mapping()[name] = hex_color
+# Note: For custom color cycles, it's better to set them programmatically
+# Use straxion.register_xenon_colors() and then set the cycle in code:
+# from cycler import cycler
+# plt.rcParams['axes.prop_cycle'] = cycler('color', ['#000000', '#4067b1', '#6ccef5', '#B9123E', '#ffc74e', '#39a974', '#8A1859', '#bfc2c7'])
 
 
 #########
