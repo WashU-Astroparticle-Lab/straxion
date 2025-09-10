@@ -30,7 +30,10 @@ def base_waveform_dtype():
         (("Start time since unix epoch [ns]", "time"), TIME_DTYPE),
         (("Exclusive end time since unix epoch [ns]", "endtime"), TIME_DTYPE),
         (("Length of the interval in samples", "length"), LENGTH_DTYPE),
-        (("Width of one sample [ns]", "dt"), TIME_DTYPE),
+        (
+            ("Width of one sample [ns], which is not exact due to the int conversion", "dt"),
+            TIME_DTYPE,
+        ),
         (("Channel number defined by channel_map", "channel"), CHANNEL_DTYPE),
     ]
 

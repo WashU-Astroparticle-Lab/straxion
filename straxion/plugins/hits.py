@@ -103,7 +103,7 @@ class DxHits(strax.Plugin):
         self.hit_threshold_dx = self.config["hit_threshold_dx"]
         self.hit_min_width_samples = self.config["hit_min_width"] * self.fs
         self.fs = self.config["fs"]
-        self.dt = 1 / self.fs * SECOND_TO_NANOSECOND
+        self.dt_exact = 1 / self.fs * SECOND_TO_NANOSECOND
 
     @staticmethod
     def find_hit_candidates(signal, hit_threshold, min_pulse_width):
@@ -189,7 +189,7 @@ class DxHits(strax.Plugin):
         hits = np.zeros(len(hit_start_i), dtype=self.infer_dtype())
         hits["width"] = hit_widths
         hits["channel"] = record["channel"]
-        hits["dt"] = self.dt
+        hits["dt"] = self.dt_exact  # Will be converted to int when saving
 
         for i, start_i in enumerate(hit_start_i):
             self._process_hit(
@@ -226,10 +226,10 @@ class DxHits(strax.Plugin):
             next_hit_start_i: Start index of the next hit
         """
         # Extract hit waveform
-        hit_data = signal[start_i : start_i + width]
+        above_threshold = signal[start_i : start_i + width]
 
         # Find maximum amplitude and its position
-        max_i = np.argmax(hit_data)
+        max_i = np.argmax(above_threshold)
 
         # Align waveform around maximum
         aligned_i = start_i + max_i
@@ -258,12 +258,12 @@ class DxHits(strax.Plugin):
 
         # Extract waveform
         hit["data_dx"][target_start:target_end] = signal[left_i:right_i]
-        hit["amplitude"] = hit_data[max_i]
+        hit["amplitude"] = np.max(signal[left_i:right_i])
         hit["length"] = right_i - left_i
 
         # Calculate time and endtime
-        hit["time"] = np.int64(start_time + np.int64(left_i * self.dt))
-        hit["endtime"] = np.int64(start_time + np.int64(right_i * self.dt))
+        hit["time"] = np.int64(start_time + np.int64(left_i * self.dt_exact))
+        hit["endtime"] = np.int64(start_time + np.int64(right_i * self.dt_exact))
 
 
 @export
@@ -397,7 +397,7 @@ class Hits(strax.Plugin):
         ]
 
         self.record_length = self.config["record_length"]
-        self.dt = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
+        self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
 
         self._check_hit_parameters()
 
@@ -816,7 +816,7 @@ class Hits(strax.Plugin):
         # Set basic hit properties
         hit["hit_threshold"] = hit_threshold
         hit["channel"] = channel
-        hit["dt"] = self.dt
+        hit["dt"] = self.dt_exact  # Will be converted to int when saving
 
         # Calculate amplitude characteristics
         self._calculate_hit_amplitudes(hit, hit_start_i, signal, signal_ma)
@@ -914,8 +914,10 @@ class Hits(strax.Plugin):
         hit_wf_end_i = min(aligned_index + self.hit_window_length_right, self.record_length)
 
         # Set timing information
-        hit["time"] = record["time"] + np.int64(hit_wf_start_i * self.dt)
-        hit["endtime"] = min(record["time"] + np.int64(hit_wf_end_i * self.dt), record["endtime"])
+        hit["time"] = record["time"] + np.int64(hit_wf_start_i * self.dt_exact)
+        hit["endtime"] = min(
+            record["time"] + np.int64(hit_wf_end_i * self.dt_exact), record["endtime"]
+        )
         hit["length"] = hit_wf_end_i - hit_wf_start_i
 
         # Calculate target indices in the hit waveform arrays

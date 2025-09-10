@@ -99,7 +99,9 @@ class QUALIPHIDETHzReader(strax.Plugin):
         return dtype
 
     def setup(self):
+        # Note that this dt is not exact due to the int conversion.
         self.dt = int(1 / self.config["fs"] * SECOND_TO_NANOSECOND)  # In unit of ns.
+        self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
 
     def source_finished(self):
         """Return whether all chunks the plugin wants to read have been written by DAQ.
