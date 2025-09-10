@@ -31,13 +31,13 @@ test_context_config = dict(
 )
 
 
-def qualiphide_thz(
+def qualiphide_thz_offline(
     output_folder: str = "./strax_data",
     we_are_the_daq: bool = False,
     _processed_paths: List[str] = [],
     **kwargs: Any,
 ):
-    """QUALIPHIDE THz context for processing and analysis.
+    """QUALIPHIDE THz context for offline processing and analysis.
 
     Args:
         output_folder (str, optional): Path of the strax.DataDirectory where new data can be stored.
@@ -47,17 +47,58 @@ def qualiphide_thz(
         _processed_paths (List[str], optional): Common paths of output data. Defaults to [].
 
     Returns:
-        strax.Context: strax context object for processing and analysis.
+        strax.Context: strax context object for processing.
 
     """
     context_options = {**common_options, **kwargs}
 
     st = strax.Context(config=test_context_config, **context_options)
     st.register(straxion.plugins.raw_records.QUALIPHIDETHzReader)
-    st.register_all(straxion.plugins.records)
+    st.register(straxion.plugins.records.DxRecords)
+    st.register(straxion.plugins.hits.DxHits)
+
+    # Add the output folder to the storage. This is where new data can be stored.
+    st.storage = [
+        strax.DataDirectory(output_folder, readonly=False),
+    ]
+    # Add the processed data to the storage.
+    for path in _processed_paths:
+        st.storage.append(
+            strax.DataDirectory(
+                path,
+                readonly=False if we_are_the_daq else True,
+            )
+        )
+
+    return st
+
+
+def qualiphide_thz(
+    output_folder: str = "./strax_data",
+    we_are_the_daq: bool = False,
+    _processed_paths: List[str] = [],
+    **kwargs: Any,
+):
+    """QUALIPHIDE THz context for online processing.
+
+    Args:
+        output_folder (str, optional): Path of the strax.DataDirectory where new data can be stored.
+            Defaults to "./strax_data".
+        we_are_the_daq (bool, optional): Whether this context runs on the DAQ machine.
+            Defaults to False.
+        _processed_paths (List[str], optional): Common paths of output data. Defaults to [].
+
+    Returns:
+        strax.Context: strax context object for processing.
+
+    """
+    context_options = {**common_options, **kwargs}
+
+    st = strax.Context(config=test_context_config, **context_options)
+    st.register(straxion.plugins.raw_records.QUALIPHIDETHzReader)
+    st.register(straxion.plugins.records.PulseProcessing)
     st.register_all(straxion.plugins.baseline_monitor)
-    st.register_all(straxion.plugins.hits)
-    st.register_all(straxion.plugins.hit_classification)
+    st.register(straxion.plugins.hits.Hits)
 
     # Add the output folder to the storage. This is where new data can be stored.
     st.storage = [
@@ -98,9 +139,9 @@ def qualiphide(
 
     st = strax.Context(config=test_context_config, **context_options)
     st.register(straxion.plugins.raw_records.NX3LikeReader)
-    st.register_all(straxion.plugins.records)
+    st.register(straxion.plugins.records.PulseProcessing)
     st.register_all(straxion.plugins.baseline_monitor)
-    st.register_all(straxion.plugins.hits)
+    st.register(straxion.plugins.hits.Hits)
     st.register_all(straxion.plugins.hit_classification)
 
     # Add the output folder to the storage. This is where new data can be stored.

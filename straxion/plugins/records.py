@@ -4,12 +4,358 @@ from straxion.utils import (
     DATA_DTYPE,
     SECOND_TO_NANOSECOND,
     base_waveform_dtype,
+    circfit,
 )
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import fftconvolve
+from scipy.interpolate import interp1d
 import os
 
 export, __all__ = strax.exporter()
+
+
+@export
+@strax.takes_config(
+    strax.Option(
+        "iq_finescan_dir",
+        track=False,
+        type=str,
+        help=("Direcotry to fine frequency scan (IQ loop) of resonatorm."),
+    ),
+    strax.Option(
+        "iq_widescan_dir",
+        track=False,
+        type=str,
+        help=("Direcotry to wide frequency scan (IQ loop) of resonatorm."),
+    ),
+    strax.Option(
+        "resonant_frequency_dir",
+        track=False,
+        type=str,
+        help=("Direcotry to resonant frequency npy file."),
+    ),
+    strax.Option(
+        "iq_finescan_filename",
+        track=True,
+        type=str,
+        help=(
+            "Filename of the fine frequency scan (IQ loop) of resonator npy file, "
+            "just the filename. Assumed the filename starts with iq_fine_<f/z>_*-<TIME>",
+        ),
+    ),
+    strax.Option(
+        "iq_widescan_filename",
+        track=True,
+        type=str,
+        help=(
+            "Filename of the fine frequency scan (IQ loop) of resonator npy file, "
+            "just the filename. Assumed the filename starts with iq_wide_<f/z>_*-<TIME>",
+        ),
+    ),
+    strax.Option(
+        "resonant_frequency_filename",
+        track=True,
+        type=str,
+        help=(
+            "Filename of the resonant frequency npy file, "
+            "just the filename, not the path. Assumed the filename starts with fres_*-<TIME>",
+        ),
+    ),
+    strax.Option(
+        "fs",
+        default=38_000,
+        track=True,
+        type=int,
+        help="Sampling frequency (assumed the same for all channels) in unit of Hz",
+    ),
+    strax.Option(
+        "widescan_resolution",
+        track=True,
+        default=1000.0,
+        type=float,
+        help=(
+            "Wide scan within fr +/- widescan_resolution/2*fr outside the fine scan range will "
+            "be used to correct for cable delay",
+        ),
+    ),
+    strax.Option(
+        "cable_correction_polyfit_order",
+        track=True,
+        default=5,
+        type=int,
+        help="Order of the polynomial fit for cable correction",
+    ),
+)
+class DxRecords(strax.Plugin):
+    __version__ = "0.0.0"
+    rechunk_on_save = False
+    compressor = "zstd"  # Inherited from straxen. Not optimized outside XENONnT.
+
+    depends_on = "raw_records"
+    provides = "records"
+    data_kind = "records"
+    save_when = strax.SaveWhen.ALWAYS
+
+    def infer_dtype(self):
+        """Data type for a waveform record."""
+        # Use record_length from setup if available, otherwise compute it.
+        if hasattr(self, "record_length"):
+            record_length = self.record_length
+        else:
+            # Get record_length from the plugin making raw_records.
+            raw_records_dtype = self.deps["raw_records"].dtype_for("raw_records")
+            record_length = len(np.zeros(1, raw_records_dtype)[0]["data_i"])
+
+        dtype = base_waveform_dtype()
+        dtype.append(
+            (
+                (
+                    "Waveform data of df/f after baseline corrections",
+                    "data_dx",
+                ),
+                DATA_DTYPE,
+                record_length,
+            )
+        )
+
+        return dtype
+
+    def _load_correction_files(self):
+        """Load fine and wide scan files, as well as resonant frequency file.
+
+        Assumed the filenames are in the format of iq_fine_z_*-<TIME>.npy, iq_wide_z_*-<TIME>.npy,
+        and fres_*-<TIME>.npy, and the corresponding scan frequency are in the format of
+        iq_fine_f_*-<TIME>.npy, iq_wide_f_*-<TIME>.npy.
+        """
+        iq_finescan_filename = self.config["iq_finescan_filename"]
+        iq_widescan_filename = self.config["iq_widescan_filename"]
+        fr_filename = self.config["resonant_frequency_filename"]
+
+        assert (
+            iq_finescan_filename.endswith(".npy")
+            and iq_widescan_filename.endswith(".npy")
+            and fr_filename.endswith(".npy")
+        ), (
+            "Filename of the fine frequency scan (IQ loop) of resonator npy file, "
+            "the wide frequency scan (IQ loop) of resonator npy file, "
+            "and the resonant frequency npy file should end with .npy",
+        )
+
+        assert (
+            iq_finescan_filename.startswith("iq_fine_z")
+            and iq_widescan_filename.startswith("iq_wide_z")
+            and fr_filename.startswith("fres_")
+        ), (
+            "Filename of the fine frequency scan (IQ loop) of resonator npy file should "
+            "start with iq_fine_z, and the wide frequency scan (IQ loop) of resonator npy "
+            "file should start with iq_wide_z. The resonant frequency npy file should "
+            "start with fres_",
+        )
+
+        assert (
+            iq_finescan_filename.split("-")[1]
+            == iq_widescan_filename.split("-")[1]
+            == fr_filename.split("-")[1]
+        ), (
+            "The time of the fine frequency scan (IQ loop) of resonator npy file, "
+            "the wide frequency scan (IQ loop) of resonator npy file, "
+            "and the resonant frequency npy file should be the same",
+        )
+
+        self.fine_z = np.load(os.path.join(self.config["iq_finescan_dir"], iq_finescan_filename))
+        self.fine_f = np.load(
+            os.path.join(
+                self.config["iq_finescan_dir"],
+                iq_finescan_filename.replace("iq_fine_z", "iq_fine_f"),
+            )
+        )
+        self.wide_z = np.load(os.path.join(self.config["iq_widescan_dir"], iq_widescan_filename))
+        self.wide_f = np.load(
+            os.path.join(
+                self.config["iq_widescan_dir"],
+                iq_widescan_filename.replace("iq_wide_z", "iq_wide_f"),
+            )
+        )
+        self.fres = np.load(os.path.join(self.config["resonant_frequency_dir"], fr_filename))
+
+    @staticmethod
+    def iq_gain_correction_model(fine_f, wide_z, wide_f, fres, widescan_resolution, polyfit_order):
+        """Use the wide scan data outside fine scan range but within wide scan resolution to derive
+        the gain correction model for each channel.
+
+        Args:
+            fine_f (np.ndarray): Fine scan data of the imaginary part.
+            wide_z (np.ndarray): Wide scan data of the real part.
+            wide_f (np.ndarray): Wide scan data of the imaginary part.
+            fres (np.ndarray): Resonant frequency.
+            widescan_resolution (float): Resolution of the wide scan.
+            polyfit_order (int): Order of the polynomial fit.
+
+        Returns:
+            i_models (np.ndarray): Gain correction model for the real part,
+                as a function of the frequency offset from the resonant frequency.
+            q_models (np.ndarray): Gain correction model for the imaginary part,
+                as a function of the frequency offset from the resonant frequency.
+        """
+        i_models = []
+        q_models = []
+        for ch in range(len(fres)):
+            mask_in_wide_resolution = np.abs(wide_f[ch] - fres[ch]) < fres[ch] / widescan_resolution
+            mask_calc_corr = mask_in_wide_resolution.copy()
+            for ind in range(len(mask_in_wide_resolution)):
+                if wide_f[ch, ind] < fine_f[ch, 0] and wide_f[ch, ind] > fine_f[ch, -1]:
+                    mask_calc_corr[ind] = 0
+
+            pfit_i = np.polyfit(
+                wide_f[ch, mask_calc_corr] - fres[ch],
+                np.real(wide_z[ch, mask_calc_corr]),
+                polyfit_order,
+            )
+            pfit_q = np.polyfit(
+                wide_f[ch, mask_calc_corr] - fres[ch],
+                np.imag(wide_z[ch, mask_calc_corr]),
+                polyfit_order,
+            )
+
+            i_model = np.poly1d(pfit_i)
+            q_model = np.poly1d(pfit_q)
+
+            i_models.append(i_model)
+            q_models.append(q_model)
+
+        return i_models, q_models
+
+    def _setup_iq_correction_and_calibration(self):
+        """Setup IQ correction models and calibrate IQ loop centers and phis.
+
+        This method:
+        1. Loads fine and wide scan files, as well as resonant frequency file
+        2. Creates IQ gain correction models for each channel
+        3. Applies corrections to fine scan data
+        4. Calculates IQ loop centers using circle fitting
+        5. Computes phi values for each channel
+        6. Corrects the fine scan data by rotating back the centered IQ by the phi values.
+        """
+        # Load fine and wide scan files, as well as resonant frequency file.
+        self._load_correction_files()
+
+        # Create IQ gain correction models
+        self.i_models, self.q_models = self.iq_gain_correction_model(
+            self.fine_f,
+            self.wide_z,
+            self.wide_f,
+            self.fres,
+            self.config["widescan_resolution"],
+            self.config["cable_correction_polyfit_order"],
+        )
+
+        # Initialize corrected data arrays.
+        self._fine_z_corrected = self.fine_z.copy()
+        self.fine_z_corrected = self.fine_z.copy()
+        self.iq_centers = np.zeros(len(self.fres), dtype=np.complex128)
+        self.phis = np.zeros(len(self.fres))
+
+        # Process each channel.
+        for ch in range(len(self.fres)):
+            # Apply IQ gain correction
+            self._fine_z_corrected[ch] = self.fine_z[ch] / (
+                self.i_models[ch](self.fine_f[ch] - self.fres[ch])
+                + 1j * self.q_models[ch](self.fine_f[ch] - self.fres[ch])
+            )
+
+            # Calculate IQ loop center using circle fitting.
+            i_center, q_center, _, _ = circfit(
+                self._fine_z_corrected[ch].real, self._fine_z_corrected[ch].imag
+            )
+            self.iq_centers[ch] = i_center + 1j * q_center
+
+            # Center the centered IQ fine scan data
+            fine_z_centered = self._fine_z_corrected[ch] - self.iq_centers[ch]
+
+            # Calculate phi (assume the last point is a good approximation of infinity or zero).
+            self.phis[ch] = np.arctan2(fine_z_centered[-1].imag, fine_z_centered[-1].real)
+
+            # Rotate back the centered IQ by the phi values.
+            self.fine_z_corrected[ch] = np.mod(
+                np.angle(fine_z_centered * np.exp(-1j * self.phis[ch])), 2 * np.pi
+            )
+
+    def _setup_frequency_interpolation_models(self):
+        """Setup interpolation models that map theta values to frequency offsets.
+
+        This method:
+        1. Finds the theta value at the resonant frequency for each channel
+        2. Creates interpolation models that map theta differences to frequency offsets
+        3. Validates the interpolation models for self-consistency
+        """
+        # Initialize interpolation data arrays
+        self.thetas_at_fres = np.zeros(len(self.fres), dtype=np.complex128)
+        self.interpolated_freqs = np.zeros_like(self.fres)
+        self.f_interpolation_models = []
+
+        # Create interpolation models for each channel
+        for ch in range(len(self.fres)):
+            # Find the index closest to resonant frequency
+            f0_idx = np.argmin(np.abs(self.fine_f[ch] - self.fres[ch]))
+
+            # Get theta value at resonant frequency
+            self.thetas_at_fres[ch] = self.fine_z_corrected[ch][f0_idx]
+
+            # Calculate theta differences from resonant frequency
+            dtheta_fine = self.fine_z_corrected[ch] - self.thetas_at_fres[ch]
+
+            # Create interpolation model mapping theta differences to frequencies
+            self.f_interpolation_models.append(interp1d(dtheta_fine, self.fine_f[ch]))
+
+            # Validate interpolation model (should return resonant frequency at theta=0)
+            # This is just for self-consistency check
+            self.interpolated_freqs[ch] = self.f_interpolation_models[ch](0)
+
+    def setup(self):
+        # Get record_length from the plugin making raw_records.
+        raw_records_dtype = self.deps["raw_records"].dtype_for("raw_records")
+        self.record_length = len(np.zeros(1, raw_records_dtype)[0]["data_i"])
+        self.dt = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
+
+        # Setup IQ correction and calibration
+        self._setup_iq_correction_and_calibration()
+
+        # Setup frequency interpolation models
+        self._setup_frequency_interpolation_models()
+
+    def compute(self, raw_records):
+        """Compute the dx=df/f0 for the timestream data."""
+        results = np.zeros(len(raw_records), dtype=self.infer_dtype())
+
+        for i, rr in enumerate(raw_records):
+            r = results[i]
+            r["time"] = rr["time"]
+            r["endtime"] = rr["endtime"]
+            r["length"] = rr["length"]
+            r["dt"] = rr["dt"]
+            r["channel"] = rr["channel"]
+
+            data_z = rr["data_i"] + 1j * rr["data_q"]
+            # Apply IQ gain correction.
+            data_z = data_z / (
+                self.i_models[rr["channel"]](0) + 1j * self.q_models[rr["channel"]](0)
+            )
+            # Center the data and rotate back by the phi value.
+            data_z = (data_z - self.iq_centers[rr["channel"]]) * np.exp(
+                -1j * self.phis[rr["channel"]]
+            )
+
+            # Convert to theta (phase angle) relative to the IQ loop center.
+            theta = np.mod(np.angle(data_z), 2 * np.pi)
+            dtheta = theta - self.thetas_at_fres[rr["channel"]]
+
+            # Interpolate to get the frequency offset.
+            r["data_dx"] = (
+                self.f_interpolation_models[rr["channel"]](dtheta)
+                - self.interpolated_freqs[rr["channel"]]
+            ) / self.interpolated_freqs[rr["channel"]]
+
+        return results
 
 
 @export
@@ -194,7 +540,7 @@ class PulseProcessing(strax.Plugin):
             finescan = self.finescan[channel]
             finescan_i = finescan.real
             finescan_q = finescan.imag
-            i_center, q_center, _, _ = self.circfit(finescan_i, finescan_q)
+            i_center, q_center, _, _ = circfit(finescan_i, finescan_q)
             theta_f_min = np.arctan2(finescan_q[0] - q_center, finescan_i[0] - i_center)
             self.channel_centers[int(channel)] = (i_center, q_center, theta_f_min)
 
@@ -257,92 +603,6 @@ class PulseProcessing(strax.Plugin):
         pulse_kernal = np.flip(pulse_kernal)
 
         return pulse_kernal
-
-    @staticmethod
-    def circfit(x, y):
-        """Least squares fit of X-Y data to a circle.
-
-        Adapted from the Matlab implementation of Andrew D. Horchler (horchler@gmail.com).
-
-        Args:
-            x (array-like): 1D array of x position data.
-            y (array-like): 1D array of y position data.
-
-        Returns:
-            tuple: (x_center, y_center, radius, rms_error)
-                x_center (float): X-position of center of fitted circle.
-                y_center (float): Y-position of center of fitted circle.
-                radius (float): Radius of fitted circle.
-                rms_error (float): Root mean squared error of the fit.
-
-        Raises:
-            ValueError: If x and y are not the same length, have less than three points,
-                or are collinear.
-
-        """
-        x = np.asarray(x, dtype=float).flatten()
-        y = np.asarray(y, dtype=float).flatten()
-
-        # Sanity checks.
-        if x.size != y.size:
-            raise ValueError(
-                "x and y must be the same length. "
-                f"Got x.shape={x.shape}, y.shape={y.shape}, x.size={x.size}, y.size={y.size}"
-            )
-        if x.size < 3:
-            raise ValueError(
-                f"At least three points are required. Got x.size={x.size}, y.size={y.size}"
-            )
-
-        # Collinearity check.
-        collinearity_matrix = np.column_stack([x[: min(50, len(x))], y[: min(50, len(y))]])
-        diff_matrix = np.diff(collinearity_matrix, axis=0)
-        rank = np.linalg.matrix_rank(diff_matrix)
-        if rank == 1:
-            raise ValueError(
-                f"Points are collinear or nearly collinear.\n"
-                f"First 50 (or fewer) x: {x[:min(50, len(x))]}\n"
-                f"First 50 (or fewer) y: {y[:min(50, len(y))]}\n"
-                f"Collinearity diff matrix shape: {diff_matrix.shape}, rank: {rank}"
-            )
-
-        x2 = x * x
-        y2 = y * y
-        xy = x * y
-        sum_x = np.sum(x)
-        sum_y = np.sum(y)
-        sum_x2 = np.sum(x2)
-        sum_y2 = np.sum(y2)
-        sum_xy = np.sum(xy)
-        sum_x2y = np.sum((x2 + y2) * y)
-        sum_x2x = np.sum((x2 + y2) * x)
-        sum_x2y2 = np.sum(x2 + y2)
-        n_points = len(x)
-
-        # Solve Ax=b.
-        a_matrix = np.array(
-            [[sum_x, sum_y, n_points], [sum_xy, sum_y2, sum_y], [sum_x2, sum_xy, sum_x]]
-        )
-        b_vector = np.array([sum_x2y2, sum_x2y, sum_x2x])
-        try:
-            solution = np.linalg.solve(a_matrix, b_vector)
-        except np.linalg.LinAlgError as e:
-            raise ValueError(
-                f"Failed to solve linear system in circfit.\n"
-                f"a_matrix=\n{a_matrix}\n"
-                f"b_vector={b_vector}\n"
-                f"Error: {e}"
-            )
-        x_center = 0.5 * solution[0]
-        y_center = 0.5 * solution[1]
-        radius = np.sqrt(x_center**2 + y_center**2 + solution[2])
-
-        # Root mean squared error.
-        # Calculate the distance from each point to the fitted circle center.
-        distances = np.sqrt((x - x_center) ** 2 + (y - y_center) ** 2)
-        # Compute the RMS error between these distances and the fitted radius.
-        rms_error = np.sqrt(np.mean((distances - radius) ** 2))
-        return x_center, y_center, radius, rms_error
 
     def convert_iq_to_theta(self, data_i, data_q, channel):
         """Convert data_i/data_q timestreams to theta (phase angle) relative to the IQ loop center.
