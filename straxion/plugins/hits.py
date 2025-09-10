@@ -230,17 +230,26 @@ class DxHits(strax.Plugin):
 
         # Find maximum amplitude and its position
         max_i = np.argmax(hit_data)
-        hit["amplitude"] = hit_data[max_i]
 
         # Align waveform around maximum
         aligned_i = start_i + max_i
-        left_i = max(0, aligned_i - self.hit_window_length_left, previous_hit_end_i)
-        right_i = min(len(signal), aligned_i + self.hit_window_length_right)
+
+        # Handle left boundary, considering previous hit if it exists
+        left_boundary = aligned_i - self.hit_window_length_left
+        if previous_hit_end_i is not None:
+            left_i = max(0, left_boundary, previous_hit_end_i)
+        else:
+            left_i = max(0, left_boundary)
+
+        # Handle right boundary, considering next hit if it exists
+        right_boundary = aligned_i + self.hit_window_length_right
+        if next_hit_start_i is not None:
+            right_i = min(len(signal), right_boundary, next_hit_start_i)
+        else:
+            right_i = min(len(signal), right_boundary)
 
         # Calculate valid sample ranges
-        n_right_valid_samples = min(
-            right_i - aligned_i, self.hit_window_length_right, next_hit_start_i - aligned_i
-        )
+        n_right_valid_samples = min(right_i - aligned_i, self.hit_window_length_right)
         n_left_valid_samples = min(aligned_i - left_i, self.hit_window_length_left)
 
         # Calculate target indices in the hit waveform array
