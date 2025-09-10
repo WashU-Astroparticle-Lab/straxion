@@ -192,11 +192,28 @@ class DxHits(strax.Plugin):
         hits["dt"] = self.dt
 
         for i, start_i in enumerate(hit_start_i):
-            self._process_hit(hits[i], record["data_dx"], start_i, hit_widths[i], record["time"])
+            self._process_hit(
+                hits[i],
+                record["data_dx"],
+                start_i,
+                hit_widths[i],
+                record["time"],
+                previous_hit_end_i=hit_start_i[i - 1] if i > 0 else None,
+                next_hit_start_i=hit_start_i[i + 1] if i < len(hit_start_i) - 1 else None,
+            )
 
         return hits
 
-    def _process_hit(self, hit, signal, start_i, width, start_time):
+    def _process_hit(
+        self,
+        hit,
+        signal,
+        start_i,
+        width,
+        start_time,
+        previous_hit_end_i=None,
+        next_hit_start_i=None,
+    ):
         """Process a single hit candidate.
 
         Args:
@@ -205,6 +222,8 @@ class DxHits(strax.Plugin):
             start_i: Start index of the hit
             width: Width of the hit in samples
             start_time: Start time of the record
+            previous_hit_end_i: End index of the previous hit
+            next_hit_start_i: Start index of the next hit
         """
         # Extract hit waveform
         hit_data = signal[start_i : start_i + width]
@@ -215,11 +234,13 @@ class DxHits(strax.Plugin):
 
         # Align waveform around maximum
         aligned_i = start_i + max_i
-        left_i = max(0, aligned_i - self.hit_window_length_left)
+        left_i = max(0, aligned_i - self.hit_window_length_left, previous_hit_end_i)
         right_i = min(len(signal), aligned_i + self.hit_window_length_right)
 
         # Calculate valid sample ranges
-        n_right_valid_samples = min(right_i - aligned_i, self.hit_window_length_right)
+        n_right_valid_samples = min(
+            right_i - aligned_i, self.hit_window_length_right, next_hit_start_i - aligned_i
+        )
         n_left_valid_samples = min(aligned_i - left_i, self.hit_window_length_left)
 
         # Calculate target indices in the hit waveform array
