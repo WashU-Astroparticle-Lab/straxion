@@ -14,6 +14,143 @@ export, __all__ = strax.exporter()
 @export
 @strax.takes_config(
     strax.Option(
+        "max_spike_coincidence",
+        type=int,
+        default=1,
+        help=("Maximum number of spikes that can be coincident with a photon candidate hit."),
+    ),
+    strax.Option(
+        "spike_coincidence_window",
+        type=float,
+        default=0.131e-3,
+        help=("Window length for checking spike coincidence, in unit of seconds."),
+    ),
+    strax.Option(
+        "spike_threshold_dx",
+        default=0.6e-6,
+        track=True,
+        type=float,
+        help="Threshold for spike finding in units of dx=df/f0.",
+    ),
+    strax.Option(
+        "fs",
+        default=38_000,
+        track=True,
+        type=int,
+        help="Sampling frequency (assumed the same for all channels) in unit of Hz",
+    ),
+    strax.Option(
+        "symmetric_spike_inspection_window_length",
+        type=int,
+        default=25,
+        help=(
+            "Length of the inspection window for identifying symmetric spikes, "
+            "in unit of samples."
+        ),
+    ),
+)
+class SpikeCoincidence(strax.Plugin):
+    """Classify hits into different types based on their coincidence with spikes."""
+
+    __version__ = "0.0.0"
+
+    depends_on = ("hits", "records")
+    provides = "hit_classification"
+    data_kind = "hits"
+    save_when = strax.SaveWhen.ALWAYS
+
+    def infer_dtype(self):
+        base_dtype = [
+            (("Start time since unix epoch [ns]", "time"), TIME_DTYPE),
+            (("Exclusive end time since unix epoch [ns]", "endtime"), TIME_DTYPE),
+            (("Channel number defined by channel_map", "channel"), CHANNEL_DTYPE),
+        ]
+
+        hit_id_dtype = [
+            (("Is in coincidence with spikes", "is_coincident_with_spikes"), bool),
+            (("Photon candidate hit", "is_photon_candidate"), bool),
+        ]
+
+        hit_feature_dtype = [
+            (
+                (
+                    "Rise edge slope of the hit waveform, in unit of dx/second",
+                    "rise_edge_slope",
+                ),
+                DATA_DTYPE,
+            ),
+            (
+                ("Number of channels with spikes coinciding with the hit", "n_spikes_coinciding"),
+                int,
+            ),
+        ]
+
+        return base_dtype + hit_id_dtype + hit_feature_dtype
+
+    def setup(self):
+        self.spike_coincidence_window = int(
+            round(self.config["spike_coincidence_window"] * self.config["fs"])
+        )
+        self.spike_threshold_dx = self.config["spike_threshold_dx"]
+        self.ss_window = self.config["symmetric_spike_inspection_window_length"]
+        self.max_spike_coincidence = self.config["max_spike_coincidence"]
+        self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
+
+    def compute_ma_rise_edge_slope(self, hits, hit_classification):
+        """Compute the rise edge slope of the moving averaged signal."""
+
+        # Temporary time stamps for the inspected window, in unit of seconds.
+        dt = self.dt_exact
+        times = np.arange(self.ss_window) * dt / SECOND_TO_NANOSECOND
+
+        inspected_wfs = hits["data_dx"][
+            :, HIT_WINDOW_LENGTH_LEFT - self.ss_window : HIT_WINDOW_LENGTH_LEFT
+        ]
+        # Fit a linear model to the inspected window.
+        hit_classification["rise_edge_slope"] = np.polyfit(times, inspected_wfs.T, 1)[0]
+
+    def find_spike_coincidence(self, hits, records):
+        """Find the spike coincidence of the hit."""
+        spike_coincidence = np.zeros(len(hits))
+        for i, hit in enumerate(hits):
+            # Get the index of the hit maximum in the record
+            hit_climax_i = (
+                int((hit["time"] - records["time"][0]) / SECOND_TO_NANOSECOND / self.dt_exact)
+                + HIT_WINDOW_LENGTH_LEFT
+            )
+
+            # Extract windows from all records at once
+            inspected_wfs = records["data_dx"][
+                :,
+                hit_climax_i
+                - self.spike_coincidence_window : hit_climax_i
+                + self.spike_coincidence_window,
+            ]
+
+            # Count records with spikes above threshold
+            spike_coincidence[i] = np.sum(np.max(inspected_wfs, axis=1) > self.spike_threshold_dx)
+        hits["n_spikes_coinciding"] = spike_coincidence
+
+    def compute(self, hits, records):
+        hit_classification = np.zeros(len(hits), dtype=self.infer_dtype())
+        hit_classification["time"] = hits["time"]
+        hit_classification["endtime"] = hits["endtime"]
+        hit_classification["channel"] = hits["channel"]
+
+        self.compute_ma_rise_edge_slope(hits, hit_classification)
+        self.find_spike_coincidence(hits, records)
+
+        hit_classification["is_coincident_with_spikes"] = (
+            hits["n_spikes_coinciding"] > self.max_spike_coincidence
+        )
+        hit_classification["is_photon_candidate"] = ~hit_classification["is_coincident_with_spikes"]
+
+        return hit_classification
+
+
+@export
+@strax.takes_config(
+    strax.Option(
         "cr_ma_std_coeff",
         type=list,
         default=[20.0 for _ in range(41)],
