@@ -11,8 +11,6 @@ common_options: Dict[str, Any] = dict(
 )
 
 common_config = dict(
-    n_dish_channels=4,  # KIDs inside the dish region
-    n_side_channels=37,  # KIDs outside the dish region
     channel_map=immutabledict(
         # (Mimimum channel, maximum channel)
         # Channels must be listed in an ascending order
