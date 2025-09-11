@@ -114,10 +114,7 @@ class SpikeCoincidence(strax.Plugin):
         spike_coincidence = np.zeros(len(hits))
         for i, hit in enumerate(hits):
             # Get the index of the hit maximum in the record
-            hit_climax_i = (
-                int((hit["time"] - records["time"][0]) / SECOND_TO_NANOSECOND / self.dt_exact)
-                + HIT_WINDOW_LENGTH_LEFT
-            )
+            hit_climax_i = hit["amplitude_max_record_i"]
 
             # Extract windows from all records at once
             inspected_wfs = records["data_dx"][
