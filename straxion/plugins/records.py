@@ -315,7 +315,7 @@ class DxRecords(strax.Plugin):
         # Get record_length from the plugin making raw_records.
         raw_records_dtype = self.deps["raw_records"].dtype_for("raw_records")
         self.record_length = len(np.zeros(1, raw_records_dtype)[0]["data_i"])
-        self.dt = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
+        self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
 
         # Setup IQ correction and calibration
         self._setup_iq_correction_and_calibration()
@@ -511,7 +511,7 @@ class PulseProcessing(strax.Plugin):
         # Get record_length from the plugin making raw_records.
         raw_records_dtype = self.deps["raw_records"].dtype_for("raw_records")
         self.record_length = len(np.zeros(1, raw_records_dtype)[0]["data_i"])
-        self.dt = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
+        self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
 
         self.finescan = self.load_finescan_files(
             os.path.join(self.config["iq_finescan_dir"], self.config["iq_finescan_filename"])
@@ -529,7 +529,7 @@ class PulseProcessing(strax.Plugin):
         )
 
         # Pre-compute moving average kernel.
-        moving_average_kernel_width = int(self.config["moving_average_width"] / self.dt)
+        moving_average_kernel_width = int(self.config["moving_average_width"] / self.dt_exact)
         self.moving_average_kernel = (
             np.ones(moving_average_kernel_width) / moving_average_kernel_width
         )
