@@ -109,7 +109,7 @@ class SpikeCoincidence(strax.Plugin):
         # Fit a linear model to the inspected window.
         hit_classification["rise_edge_slope"] = np.polyfit(times, inspected_wfs.T, 1)[0]
 
-    def find_spike_coincidence(self, hits, records):
+    def find_spike_coincidence(self, hit_classification, hits, records):
         """Find the spike coincidence of the hit."""
         spike_coincidence = np.zeros(len(hits))
         for i, hit in enumerate(hits):
@@ -129,7 +129,7 @@ class SpikeCoincidence(strax.Plugin):
 
             # Count records with spikes above threshold
             spike_coincidence[i] = np.sum(np.max(inspected_wfs, axis=1) > self.spike_threshold_dx)
-        hits["n_spikes_coinciding"] = spike_coincidence
+        hit_classification["n_spikes_coinciding"] = spike_coincidence
 
     def compute(self, hits, records):
         hit_classification = np.zeros(len(hits), dtype=self.infer_dtype())
@@ -138,10 +138,10 @@ class SpikeCoincidence(strax.Plugin):
         hit_classification["channel"] = hits["channel"]
 
         self.compute_ma_rise_edge_slope(hits, hit_classification)
-        self.find_spike_coincidence(hits, records)
+        self.find_spike_coincidence(hit_classification, hits, records)
 
         hit_classification["is_coincident_with_spikes"] = (
-            hits["n_spikes_coinciding"] > self.max_spike_coincidence
+            hit_classification["n_spikes_coinciding"] > self.max_spike_coincidence
         )
         hit_classification["is_photon_candidate"] = ~hit_classification["is_coincident_with_spikes"]
 
