@@ -93,6 +93,15 @@ class DxHits(strax.Plugin):
                 DATA_DTYPE,
             )
         )
+        dtype.append(
+            (
+                (
+                    "Record index of the maximum amplitude of the dx hit waveform",
+                    "amplitude_max_record_i",
+                ),
+                INDEX_DTYPE,
+            )
+        )
         return dtype
 
     def setup(self):
@@ -260,6 +269,7 @@ class DxHits(strax.Plugin):
         hit["data_dx"][target_start:target_end] = signal[left_i:right_i]
         hit["amplitude"] = np.max(signal[left_i:right_i])
         hit["length"] = right_i - left_i
+        hit["amplitude_max_record_i"] = np.int32(np.argmax(signal[left_i:right_i]) + left_i)
 
         # Calculate time and endtime
         hit["time"] = np.int64(start_time + np.int64(left_i * self.dt_exact))

@@ -11,8 +11,6 @@ common_options: Dict[str, Any] = dict(
 )
 
 common_config = dict(
-    n_dish_channels=4,  # KIDs inside the dish region
-    n_side_channels=37,  # KIDs outside the dish region
     channel_map=immutabledict(
         # (Mimimum channel, maximum channel)
         # Channels must be listed in an ascending order
@@ -56,6 +54,7 @@ def qualiphide_thz_offline(
     st.register(straxion.plugins.raw_records.QUALIPHIDETHzReader)
     st.register(straxion.plugins.records.DxRecords)
     st.register(straxion.plugins.hits.DxHits)
+    st.register(straxion.plugins.hit_classification.SpikeCoincidence)
 
     # Add the output folder to the storage. This is where new data can be stored.
     st.storage = [
@@ -142,7 +141,7 @@ def qualiphide(
     st.register(straxion.plugins.records.PulseProcessing)
     st.register_all(straxion.plugins.baseline_monitor)
     st.register(straxion.plugins.hits.Hits)
-    st.register_all(straxion.plugins.hit_classification)
+    st.register(straxion.plugins.hit_classification.HitClassification)
 
     # Add the output folder to the storage. This is where new data can be stored.
     st.storage = [
