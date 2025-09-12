@@ -236,7 +236,7 @@ if __name__ == "__main__":
     args = parse_arguments()
 
     # Initialize straxion context
-    st = straxion.qualiphide_thz()
+    st = straxion.qualiphide_thz_online()
 
     # Extract run number from DAQ input filename
     run = Path(args.daq_input_dir).stem.split("-")[1]

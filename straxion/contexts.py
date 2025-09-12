@@ -72,7 +72,7 @@ def qualiphide_thz_offline(
     return st
 
 
-def qualiphide_thz(
+def qualiphide_thz_online(
     output_folder: str = "./strax_data",
     we_are_the_daq: bool = False,
     _processed_paths: List[str] = [],
