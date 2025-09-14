@@ -46,7 +46,7 @@ def _get_test_config(test_data_dir, run_id):
     not os.getenv("STRAXION_TEST_DATA_DIR"),
     reason="Test data directory not provided via STRAXION_TEST_DATA_DIR environment variable",
 )
-class TestBaselineMonitor:
+class TestBaselineMonitorOnline:
     """Test the BaselineMonitor plugin with real qualiphide_fir_test_data."""
 
     def test_qualiphide_thz_online_context_creation(self):
