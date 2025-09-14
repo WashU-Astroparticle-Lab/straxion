@@ -608,3 +608,229 @@ class TestRecordsWithRealDataOnline:
         clean_strax_data()
         with pytest.raises(Exception):
             st.get_array(run_id, "records", config=configs)
+
+
+@pytest.mark.skipif(
+    not os.getenv("STRAXION_TEST_DATA_DIR"),
+    reason="Test data directory not provided via STRAXION_TEST_DATA_DIR environment variable",
+)
+class TestRecordsWithRealDataOffline:
+    """Test records processing with real qualiphide_fir_test_data using DxRecords plugin."""
+
+    def test_qualiphide_thz_offline_context_creation(self):
+        """Test that the qualiphide_thz_offline context can be created without errors."""
+        import straxion
+
+        st = straxion.qualiphide_thz_offline()
+        assert st is not None
+        assert hasattr(st, "get_array")
+
+    def test_straxion_test_data_dir_exists_and_not_empty(self):
+        """Test that STRAXION_TEST_DATA_DIR is set, exists, and is not empty."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if test_data_dir:
+            assert os.path.exists(test_data_dir) and os.path.isdir(
+                test_data_dir
+            ), f"STRAXION_TEST_DATA_DIR '{test_data_dir}' does not exist or is not a directory."
+            contents = os.listdir(test_data_dir)
+            print(f"Contents of STRAXION_TEST_DATA_DIR ({test_data_dir}): {contents}")
+            assert len(contents) > 0, f"STRAXION_TEST_DATA_DIR '{test_data_dir}' is empty."
+        else:
+            pytest.fail("STRAXION_TEST_DATA_DIR is not set.")
+
+    def test_qualiphide_fir_test_data_files_exist(self):
+        """Test that all expected .npy files exist in the qualiphide_fir_test_data directory."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        # Expected files based on the new test data structure
+        expected_files = [
+            "fres_2dB-1756824887.npy",
+            "iq_fine_f_2dB_below_pcrit-1756824887.npy",
+            "iq_fine_z_2dB_below_pcrit-1756824887.npy",
+            "iq_wide_f_2dB_below_pcrit-1756824887.npy",
+            "iq_wide_z_2dB_below_pcrit-1756824887.npy",
+            "ts_38kHz-1756824965.npy",
+        ]
+
+        actual_files = set(os.listdir(test_data_dir))
+        missing_files = [f for f in expected_files if f not in actual_files]
+
+        print(f"Expected files: {expected_files}")
+        print(f"Actual files: {sorted(actual_files)}")
+
+        assert not missing_files, f"Missing .npy files: {missing_files}"
+
+    def test_npy_files_are_valid(self):
+        """Test that the .npy files can be loaded and contain valid data."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        # Test loading each .npy file
+        npy_files = [f for f in os.listdir(test_data_dir) if f.endswith(".npy")]
+
+        for npy_file in npy_files:
+            file_path = os.path.join(test_data_dir, npy_file)
+            try:
+                data = np.load(file_path)
+                assert data is not None, f"Failed to load {npy_file}"
+                assert data.size > 0, f"Empty data in {npy_file}"
+                print(f"Successfully loaded {npy_file} with shape {data.shape}")
+            except Exception as e:
+                pytest.fail(f"Failed to load {npy_file}: {str(e)}")
+
+    def test_records_processing(self):
+        """Test the complete records processing pipeline with real data using DxRecords plugin.
+
+        This test requires the STRAXION_TEST_DATA_DIR environment variable to be set to the path
+        containing the qualiphide_fir_test_data directory with example data.
+        """
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        import straxion
+
+        # Create context and process records
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+        configs = _get_test_config(test_data_dir, run_id)
+
+        clean_strax_data()
+        try:
+            records = st.get_array(run_id, "records", config=configs)
+
+            # Basic validation of the output
+            assert records is not None
+            assert len(records) > 0
+
+            # Check that all required fields are present for DxRecords
+            required_fields = [
+                "time",
+                "endtime",
+                "length",
+                "dt",
+                "channel",
+                "data_dx",
+            ]
+            for field in required_fields:
+                assert (
+                    field in records.dtype.names
+                ), f"Required field '{field}' missing from records"
+
+            # Check data types
+            assert records["time"].dtype == np.int64
+            assert records["endtime"].dtype == np.int64
+            assert records["length"].dtype == np.int64
+            assert records["dt"].dtype == np.int64
+            assert records["channel"].dtype == np.int16
+            assert records["data_dx"].dtype == np.float32
+
+            # Check that all records have reasonable lengths
+            assert all(records["length"] > 0)
+            assert all(records["dt"] > 0)
+
+            # Check that data arrays have the correct shape
+            for record in records:
+                assert record["data_dx"].shape == (record["length"],)
+
+            print(
+                f"Successfully processed {len(records)} records "
+                f"from {len(np.unique(records['channel']))} channels"
+            )
+
+        except Exception as e:
+            pytest.fail(f"Failed to process records: {str(e)}")
+
+    def test_records_data_consistency(self):
+        """Test that the records data is internally consistent."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        import straxion
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+        configs = _get_test_config(test_data_dir, run_id)
+
+        clean_strax_data()
+        try:
+            records = st.get_array(run_id, "records", config=configs)
+
+            # Check endtime consistency
+            for record in records:
+                expected_endtime = record["time"] + record["length"] * record["dt"]
+                assert record["endtime"] == expected_endtime
+
+            # Check monotonic time within channels
+            for channel in np.unique(records["channel"]):
+                channel_records = records[records["channel"] == channel]
+                if len(channel_records) > 1:
+                    times = channel_records["time"]
+                    assert np.all(
+                        np.diff(times) > 0
+                    ), f"Time stamps not monotonically increasing for channel {channel}"
+
+            # Check finite data
+            assert np.all(np.isfinite(records["data_dx"])), "Non-finite values found in data_dx"
+
+        except Exception as e:
+            pytest.fail(f"Failed to validate records consistency: {str(e)}")
+
+    def test_records_missing_data_directory(self):
+        """Test that the records plugin raises appropriate errors when data directory is missing."""
+        import straxion
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+
+        configs = {
+            "daq_input_dir": "/nonexistent/path.ts.npy",
+            "iq_finescan_dir": "/nonexistent",
+            "iq_finescan_filename": "nonexistent.npy",
+            "iq_widescan_dir": "/nonexistent",
+            "iq_widescan_filename": "nonexistent.npy",
+            "resonant_frequency_dir": "/nonexistent",
+            "resonant_frequency_filename": "nonexistent.npy",
+        }
+
+        clean_strax_data()
+        with pytest.raises((ValueError, FileNotFoundError)):
+            st.get_array(run_id, "records", config=configs)
+
+    def test_records_invalid_config(self):
+        """Test that the records plugin handles invalid configuration gracefully."""
+        import straxion
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+
+        # Test with invalid configuration
+        configs = {
+            "daq_input_dir": "/nonexistent/path.ts.npy",
+            "iq_finescan_dir": "/nonexistent",
+            "iq_finescan_filename": "nonexistent.npy",
+            "iq_widescan_dir": "/nonexistent",
+            "iq_widescan_filename": "nonexistent.npy",
+            "resonant_frequency_dir": "/nonexistent",
+            "resonant_frequency_filename": "nonexistent.npy",
+        }
+
+        clean_strax_data()
+        with pytest.raises(Exception):
+            st.get_array(run_id, "records", config=configs)
