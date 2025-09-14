@@ -33,7 +33,7 @@ def test_straxion_test_data_dir_exists_and_not_empty():
 def test_qualiphide_thz_offline_plugin_registration():
     """Test that the records plugin is properly registered in the context."""
     st = straxion.qualiphide_thz_offline()
-    assert "records" in st._plugin_class_registry
+    assert "raw_records" in st._plugin_class_registry
 
 
 def clean_strax_data():
@@ -99,7 +99,7 @@ def test_records_processing():
 
     clean_strax_data()
     try:
-        records = st.get_array(run_id, "records", config=configs)
+        records = st.get_array(run_id, "raw_records", config=configs)
 
         # Basic validation of the output
         assert records is not None
@@ -177,7 +177,7 @@ def test_records_data_consistency():
 
     clean_strax_data()
     try:
-        records = st.get_array(run_id, "records", config=configs)
+        records = st.get_array(run_id, "raw_records", config=configs)
         _check_endtime_consistency(records)
         _check_monotonic_time(records)
         _check_finite_data(records)
@@ -202,7 +202,7 @@ def test_records_missing_data_directory():
 
     clean_strax_data()
     with pytest.raises((ValueError, FileNotFoundError)):
-        st.get_array(run_id, "records", config=configs)
+        st.get_array(run_id, "raw_records", config=configs)
 
 
 def test_records_invalid_config():
@@ -223,7 +223,7 @@ def test_records_invalid_config():
 
     clean_strax_data()
     with pytest.raises(Exception):
-        st.get_array(run_id, "records", config=configs)
+        st.get_array(run_id, "raw_records", config=configs)
 
 
 @pytest.mark.skipif(
