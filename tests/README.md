@@ -49,16 +49,6 @@ The tests expect the following directory structure:
     └── ... (more channel files)
 ```
 
-### Using the Example Script
-
-If you have access to `timeS429` locally, you can also use the standalone example script to test the NX3LikeReader,
-
-```bash
-python run_test_example.py /path/to/timeS429/directory
-```
-
-This script performs the same validation as the test but provides more detailed output for debugging.
-
 ## GitHub Actions Integration
 
 The tests are configured to work with GitHub Actions using GitHub Releases for test data.
@@ -108,11 +98,3 @@ If tests fail:
 2. Verify the file naming convention matches `<RUN>-ch<CHANNEL>.bin`
 3. Ensure the binary files are in the correct format expected by the NX3LikeReader
 4. Check that the configuration parameters (record_length, fs) match your data
-
-For more detailed debugging, use the standalone example script:
-
-```bash
-python run_test_example.py /path/to/your/test/data
-```
-
-This will provide step-by-step validation and detailed error messages.
