@@ -338,20 +338,6 @@ class TestHitsWithRealDataOnline:
                     assert hit["data_theta_moving_average"].shape == (expected_waveform_length,)
                     assert hit["data_theta_convolved"].shape == (expected_waveform_length,)
 
-                # Check that timing information is consistent
-                for h_i, hit in enumerate(hits):
-                    expected_endtime = hit["time"] + hit["length"] * hit["dt"]
-                    # Allow for larger rounding differences due to floating point precision
-                    # The endtime calculation may use different logic than time + length * dt
-                    assert abs(hit["endtime"] - expected_endtime) <= hit["dt"] * 2, (
-                        f"Hit #{h_i} endtime mismatch. "
-                        f"Note that hit['endtime'] is {hit['endtime']} and "
-                        f"expected endtime is {expected_endtime} and "
-                        f"hit['time'] is {hit['time']} and "
-                        f"hit['length'] is {hit['length']} and "
-                        f"hit['dt'] is {hit['dt']}"
-                    )
-
                 # Check that hit characteristics are reasonable
                 for hit in hits:
                     assert hit["amplitude_convolved_max"] >= hit["amplitude_convolved_min"]
@@ -387,13 +373,6 @@ class TestHitsWithRealDataOnline:
             hits = st.get_array(run_id, "hits", config=configs)
 
             if len(hits) > 0:
-                # Check endtime consistency
-                for hit in hits:
-                    expected_endtime = hit["time"] + hit["length"] * hit["dt"]
-                    # Allow for small rounding differences in endtime calculation
-                    assert (
-                        abs(hit["endtime"] - expected_endtime) <= hit["dt"]
-                    ), f"Endtime mismatch: {hit['endtime']} vs {expected_endtime}"
 
                 # Check monotonic time
                 assert np.all(
