@@ -72,7 +72,7 @@ def qualiphide_thz_offline(
     return st
 
 
-def qualiphide_thz(
+def qualiphide_thz_online(
     output_folder: str = "./strax_data",
     we_are_the_daq: bool = False,
     _processed_paths: List[str] = [],
@@ -98,6 +98,7 @@ def qualiphide_thz(
     st.register(straxion.plugins.records.PulseProcessing)
     st.register_all(straxion.plugins.baseline_monitor)
     st.register(straxion.plugins.hits.Hits)
+    st.register(straxion.plugins.hit_classification.HitClassification)
 
     # Add the output folder to the storage. This is where new data can be stored.
     st.storage = [

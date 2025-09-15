@@ -4,4 +4,4 @@ The figures presented are dependency diagrams, meaning that an arrow stemming fr
 
 Colors indicate data kinds. To load tables with different data kinds, you currently need more than one get_df (or get_array) commands.
 
-<img width="869" height="476" alt="Screenshot 2025-08-12 at 6 42 01 PM" src="https://github.com/user-attachments/assets/a2ae8ade-13b9-4ef6-91f8-5aa7a218b0a6" />
+<img width="1776" height="770" alt="image" src="https://github.com/user-attachments/assets/64a6c418-7775-4194-b2b8-05232523a2a7" />

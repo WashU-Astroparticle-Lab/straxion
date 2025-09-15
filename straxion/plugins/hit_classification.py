@@ -96,7 +96,7 @@ class SpikeCoincidence(strax.Plugin):
         self.max_spike_coincidence = self.config["max_spike_coincidence"]
         self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
 
-    def compute_ma_rise_edge_slope(self, hits, hit_classification):
+    def compute_rise_edge_slope(self, hits, hit_classification):
         """Compute the rise edge slope of the moving averaged signal."""
 
         # Temporary time stamps for the inspected window, in unit of seconds.
@@ -134,7 +134,7 @@ class SpikeCoincidence(strax.Plugin):
         hit_classification["endtime"] = hits["endtime"]
         hit_classification["channel"] = hits["channel"]
 
-        self.compute_ma_rise_edge_slope(hits, hit_classification)
+        self.compute_rise_edge_slope(hits, hit_classification)
         self.find_spike_coincidence(hit_classification, hits, records)
 
         hit_classification["is_coincident_with_spikes"] = (
