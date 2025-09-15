@@ -395,14 +395,10 @@ class TestHitsWithRealDataOnline:
                         abs(hit["endtime"] - expected_endtime) <= hit["dt"]
                     ), f"Endtime mismatch: {hit['endtime']} vs {expected_endtime}"
 
-                # Check monotonic time within channels
-                for channel in np.unique(hits["channel"]):
-                    channel_hits = hits[hits["channel"] == channel]
-                    if len(channel_hits) > 1:
-                        times = channel_hits["time"]
-                        assert np.all(
-                            np.diff(times) > 0
-                        ), f"Time stamps not monotonically increasing for channel {channel}"
+                # Check monotonic time
+                assert np.all(
+                    np.diff(hits["time"]) >= 0
+                ), "Time stamps not monotonically increasing"
 
                 # Check finite data
                 assert np.all(
@@ -653,14 +649,10 @@ class TestHitsWithRealDataOffline:
                         abs(hit["endtime"] - expected_endtime) <= hit["dt"]
                     ), f"Endtime mismatch: {hit['endtime']} vs {expected_endtime}"
 
-                # Check monotonic time within channels
-                for channel in np.unique(hits["channel"]):
-                    channel_hits = hits[hits["channel"] == channel]
-                    if len(channel_hits) > 1:
-                        times = channel_hits["time"]
-                        assert np.all(
-                            np.diff(times) > 0
-                        ), f"Time stamps not monotonically increasing for channel {channel}"
+                # Check monotonic time
+                assert np.all(
+                    np.diff(hits["time"]) >= 0
+                ), "Time stamps not monotonically increasing"
 
                 # Check finite data
                 assert np.all(np.isfinite(hits["data_dx"])), "Non-finite values found in data_dx"
