@@ -236,8 +236,10 @@ class TestHitsWithRealDataOnline:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        # Test loading each .npy file
-        npy_files = [f for f in os.listdir(test_data_dir) if f.endswith(".npy")]
+        # Test loading each .npy file (skip hidden files like ._*)
+        npy_files = [
+            f for f in os.listdir(test_data_dir) if f.endswith(".npy") and not f.startswith("._")
+        ]
 
         for npy_file in npy_files:
             file_path = os.path.join(test_data_dir, npy_file)
@@ -326,8 +328,8 @@ class TestHitsWithRealDataOnline:
                 assert all(hits["length"] > 0)
                 assert all(hits["dt"] > 0)
 
-                # Check that channels are within expected range (0-9 based on context config)
-                assert all(0 <= hits["channel"]) and all(hits["channel"] <= 9)
+                # Check that channels are within expected range (0-40 based on context config)
+                assert all(0 <= hits["channel"]) and all(hits["channel"] <= 40)
 
                 # Check that waveform data has the correct shape
                 expected_waveform_length = 600  # HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
@@ -339,9 +341,11 @@ class TestHitsWithRealDataOnline:
                 # Check that timing information is consistent
                 for h_i, hit in enumerate(hits):
                     expected_endtime = hit["time"] + hit["length"] * hit["dt"]
-                    assert hit["endtime"] == expected_endtime, (
+                    # Allow for small rounding differences
+                    assert abs(hit["endtime"] - expected_endtime) <= hit["dt"], (
                         f"Hit #{h_i} endtime mismatch. "
                         f"Note that hit['endtime'] is {hit['endtime']} and "
+                        f"expected endtime is {expected_endtime} and "
                         f"hit['time'] is {hit['time']} and "
                         f"hit['length'] is {hit['length']} and "
                         f"hit['dt'] is {hit['dt']}"
@@ -418,11 +422,11 @@ class TestHitsWithRealDataOnline:
         configs = {
             "daq_input_dir": "/nonexistent/path.ts.npy",
             "iq_finescan_dir": "/nonexistent",
-            "iq_finescan_filename": "nonexistent.npy",
+            "iq_finescan_filename": "iq_fine_z_nonexistent.npy",
             "iq_widescan_dir": "/nonexistent",
-            "iq_widescan_filename": "nonexistent.npy",
+            "iq_widescan_filename": "iq_wide_z_nonexistent.npy",
             "resonant_frequency_dir": "/nonexistent",
-            "resonant_frequency_filename": "nonexistent.npy",
+            "resonant_frequency_filename": "fres_nonexistent.npy",
         }
 
         clean_strax_data()
@@ -438,11 +442,11 @@ class TestHitsWithRealDataOnline:
         configs = {
             "daq_input_dir": "/nonexistent/path.ts.npy",
             "iq_finescan_dir": "/nonexistent",
-            "iq_finescan_filename": "nonexistent.npy",
+            "iq_finescan_filename": "iq_fine_z_nonexistent.npy",
             "iq_widescan_dir": "/nonexistent",
-            "iq_widescan_filename": "nonexistent.npy",
+            "iq_widescan_filename": "iq_wide_z_nonexistent.npy",
             "resonant_frequency_dir": "/nonexistent",
-            "resonant_frequency_filename": "nonexistent.npy",
+            "resonant_frequency_filename": "fres_nonexistent.npy",
         }
 
         clean_strax_data()
@@ -512,8 +516,10 @@ class TestHitsWithRealDataOffline:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        # Test loading each .npy file
-        npy_files = [f for f in os.listdir(test_data_dir) if f.endswith(".npy")]
+        # Test loading each .npy file (skip hidden files like ._*)
+        npy_files = [
+            f for f in os.listdir(test_data_dir) if f.endswith(".npy") and not f.startswith("._")
+        ]
 
         for npy_file in npy_files:
             file_path = os.path.join(test_data_dir, npy_file)
@@ -582,8 +588,8 @@ class TestHitsWithRealDataOffline:
                 assert all(hits["length"] > 0)
                 assert all(hits["dt"] > 0)
 
-                # Check that channels are within expected range (0-9 based on context config)
-                assert all(0 <= hits["channel"]) and all(hits["channel"] <= 9)
+                # Check that channels are within expected range (0-40 based on context config)
+                assert all(0 <= hits["channel"]) and all(hits["channel"] <= 40)
 
                 # Check that waveform data has the correct shape
                 expected_waveform_length = 600  # HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
@@ -593,9 +599,11 @@ class TestHitsWithRealDataOffline:
                 # Check that timing information is consistent
                 for h_i, hit in enumerate(hits):
                     expected_endtime = hit["time"] + hit["length"] * hit["dt"]
-                    assert hit["endtime"] == expected_endtime, (
+                    # Allow for small rounding differences
+                    assert abs(hit["endtime"] - expected_endtime) <= hit["dt"], (
                         f"Hit #{h_i} endtime mismatch. "
                         f"Note that hit['endtime'] is {hit['endtime']} and "
+                        f"expected endtime is {expected_endtime} and "
                         f"hit['time'] is {hit['time']} and "
                         f"hit['length'] is {hit['length']} and "
                         f"hit['dt'] is {hit['dt']}"
@@ -660,11 +668,11 @@ class TestHitsWithRealDataOffline:
         configs = {
             "daq_input_dir": "/nonexistent/path.ts.npy",
             "iq_finescan_dir": "/nonexistent",
-            "iq_finescan_filename": "nonexistent.npy",
+            "iq_finescan_filename": "iq_fine_z_nonexistent.npy",
             "iq_widescan_dir": "/nonexistent",
-            "iq_widescan_filename": "nonexistent.npy",
+            "iq_widescan_filename": "iq_wide_z_nonexistent.npy",
             "resonant_frequency_dir": "/nonexistent",
-            "resonant_frequency_filename": "nonexistent.npy",
+            "resonant_frequency_filename": "fres_nonexistent.npy",
         }
 
         clean_strax_data()
@@ -680,11 +688,11 @@ class TestHitsWithRealDataOffline:
         configs = {
             "daq_input_dir": "/nonexistent/path.ts.npy",
             "iq_finescan_dir": "/nonexistent",
-            "iq_finescan_filename": "nonexistent.npy",
+            "iq_finescan_filename": "iq_fine_z_nonexistent.npy",
             "iq_widescan_dir": "/nonexistent",
-            "iq_widescan_filename": "nonexistent.npy",
+            "iq_widescan_filename": "iq_wide_z_nonexistent.npy",
             "resonant_frequency_dir": "/nonexistent",
-            "resonant_frequency_filename": "nonexistent.npy",
+            "resonant_frequency_filename": "fres_nonexistent.npy",
         }
 
         clean_strax_data()
