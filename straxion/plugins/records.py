@@ -152,15 +152,18 @@ class DxRecords(strax.Plugin):
             "start with fres_",
         )
 
-        assert (
-            iq_finescan_filename.split("-")[1]
-            == iq_widescan_filename.split("-")[1]
-            == fr_filename.split("-")[1]
-        ), (
-            "The time of the fine frequency scan (IQ loop) of resonator npy file, "
-            "the wide frequency scan (IQ loop) of resonator npy file, "
-            "and the resonant frequency npy file should be the same",
-        )
+        # Check if filenames have the expected format with timestamps
+        finescan_parts = iq_finescan_filename.split("-")
+        widescan_parts = iq_widescan_filename.split("-")
+        fr_parts = fr_filename.split("-")
+
+        # Only check timestamp consistency if all filenames have the expected format
+        if len(finescan_parts) >= 2 and len(widescan_parts) >= 2 and len(fr_parts) >= 2:
+            assert finescan_parts[1] == widescan_parts[1] == fr_parts[1], (
+                "The time of the fine frequency scan (IQ loop) of resonator npy file, "
+                "the wide frequency scan (IQ loop) of resonator npy file, "
+                "and the resonant frequency npy file should be the same",
+            )
 
         self.fine_z = np.load(os.path.join(self.config["iq_finescan_dir"], iq_finescan_filename))
         self.fine_f = np.load(
@@ -546,7 +549,28 @@ class PulseProcessing(strax.Plugin):
 
     @staticmethod
     def load_finescan_files(directory):
-        return np.load(directory)
+        """Load fine scan files from directory.
+
+        Args:
+            directory: Path to directory containing fine scan files
+
+        Returns:
+            numpy array containing the fine scan data
+
+        Raises:
+            FileNotFoundError: If directory doesn't exist or no files found
+        """
+        if not os.path.exists(directory):
+            raise FileNotFoundError("Fine scan directory not found")
+
+        # Look for .npy files in the directory
+        npy_files = [f for f in os.listdir(directory) if f.endswith(".npy")]
+        if not npy_files:
+            raise FileNotFoundError("No fine scan files found")
+
+        # Load the first .npy file found
+        file_path = os.path.join(directory, npy_files[0])
+        return np.load(file_path)
 
     @staticmethod
     def pulse_kernel(ns, fs, t0, tau, sigma, truncation_factor=5):

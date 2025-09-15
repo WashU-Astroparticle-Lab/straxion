@@ -260,13 +260,15 @@ class TestHitClassificationWithRealData:
             hit_classification = st.get_array(run_id, "hit_classification", config=configs)
 
             if len(hit_classification) > 0:
-                # Check monotonic time within channels
+                # Check that timestamps are monotonically increasing
                 for channel in np.unique(hit_classification["channel"]):
                     channel_hits = hit_classification[hit_classification["channel"] == channel]
                     if len(channel_hits) > 1:
                         times = channel_hits["time"]
+                        # Ensure timestamps are strictly monotonically increasing
+                        diffs = np.diff(times)
                         assert np.all(
-                            np.diff(times) > 0
+                            diffs > 0
                         ), f"Time stamps not monotonically increasing for channel {channel}"
 
                 # Check finite data for numerical fields
@@ -555,13 +557,15 @@ class TestSpikeCoincidenceWithRealDataOffline:
             hit_classification = st.get_array(run_id, "hit_classification", config=configs)
 
             if len(hit_classification) > 0:
-                # Check monotonic time within channels
+                # Check that timestamps are monotonically increasing
                 for channel in np.unique(hit_classification["channel"]):
                     channel_hits = hit_classification[hit_classification["channel"] == channel]
                     if len(channel_hits) > 1:
                         times = channel_hits["time"]
+                        # Ensure timestamps are strictly monotonically increasing
+                        diffs = np.diff(times)
                         assert np.all(
-                            np.diff(times) > 0
+                            diffs > 0
                         ), f"Time stamps not monotonically increasing for channel {channel}"
 
                 # Check finite data for numerical fields

@@ -271,10 +271,10 @@ def test_npy_files_are_valid():
     if not os.path.exists(test_data_dir):
         pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        # Test loading each .npy file (skip hidden files like ._*)
-        npy_files = [
-            f for f in os.listdir(test_data_dir) if f.endswith(".npy") and not f.startswith("._")
-        ]
+    # Test loading each .npy file (skip hidden files like ._*)
+    npy_files = [
+        f for f in os.listdir(test_data_dir) if f.endswith(".npy") and not f.startswith("._")
+    ]
 
     for npy_file in npy_files:
         file_path = os.path.join(test_data_dir, npy_file)
