@@ -89,11 +89,11 @@ The tests are integrated into the existing `.github/workflows/pytest.yml` workfl
 1. Run basic tests without test data on Python 3.11
 2. Automatically download `qualiphide_fir_test_data.tar.gz` from GitHub Releases (if available)
 3. Run comprehensive tests with real data for all plugins:
-   - raw_records processing with qualiphide_thz_offline context
+   - raw_records processing with `qualiphide_thz_offline` context (`qualiphide_thz_online` uses the same one)
    - records processing with both online and offline contexts
-   - baseline_monitor processing with qualiphide_thz_online context
+   - baseline_monitor processing with `qualiphide_thz_online` context
    - hits processing with both online and offline contexts
-   - hit classification processing with both HitClassification and SpikeCoincidence plugins
+   - hit classification processing with both `HitClassification` and `SpikeCoincidence` plugins
 4. Generate coverage reports for both basic and data-dependent tests
 
 
