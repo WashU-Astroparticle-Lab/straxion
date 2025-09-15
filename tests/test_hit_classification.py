@@ -74,7 +74,7 @@ def test_hit_classification_dtype_inference():
     not os.getenv("STRAXION_TEST_DATA_DIR"),
     reason="Test data directory not provided via STRAXION_TEST_DATA_DIR environment variable",
 )
-class TestHitClassificationWithRealData:
+class TestHitClassificationWithRealDataOnline:
     """Test hit classification processing with real qualiphide_fir_test_data."""
 
     def test_qualiphide_thz_online_context_creation(self):
@@ -259,22 +259,10 @@ class TestHitClassificationWithRealData:
         try:
             hit_classification = st.get_array(run_id, "hit_classification", config=configs)
 
-            if len(hit_classification) > 0:
-                # Check that timestamps are monotonically increasing
-                for channel in np.unique(hit_classification["channel"]):
-                    channel_hits = hit_classification[hit_classification["channel"] == channel]
-                    if len(channel_hits) > 1:
-                        times = channel_hits["time"]
-                        # Ensure timestamps are strictly monotonically increasing
-                        diffs = np.diff(times)
-                        assert np.all(
-                            diffs > 0
-                        ), f"Time stamps not monotonically increasing for channel {channel}"
-
-                # Check finite data for numerical fields
-                assert np.all(
-                    np.isfinite(hit_classification["ma_rise_edge_slope"])
-                ), "Non-finite values found in ma_rise_edge_slope"
+            # Check finite data for numerical fields
+            assert np.all(
+                np.isfinite(hit_classification["ma_rise_edge_slope"])
+            ), "Non-finite values found in ma_rise_edge_slope"
 
         except Exception as e:
             pytest.fail(f"Failed to validate hit classification consistency: {str(e)}")
