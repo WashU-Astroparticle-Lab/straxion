@@ -12,7 +12,7 @@ class TestLoadFinescanFiles:
 
     def test_load_finescan_files_nonexistent_directory(self):
         """Test that FileNotFoundError is raised for nonexistent directory."""
-        with pytest.raises(FileNotFoundError, match="Fine scan directory not found"):
+        with pytest.raises(FileNotFoundError, match="Fine scan directory or file not found"):
             PulseProcessing.load_finescan_files("/nonexistent/path")
 
     def test_load_finescan_files_empty_directory(self):

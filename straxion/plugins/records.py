@@ -548,29 +548,35 @@ class PulseProcessing(strax.Plugin):
             self.channel_centers[int(channel)] = (i_center, q_center, theta_f_min)
 
     @staticmethod
-    def load_finescan_files(directory):
-        """Load fine scan files from directory.
+    def load_finescan_files(directory_or_file):
+        """Load fine scan files from directory or file.
 
         Args:
-            directory: Path to directory containing fine scan files
+            directory_or_file: Path to directory containing fine scan files or
+                path to a specific file
 
         Returns:
             numpy array containing the fine scan data
 
         Raises:
-            FileNotFoundError: If directory doesn't exist or no files found
+            FileNotFoundError: If directory/file doesn't exist or no files found
         """
-        if not os.path.exists(directory):
-            raise FileNotFoundError("Fine scan directory not found")
+        if not os.path.exists(directory_or_file):
+            raise FileNotFoundError("Fine scan directory or file not found")
 
-        # Look for .npy files in the directory
-        npy_files = [f for f in os.listdir(directory) if f.endswith(".npy")]
-        if not npy_files:
-            raise FileNotFoundError("No fine scan files found")
+        # Check if it's a file or directory
+        if os.path.isfile(directory_or_file):
+            # It's a file, load it directly
+            return np.load(directory_or_file)
+        else:
+            # It's a directory, look for .npy files
+            npy_files = [f for f in os.listdir(directory_or_file) if f.endswith(".npy")]
+            if not npy_files:
+                raise FileNotFoundError("No fine scan files found")
 
-        # Load the first .npy file found
-        file_path = os.path.join(directory, npy_files[0])
-        return np.load(file_path)
+            # Load the first .npy file found
+            file_path = os.path.join(directory_or_file, npy_files[0])
+            return np.load(file_path)
 
     @staticmethod
     def pulse_kernel(ns, fs, t0, tau, sigma, truncation_factor=5):
