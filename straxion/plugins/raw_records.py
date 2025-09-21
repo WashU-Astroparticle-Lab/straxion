@@ -71,6 +71,7 @@ class QUALIPHIDETHzReader(strax.Plugin):
     provides: str = "raw_records"
     data_kind = provides
     depends_on: Tuple = tuple()  # This is the lowest level of strax data in processing.
+    save_when = strax.SaveWhen.EXPLICIT
 
     # Memory management related:
     rechunk_on_load = False  # Assumed no single dataset will be larger than 1 GB.
