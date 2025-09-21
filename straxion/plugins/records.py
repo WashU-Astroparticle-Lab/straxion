@@ -94,7 +94,7 @@ class DxRecords(strax.Plugin):
     depends_on = "raw_records"
     provides = "records"
     data_kind = "records"
-    save_when = strax.SaveWhen.ALWAYS
+    save_when = strax.SaveWhen.EXPLICIT
 
     def infer_dtype(self):
         """Data type for a waveform record."""
@@ -461,7 +461,7 @@ class PulseProcessing(strax.Plugin):
     depends_on = "raw_records"
     provides = "records"
     data_kind = "records"
-    save_when = strax.SaveWhen.ALWAYS
+    save_when = strax.SaveWhen.EXPLICIT
 
     def infer_dtype(self):
         """Data type for a waveform record."""
