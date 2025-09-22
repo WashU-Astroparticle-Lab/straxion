@@ -159,6 +159,26 @@ class DxRecords(strax.Plugin):
                 record_length,
             )
         )
+        dtype.append(
+            (
+                (
+                    "Waveform data of df/f further smoothed by moving average",
+                    "data_dx_moving_average",
+                ),
+                DATA_DTYPE,
+                record_length,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Waveform data of df/f further smoothed by pulse kernel",
+                    "data_dx_convolved",
+                ),
+                DATA_DTYPE,
+                record_length,
+            )
+        )
 
         return dtype
 
@@ -471,6 +491,21 @@ class DxRecords(strax.Plugin):
                 self.f_interpolation_models[rr["channel"]](dtheta)
                 - self.interpolated_freqs[rr["channel"]]
             ) / self.interpolated_freqs[rr["channel"]]
+
+            # Moving average (convolve with a boxcar).
+            r["data_dx_moving_average"] = np.convolve(
+                r["data_dx"],
+                self.moving_average_kernel,
+                mode="same",
+            )
+
+            # Convolve with pulse kernel.
+            # Use FFT-based convolution for large kernels (faster than np.convolve).
+            if len(self.kernel) > 10000:  # Use FFT for kernels larger than 10k samples.
+                _convolved = fftconvolve(r["data_dx"], self.kernel, mode="full")
+            else:
+                _convolved = np.convolve(r["data_dx"], self.kernel, mode="full")
+            r["data_dx_convolved"] = _convolved[-self.record_length :]
 
         return results
 
