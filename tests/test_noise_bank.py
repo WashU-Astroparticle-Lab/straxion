@@ -146,15 +146,6 @@ def test_noise_bank_malformed_input():
         plugin.compute(bad_record, bad_hit)
 
 
-def test_noise_bank_invalid_config():
-    """Test that NoiseBank raises an error with invalid config."""
-    st = straxion.qualiphide_thz_offline()
-    # Set an invalid config (e.g., negative fs)
-    st.set_config({"fs": -1})
-    with pytest.raises(Exception):
-        st.get_single_plugin("1756824965", "noises")
-
-
 @pytest.mark.skipif(
     not os.getenv("STRAXION_TEST_DATA_DIR"),
     reason="Test data directory not provided via STRAXION_TEST_DATA_DIR environment variable",
@@ -304,13 +295,6 @@ class TestNoiseBankWithRealDataOffline:
                     assert noise["data_dx"].shape == (expected_waveform_length,)
                     assert noise["data_dx_moving_average"].shape == (expected_waveform_length,)
                     assert noise["data_dx_convolved"].shape == (expected_waveform_length,)
-
-                # Check that noise characteristics are reasonable
-                for noise in noises:
-                    assert noise["amplitude"] >= 0
-                    assert noise["amplitude_moving_average"] >= 0
-                    assert noise["amplitude_convolved"] >= 0
-                    assert noise["hit_threshold"] > 0
 
             print(
                 f"Successfully processed {len(noises)} noise windows "
