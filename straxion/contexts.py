@@ -55,6 +55,7 @@ def qualiphide_thz_offline(
     st.register(straxion.plugins.records.DxRecords)
     st.register(straxion.plugins.hits.DxHits)
     st.register(straxion.plugins.hit_classification.SpikeCoincidence)
+    st.register(straxion.plugins.noise_bank.NoiseBank)
 
     # Add the output folder to the storage. This is where new data can be stored.
     st.storage = [
