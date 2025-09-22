@@ -180,7 +180,7 @@ class DxRecords(strax.Plugin):
             )
         )
 
-        return dtype
+        return np.dtype(dtype)
 
     def _load_correction_files(self):
         """Load fine and wide scan files, as well as resonant frequency file.
@@ -271,16 +271,24 @@ class DxRecords(strax.Plugin):
                 if wide_f[ch, ind] < fine_f[ch, 0] and wide_f[ch, ind] > fine_f[ch, -1]:
                     mask_calc_corr[ind] = 0
 
-            pfit_i = np.polyfit(
-                wide_f[ch, mask_calc_corr] - fres[ch],
-                np.real(wide_z[ch, mask_calc_corr]),
-                polyfit_order,
-            )
-            pfit_q = np.polyfit(
-                wide_f[ch, mask_calc_corr] - fres[ch],
-                np.imag(wide_z[ch, mask_calc_corr]),
-                polyfit_order,
-            )
+            # Check if we have any data points for fitting
+            if not np.any(mask_calc_corr):
+                # If no data points, create a constant model (zero-order polynomial)
+                pfit_i = np.zeros(polyfit_order + 1)
+                pfit_q = np.zeros(polyfit_order + 1)
+                pfit_i[-1] = 1.0  # Constant term
+                pfit_q[-1] = 1.0  # Constant term
+            else:
+                pfit_i = np.polyfit(
+                    wide_f[ch, mask_calc_corr] - fres[ch],
+                    np.real(wide_z[ch, mask_calc_corr]),
+                    polyfit_order,
+                )
+                pfit_q = np.polyfit(
+                    wide_f[ch, mask_calc_corr] - fres[ch],
+                    np.imag(wide_z[ch, mask_calc_corr]),
+                    polyfit_order,
+                )
 
             i_model = np.poly1d(pfit_i)
             q_model = np.poly1d(pfit_q)

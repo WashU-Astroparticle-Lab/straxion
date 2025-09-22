@@ -355,6 +355,7 @@ class TestDxRecordsFileLoading:
             "resonant_frequency_filename": "fres_test-1234567890.npy",
             "resonant_frequency_dir": self.temp_dir,
             "iq_widescan_dir": self.temp_dir,
+            "fs": 38000,
         }
 
     def teardown_method(self):
@@ -389,34 +390,30 @@ class TestDxRecordsFileLoading:
 
     def test_load_correction_files_invalid_extension(self):
         """Test that AssertionError is raised for files with invalid extensions."""
-        # Create files with wrong extensions
-        np.save(os.path.join(self.temp_dir, "iq_fine_z_test-1234567890.txt"), np.array([1, 2, 3]))
-        np.save(os.path.join(self.temp_dir, "iq_wide_z_test-1234567890.txt"), np.array([1, 2, 3]))
-        np.save(os.path.join(self.temp_dir, "fres_test-1234567890.txt"), np.array([1, 2, 3]))
+        # Change the config to use invalid extensions
+        self.dx_records.config["iq_finescan_filename"] = "iq_fine_z_test-1234567890.txt"
+        self.dx_records.config["iq_widescan_filename"] = "iq_wide_z_test-1234567890.txt"
+        self.dx_records.config["resonant_frequency_filename"] = "fres_test-1234567890.txt"
 
         with pytest.raises(AssertionError, match="should end with .npy"):
             self.dx_records._load_correction_files()
 
     def test_load_correction_files_invalid_prefix(self):
         """Test that AssertionError is raised for files with invalid prefixes."""
-        # Create files with wrong prefixes
-        np.save(
-            os.path.join(self.temp_dir, "wrong_fine_z_test-1234567890.npy"), np.array([1, 2, 3])
-        )
-        np.save(
-            os.path.join(self.temp_dir, "wrong_wide_z_test-1234567890.npy"), np.array([1, 2, 3])
-        )
-        np.save(os.path.join(self.temp_dir, "wrong_fres_test-1234567890.npy"), np.array([1, 2, 3]))
+        # Change the config to use invalid prefixes
+        self.dx_records.config["iq_finescan_filename"] = "wrong_fine_z_test-1234567890.npy"
+        self.dx_records.config["iq_widescan_filename"] = "wrong_wide_z_test-1234567890.npy"
+        self.dx_records.config["resonant_frequency_filename"] = "wrong_fres_test-1234567890.npy"
 
         with pytest.raises(AssertionError, match="should start with"):
             self.dx_records._load_correction_files()
 
     def test_load_correction_files_timestamp_mismatch(self):
         """Test that AssertionError is raised for files with mismatched timestamps."""
-        # Create files with different timestamps
-        np.save(os.path.join(self.temp_dir, "iq_fine_z_test-1234567890.npy"), np.array([1, 2, 3]))
-        np.save(os.path.join(self.temp_dir, "iq_wide_z_test-1234567891.npy"), np.array([1, 2, 3]))
-        np.save(os.path.join(self.temp_dir, "fres_test-1234567892.npy"), np.array([1, 2, 3]))
+        # Change the config to use different timestamps
+        self.dx_records.config["iq_finescan_filename"] = "iq_fine_z_test-1234567890.npy"
+        self.dx_records.config["iq_widescan_filename"] = "iq_wide_z_test-1234567891.npy"
+        self.dx_records.config["resonant_frequency_filename"] = "fres_test-1234567892.npy"
 
         with pytest.raises(AssertionError, match="should be the same"):
             self.dx_records._load_correction_files()
@@ -445,6 +442,7 @@ class TestDxRecordsSetupMethods:
             "iq_widescan_dir": self.temp_dir,
             "widescan_resolution": 1000.0,
             "cable_correction_polyfit_order": 3,
+            "fs": 38000,
         }
 
         # Create test data files
