@@ -551,7 +551,8 @@ class TestHitsWithRealDataOffline:
                 "amplitude",
                 "amplitude_moving_average",
                 "amplitude_convolved",
-                "amplitude_max_record_i",
+                "amplitude_convolved_max_record_i",
+                "amplitude_moving_average_max_record_i",
                 "hit_threshold",
             ]
             for field in required_fields:
@@ -570,7 +571,8 @@ class TestHitsWithRealDataOffline:
             assert hits["amplitude"].dtype == np.float32
             assert hits["amplitude_moving_average"].dtype == np.float32
             assert hits["amplitude_convolved"].dtype == np.float32
-            assert hits["amplitude_max_record_i"].dtype == np.int32
+            assert hits["amplitude_convolved_max_record_i"].dtype == np.int32
+            assert hits["amplitude_moving_average_max_record_i"].dtype == np.int32
             assert hits["hit_threshold"].dtype == np.float32
 
             # Check that all hits have reasonable lengths and dt
@@ -605,7 +607,8 @@ class TestHitsWithRealDataOffline:
                 # Check that hit characteristics are reasonable
                 for hit in hits:
                     assert hit["width"] > 0
-                    assert hit["amplitude_max_record_i"] >= 0
+                    assert hit["amplitude_convolved_max_record_i"] >= 0
+                    assert hit["amplitude_moving_average_max_record_i"] >= 0
 
             print(
                 f"Successfully processed {len(hits)} hits "

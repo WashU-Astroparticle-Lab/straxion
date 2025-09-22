@@ -143,9 +143,21 @@ class DxHits(strax.Plugin):
                 (
                     (
                         "Record index of the maximum amplitude of the dx hit waveform "
-                        "further smoothed by pulse kernel"
+                        "further smoothed by pulse kernel."
                     ),
-                    "amplitude_max_record_i",
+                    "amplitude_convolved_max_record_i",
+                ),
+                INDEX_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    (
+                        "Record index of the maximum amplitude of the dx hit waveform "
+                        "further smoothed by moving average."
+                    ),
+                    "amplitude_moving_average_max_record_i",
                 ),
                 INDEX_DTYPE,
             )
@@ -449,8 +461,11 @@ class DxHits(strax.Plugin):
         hit["amplitude_moving_average"] = np.max(signal_ma[left_i:right_i])
         hit["amplitude"] = np.max(signal_raw[left_i:right_i])
         hit["length"] = right_i - left_i
-        hit["amplitude_max_record_i"] = np.int32(
+        hit["amplitude_convolved_max_record_i"] = np.int32(
             np.argmax(signal_convolved[left_i:right_i]) + left_i
+        )
+        hit["amplitude_moving_average_max_record_i"] = np.int32(
+            np.argmax(signal_ma[left_i:right_i]) + left_i
         )
 
         # Calculate time and endtime
