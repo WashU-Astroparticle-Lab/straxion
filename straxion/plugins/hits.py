@@ -368,6 +368,7 @@ class DxHits(strax.Plugin):
         hits["width"] = hit_widths
         hits["channel"] = record["channel"]
         hits["dt"] = self.dt_exact  # Will be converted to int when saving
+        hits["hit_threshold"] = self.hit_threshold_dx[hits["channel"]]
 
         for i, start_i in enumerate(hit_start_i):
             self._process_hit(
