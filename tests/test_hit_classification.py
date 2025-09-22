@@ -227,7 +227,7 @@ class TestHitClassificationWithRealDataOnline:
                     f"{n_unidentified} unidentified"
                 )
 
-                # Check that all classifications are boolean and mutually exclusive
+                # Check that all classifications are boolean
                 for hit_class in hit_classification:
                     assert isinstance(hit_class["is_cr"], (bool, np.bool_))
                     assert isinstance(hit_class["is_symmetric_spike"], (bool, np.bool_))
@@ -497,19 +497,19 @@ class TestSpikeCoincidenceWithRealDataOffline:
                     f"symmetric spikes, {n_photon_candidates} photon candidates"
                 )
 
-                # Check that all classifications are boolean and mutually exclusive
+                # Check that all classifications are boolean and follow correct logic
                 for hit_class in hit_classification:
                     assert isinstance(hit_class["is_coincident_with_spikes"], (bool, np.bool_))
                     assert isinstance(hit_class["is_symmetric_spike"], (bool, np.bool_))
                     assert isinstance(hit_class["is_photon_candidate"], (bool, np.bool_))
 
-                    # These should be mutually exclusive
-                    assert (
-                        hit_class["is_coincident_with_spikes"] != hit_class["is_photon_candidate"]
-                    ), "Hit cannot be both coincident with spikes and a photon candidate"
-                    assert (
-                        hit_class["is_symmetric_spike"] != hit_class["is_photon_candidate"]
-                    ), "Hit cannot be both a symmetric spike and a photon candidate"
+                    # is_photon_candidate should be False when
+                    # is_coincident_with_spikes or is_symmetric_spike is True
+                    if hit_class["is_coincident_with_spikes"] or hit_class["is_symmetric_spike"]:
+                        assert not hit_class["is_photon_candidate"], (
+                            "Hit cannot be a photon candidate when it is coincident with spikes "
+                            "or is a symmetric spike"
+                        )
 
                 # Check that n_spikes_coinciding is non-negative
                 assert all(
@@ -573,14 +573,14 @@ class TestSpikeCoincidenceWithRealDataOffline:
                     hit_classification["n_spikes_coinciding"] >= 0
                 ), "Negative spike coincidence counts found"
 
-                # Check mutual exclusivity of classification flags
+                # Check that is_photon_candidate is False when
+                # is_coincident_with_spikes or is_symmetric_spike is True
                 for hit_class in hit_classification:
-                    assert (
-                        hit_class["is_coincident_with_spikes"] != hit_class["is_photon_candidate"]
-                    ), "Classification flags should be mutually exclusive"
-                    assert (
-                        hit_class["is_symmetric_spike"] != hit_class["is_photon_candidate"]
-                    ), "Classification flags should be mutually exclusive"
+                    if hit_class["is_coincident_with_spikes"] or hit_class["is_symmetric_spike"]:
+                        assert not hit_class["is_photon_candidate"], (
+                            "Hit cannot be a photon candidate when it is coincident with spikes "
+                            "or is a symmetric spike"
+                        )
 
         except Exception as e:
             pytest.fail(f"Failed to validate spike coincidence consistency: {str(e)}")
