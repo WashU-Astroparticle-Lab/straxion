@@ -357,6 +357,9 @@ class DxHits(strax.Plugin):
         # Order hits first by time
         results = results[np.argsort(results["time"])]
 
+        # Truncate hits endtime to record endtime
+        results["endtime"] = np.minimum(results["endtime"], records["endtime"][0])
+
         return results
 
     def _process_single_record(self, record):
