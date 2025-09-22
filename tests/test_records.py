@@ -443,6 +443,11 @@ class TestDxRecordsSetupMethods:
             "widescan_resolution": 1000.0,
             "cable_correction_polyfit_order": 3,
             "fs": 38000,
+            "pulse_kernel_start_time": 200000,
+            "pulse_kernel_decay_time": 600000,
+            "pulse_kernel_gaussian_smearing_width": 28000,
+            "pulse_kernel_truncation_factor": 10,
+            "moving_average_width": 100000,
         }
 
         # Create test data files

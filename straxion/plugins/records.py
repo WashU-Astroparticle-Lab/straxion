@@ -378,7 +378,11 @@ class DxRecords(strax.Plugin):
             dtheta_fine = self.fine_z_corrected[ch] - self.thetas_at_fres[ch]
 
             # Create interpolation model mapping theta differences to frequencies
-            self.f_interpolation_models.append(interp1d(dtheta_fine, self.fine_f[ch]))
+            # Use bounds_error=False to handle out-of-bounds values gracefully
+            # and fill_value='extrapolate' to extrapolate beyond the range
+            self.f_interpolation_models.append(
+                interp1d(dtheta_fine, self.fine_f[ch], bounds_error=False, fill_value="extrapolate")
+            )
 
             # Validate interpolation model (should return resonant frequency at theta=0)
             # This is just for self-consistency check
