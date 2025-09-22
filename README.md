@@ -7,6 +7,9 @@
 [`strax`](https://github.com/AxFoundation/strax)-based time series analysis for single photon counting experiments. `straxion` is currently used by (new) [*QAULIPHIDE*](https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.130.231001) dark photon search experiments.
 
 ## Installation
+
+Ideally, `straxion` works with Python 3.11 or 3.12. Python 3.13 is not recommended due to lack of support from `strax` (by `strax 2.1.1`).
+
 ```
 cd straxion
 pip install -e ./
