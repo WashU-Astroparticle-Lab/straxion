@@ -3,7 +3,7 @@ import pytest
 import os
 import tempfile
 import shutil
-from straxion.plugins.records import PulseProcessing
+from straxion.plugins.records import PulseProcessing, DxRecords
 
 
 # Note: circfit method tests removed as the method doesn't exist in PulseProcessing
@@ -176,6 +176,581 @@ class TestConvertIQToTheta:
 
         with pytest.raises(KeyError):
             self.pp.convert_iq_to_theta(data_i, data_q, channel)
+
+
+class TestDxRecordsStaticMethods:
+    """Test the static methods of DxRecords class."""
+
+    def test_infer_dtype(self):
+        """Test the infer_dtype method of DxRecords."""
+        # Create a DxRecords instance
+        dx_records = DxRecords()
+
+        # Mock the record_length attribute
+        dx_records.record_length = 1000
+
+        # Test infer_dtype
+        dtype = dx_records.infer_dtype()
+
+        # Check that it's a structured dtype
+        assert hasattr(dtype, "names")
+        assert hasattr(dtype, "fields")
+
+        # Check required fields
+        required_fields = [
+            "time",
+            "endtime",
+            "length",
+            "dt",
+            "channel",
+            "data_dx",
+            "data_dx_moving_average",
+            "data_dx_convolved",
+        ]
+        for field in required_fields:
+            assert field in dtype.names, f"Field '{field}' missing from dtype"
+
+        # Check that data fields have the correct shape
+        assert dtype["data_dx"].shape == (1000,)
+        assert dtype["data_dx_moving_average"].shape == (1000,)
+        assert dtype["data_dx_convolved"].shape == (1000,)
+
+    def test_iq_gain_correction_model_basic(self):
+        """Test basic IQ gain correction model generation."""
+        # Create mock data
+        n_channels = 2
+        n_fine_points = 10
+        n_wide_points = 20
+
+        fine_f = np.random.rand(n_channels, n_fine_points) * 1000 + 1000  # 1000-2000 Hz
+        wide_z = np.random.rand(n_channels, n_wide_points) + 1j * np.random.rand(
+            n_channels, n_wide_points
+        )
+        wide_f = np.random.rand(n_channels, n_wide_points) * 2000 + 500  # 500-2500 Hz
+        fres = np.array([1500.0, 1600.0])  # Resonant frequencies
+        widescan_resolution = 1000.0
+        polyfit_order = 3
+
+        i_models, q_models = DxRecords.iq_gain_correction_model(
+            fine_f, wide_z, wide_f, fres, widescan_resolution, polyfit_order
+        )
+
+        # Basic validation
+        assert len(i_models) == n_channels
+        assert len(q_models) == n_channels
+
+        for i in range(n_channels):
+            assert hasattr(i_models[i], "__call__")  # Should be callable (poly1d)
+            assert hasattr(q_models[i], "__call__")  # Should be callable (poly1d)
+
+            # Test that models can be evaluated
+            test_freq_offset = 0.0
+            i_val = i_models[i](test_freq_offset)
+            q_val = q_models[i](test_freq_offset)
+
+            assert np.isfinite(i_val)
+            assert np.isfinite(q_val)
+
+    def test_iq_gain_correction_model_edge_cases(self):
+        """Test IQ gain correction model with edge cases."""
+        # Test with single channel
+        fine_f = np.array([[1.0, 2.0, 3.0]])
+        wide_z = np.array([[1.0 + 1j, 2.0 + 2j, 3.0 + 3j]])
+        wide_f = np.array([[0.5, 1.5, 2.5]])
+        fres = np.array([1.0])
+        widescan_resolution = 10.0
+        polyfit_order = 1
+
+        i_models, q_models = DxRecords.iq_gain_correction_model(
+            fine_f, wide_z, wide_f, fres, widescan_resolution, polyfit_order
+        )
+
+        assert len(i_models) == 1
+        assert len(q_models) == 1
+
+    def test_pulse_kernel_basic(self):
+        """Test basic pulse kernel generation with typical parameters."""
+        ns = 10000
+        fs = 100000  # 100 kHz
+        t0 = 100000  # 100 us
+        tau = 300000  # 300 us
+        sigma = 700000  # 700 us
+        truncation_factor = 5
+
+        kernel = DxRecords.pulse_kernel(ns, fs, t0, tau, sigma, truncation_factor)
+
+        # Basic checks
+        assert isinstance(kernel, np.ndarray)
+        assert kernel.ndim == 1
+        assert len(kernel) > 0
+
+        # Kernel should be normalized (sum = 1)
+        np.testing.assert_allclose(np.sum(kernel), 1.0, rtol=1e-10)
+
+        # All values should be non-negative
+        assert np.all(kernel >= 0)
+
+        # Kernel should have finite values
+        assert np.all(np.isfinite(kernel))
+
+    def test_pulse_kernel_parameters(self):
+        """Test pulse kernel with different parameter combinations."""
+        ns = 5000
+        fs = 50000  # 50 kHz
+
+        # Test different parameter sets
+        test_params = [
+            (50000, 200000, 500000, 3),  # Short pulse
+            (100000, 500000, 1000000, 7),  # Long pulse
+            (0, 100000, 200000, 4),  # Immediate start
+        ]
+
+        for t0, tau, sigma, truncation_factor in test_params:
+            kernel = DxRecords.pulse_kernel(ns, fs, t0, tau, sigma, truncation_factor)
+
+            # Basic validation
+            assert isinstance(kernel, np.ndarray)
+            assert kernel.ndim == 1
+            assert len(kernel) > 0
+            np.testing.assert_allclose(np.sum(kernel), 1.0, rtol=1e-10)
+            assert np.all(kernel >= 0)
+            assert np.all(np.isfinite(kernel))
+
+    def test_pulse_kernel_truncation(self):
+        """Test that truncation factor affects kernel length appropriately."""
+        ns = 10000
+        fs = 100000
+        t0 = 100000
+        tau = 300000
+        sigma = 700000
+
+        # Test different truncation factors
+        kernels = []
+        for truncation_factor in [2, 5, 10]:
+            kernel = DxRecords.pulse_kernel(ns, fs, t0, tau, sigma, truncation_factor)
+            kernels.append(kernel)
+
+            # All kernels should be normalized
+            np.testing.assert_allclose(np.sum(kernel), 1.0, rtol=1e-10)
+
+        # Larger truncation factors should generally result in longer kernels
+        # (though this depends on the specific parameters)
+        assert len(kernels[1]) >= len(kernels[0])  # truncation_factor 5 vs 2
+        assert len(kernels[2]) >= len(kernels[1])  # truncation_factor 10 vs 5
+
+
+class TestDxRecordsFileLoading:
+    """Test the _load_correction_files method of DxRecords class."""
+
+    def setup_method(self):
+        """Set up test data and create a DxRecords instance."""
+        self.temp_dir = tempfile.mkdtemp()
+        self.dx_records = DxRecords()
+
+        # Mock the config
+        self.dx_records.config = {
+            "iq_finescan_dir": self.temp_dir,
+            "iq_widescan_filename": "iq_wide_z_test-1234567890.npy",
+            "iq_finescan_filename": "iq_fine_z_test-1234567890.npy",
+            "resonant_frequency_filename": "fres_test-1234567890.npy",
+            "resonant_frequency_dir": self.temp_dir,
+            "iq_widescan_dir": self.temp_dir,
+        }
+
+    def teardown_method(self):
+        """Clean up temporary files."""
+        shutil.rmtree(self.temp_dir)
+
+    def test_load_correction_files_valid_files(self):
+        """Test loading valid correction files."""
+        # Create test data files
+        fine_z_data = np.random.rand(2, 10) + 1j * np.random.rand(2, 10)
+        fine_f_data = np.random.rand(2, 10) * 1000 + 1000
+        wide_z_data = np.random.rand(2, 20) + 1j * np.random.rand(2, 20)
+        wide_f_data = np.random.rand(2, 20) * 2000 + 500
+        fres_data = np.array([1500.0, 1600.0])
+
+        # Save test files
+        np.save(os.path.join(self.temp_dir, "iq_fine_z_test-1234567890.npy"), fine_z_data)
+        np.save(os.path.join(self.temp_dir, "iq_fine_f_test-1234567890.npy"), fine_f_data)
+        np.save(os.path.join(self.temp_dir, "iq_wide_z_test-1234567890.npy"), wide_z_data)
+        np.save(os.path.join(self.temp_dir, "iq_wide_f_test-1234567890.npy"), wide_f_data)
+        np.save(os.path.join(self.temp_dir, "fres_test-1234567890.npy"), fres_data)
+
+        # Test loading
+        self.dx_records._load_correction_files()
+
+        # Verify data was loaded correctly
+        np.testing.assert_array_equal(self.dx_records.fine_z, fine_z_data)
+        np.testing.assert_array_equal(self.dx_records.fine_f, fine_f_data)
+        np.testing.assert_array_equal(self.dx_records.wide_z, wide_z_data)
+        np.testing.assert_array_equal(self.dx_records.wide_f, wide_f_data)
+        np.testing.assert_array_equal(self.dx_records.fres, fres_data)
+
+    def test_load_correction_files_invalid_extension(self):
+        """Test that AssertionError is raised for files with invalid extensions."""
+        # Create files with wrong extensions
+        np.save(os.path.join(self.temp_dir, "iq_fine_z_test-1234567890.txt"), np.array([1, 2, 3]))
+        np.save(os.path.join(self.temp_dir, "iq_wide_z_test-1234567890.txt"), np.array([1, 2, 3]))
+        np.save(os.path.join(self.temp_dir, "fres_test-1234567890.txt"), np.array([1, 2, 3]))
+
+        with pytest.raises(AssertionError, match="should end with .npy"):
+            self.dx_records._load_correction_files()
+
+    def test_load_correction_files_invalid_prefix(self):
+        """Test that AssertionError is raised for files with invalid prefixes."""
+        # Create files with wrong prefixes
+        np.save(
+            os.path.join(self.temp_dir, "wrong_fine_z_test-1234567890.npy"), np.array([1, 2, 3])
+        )
+        np.save(
+            os.path.join(self.temp_dir, "wrong_wide_z_test-1234567890.npy"), np.array([1, 2, 3])
+        )
+        np.save(os.path.join(self.temp_dir, "wrong_fres_test-1234567890.npy"), np.array([1, 2, 3]))
+
+        with pytest.raises(AssertionError, match="should start with"):
+            self.dx_records._load_correction_files()
+
+    def test_load_correction_files_timestamp_mismatch(self):
+        """Test that AssertionError is raised for files with mismatched timestamps."""
+        # Create files with different timestamps
+        np.save(os.path.join(self.temp_dir, "iq_fine_z_test-1234567890.npy"), np.array([1, 2, 3]))
+        np.save(os.path.join(self.temp_dir, "iq_wide_z_test-1234567891.npy"), np.array([1, 2, 3]))
+        np.save(os.path.join(self.temp_dir, "fres_test-1234567892.npy"), np.array([1, 2, 3]))
+
+        with pytest.raises(AssertionError, match="should be the same"):
+            self.dx_records._load_correction_files()
+
+    def test_load_correction_files_missing_files(self):
+        """Test that FileNotFoundError is raised for missing files."""
+        with pytest.raises(FileNotFoundError):
+            self.dx_records._load_correction_files()
+
+
+class TestDxRecordsSetupMethods:
+    """Test the setup methods of DxRecords class."""
+
+    def setup_method(self):
+        """Set up test data and create a DxRecords instance."""
+        self.temp_dir = tempfile.mkdtemp()
+        self.dx_records = DxRecords()
+
+        # Mock the config
+        self.dx_records.config = {
+            "iq_finescan_dir": self.temp_dir,
+            "iq_widescan_filename": "iq_wide_z_test-1234567890.npy",
+            "iq_finescan_filename": "iq_fine_z_test-1234567890.npy",
+            "resonant_frequency_filename": "fres_test-1234567890.npy",
+            "resonant_frequency_dir": self.temp_dir,
+            "iq_widescan_dir": self.temp_dir,
+            "widescan_resolution": 1000.0,
+            "cable_correction_polyfit_order": 3,
+        }
+
+        # Create test data files
+        self.n_channels = 2
+        self.n_fine_points = 10
+        self.n_wide_points = 20
+
+        fine_z_data = np.random.rand(self.n_channels, self.n_fine_points) + 1j * np.random.rand(
+            self.n_channels, self.n_fine_points
+        )
+        fine_f_data = np.random.rand(self.n_channels, self.n_fine_points) * 1000 + 1000
+        wide_z_data = np.random.rand(self.n_channels, self.n_wide_points) + 1j * np.random.rand(
+            self.n_channels, self.n_wide_points
+        )
+        wide_f_data = np.random.rand(self.n_channels, self.n_wide_points) * 2000 + 500
+        fres_data = np.array([1500.0, 1600.0])
+
+        # Save test files
+        np.save(os.path.join(self.temp_dir, "iq_fine_z_test-1234567890.npy"), fine_z_data)
+        np.save(os.path.join(self.temp_dir, "iq_fine_f_test-1234567890.npy"), fine_f_data)
+        np.save(os.path.join(self.temp_dir, "iq_wide_z_test-1234567890.npy"), wide_z_data)
+        np.save(os.path.join(self.temp_dir, "iq_wide_f_test-1234567890.npy"), wide_f_data)
+        np.save(os.path.join(self.temp_dir, "fres_test-1234567890.npy"), fres_data)
+
+    def teardown_method(self):
+        """Clean up temporary files."""
+        shutil.rmtree(self.temp_dir)
+
+    def test_setup_iq_correction_and_calibration(self):
+        """Test the IQ correction and calibration setup."""
+        self.dx_records._setup_iq_correction_and_calibration()
+
+        # Verify that all required attributes are set
+        assert hasattr(self.dx_records, "i_models")
+        assert hasattr(self.dx_records, "q_models")
+        assert hasattr(self.dx_records, "iq_centers")
+        assert hasattr(self.dx_records, "phis")
+        assert hasattr(self.dx_records, "fine_z_corrected")
+
+        # Verify dimensions
+        assert len(self.dx_records.i_models) == self.n_channels
+        assert len(self.dx_records.q_models) == self.n_channels
+        assert len(self.dx_records.iq_centers) == self.n_channels
+        assert len(self.dx_records.phis) == self.n_channels
+
+        # Verify that models are callable
+        for i in range(self.n_channels):
+            assert hasattr(self.dx_records.i_models[i], "__call__")
+            assert hasattr(self.dx_records.q_models[i], "__call__")
+
+        # Verify that centers and phis are finite
+        assert np.all(np.isfinite(self.dx_records.iq_centers))
+        assert np.all(np.isfinite(self.dx_records.phis))
+
+    def test_setup_frequency_interpolation_models(self):
+        """Test the frequency interpolation models setup."""
+        # First setup IQ correction
+        self.dx_records._setup_iq_correction_and_calibration()
+
+        # Then setup frequency interpolation
+        self.dx_records._setup_frequency_interpolation_models()
+
+        # Verify that all required attributes are set
+        assert hasattr(self.dx_records, "thetas_at_fres")
+        assert hasattr(self.dx_records, "interpolated_freqs")
+        assert hasattr(self.dx_records, "f_interpolation_models")
+
+        # Verify dimensions
+        assert len(self.dx_records.thetas_at_fres) == self.n_channels
+        assert len(self.dx_records.interpolated_freqs) == self.n_channels
+        assert len(self.dx_records.f_interpolation_models) == self.n_channels
+
+        # Verify that interpolation models are callable
+        for i in range(self.n_channels):
+            assert hasattr(self.dx_records.f_interpolation_models[i], "__call__")
+
+        # Verify that thetas and frequencies are finite
+        assert np.all(np.isfinite(self.dx_records.thetas_at_fres))
+        assert np.all(np.isfinite(self.dx_records.interpolated_freqs))
+
+    def test_setup_method(self):
+        """Test the complete setup method."""
+
+        # Mock the deps attribute that would normally be set by strax
+        class MockDeps:
+            def dtype_for(self, name):
+                if name == "raw_records":
+                    return np.dtype(
+                        [
+                            ("data_i", np.float32, 1000),
+                            ("data_q", np.float32, 1000),
+                        ]
+                    )
+
+        self.dx_records.deps = {"raw_records": MockDeps()}
+
+        # Test setup
+        self.dx_records.setup()
+
+        # Verify that all required attributes are set
+        assert hasattr(self.dx_records, "record_length")
+        assert hasattr(self.dx_records, "dt_exact")
+        assert hasattr(self.dx_records, "i_models")
+        assert hasattr(self.dx_records, "q_models")
+        assert hasattr(self.dx_records, "iq_centers")
+        assert hasattr(self.dx_records, "phis")
+        assert hasattr(self.dx_records, "fine_z_corrected")
+        assert hasattr(self.dx_records, "thetas_at_fres")
+        assert hasattr(self.dx_records, "interpolated_freqs")
+        assert hasattr(self.dx_records, "f_interpolation_models")
+        assert hasattr(self.dx_records, "kernel")
+        assert hasattr(self.dx_records, "moving_average_kernel")
+
+        # Verify record_length is set correctly
+        assert self.dx_records.record_length == 1000
+
+        # Verify dt_exact is calculated correctly
+        expected_dt = 1 / self.dx_records.config["fs"] * 1e9  # Convert to ns
+        assert self.dx_records.dt_exact == expected_dt
+
+
+class TestDxRecordsCompute:
+    """Test the compute method of DxRecords class."""
+
+    def setup_method(self):
+        """Set up test data and create a DxRecords instance."""
+        self.temp_dir = tempfile.mkdtemp()
+        self.dx_records = DxRecords()
+
+        # Mock the config
+        self.dx_records.config = {
+            "iq_finescan_dir": self.temp_dir,
+            "iq_widescan_filename": "iq_wide_z_test-1234567890.npy",
+            "iq_finescan_filename": "iq_fine_z_test-1234567890.npy",
+            "resonant_frequency_filename": "fres_test-1234567890.npy",
+            "resonant_frequency_dir": self.temp_dir,
+            "iq_widescan_dir": self.temp_dir,
+            "widescan_resolution": 1000.0,
+            "cable_correction_polyfit_order": 3,
+            "fs": 38000,
+            "moving_average_width": 100000,
+            "pulse_kernel_start_time": 200000,
+            "pulse_kernel_decay_time": 600000,
+            "pulse_kernel_gaussian_smearing_width": 28000,
+            "pulse_kernel_truncation_factor": 10,
+        }
+
+        # Create test data files
+        self.n_channels = 2
+        self.n_fine_points = 10
+        self.n_wide_points = 20
+        self.record_length = 1000
+
+        fine_z_data = np.random.rand(self.n_channels, self.n_fine_points) + 1j * np.random.rand(
+            self.n_channels, self.n_fine_points
+        )
+        fine_f_data = np.random.rand(self.n_channels, self.n_fine_points) * 1000 + 1000
+        wide_z_data = np.random.rand(self.n_channels, self.n_wide_points) + 1j * np.random.rand(
+            self.n_channels, self.n_wide_points
+        )
+        wide_f_data = np.random.rand(self.n_channels, self.n_wide_points) * 2000 + 500
+        fres_data = np.array([1500.0, 1600.0])
+
+        # Save test files
+        np.save(os.path.join(self.temp_dir, "iq_fine_z_test-1234567890.npy"), fine_z_data)
+        np.save(os.path.join(self.temp_dir, "iq_fine_f_test-1234567890.npy"), fine_f_data)
+        np.save(os.path.join(self.temp_dir, "iq_wide_z_test-1234567890.npy"), wide_z_data)
+        np.save(os.path.join(self.temp_dir, "iq_wide_f_test-1234567890.npy"), wide_f_data)
+        np.save(os.path.join(self.temp_dir, "fres_test-1234567890.npy"), fres_data)
+
+        # Mock the setup methods
+        self.dx_records.record_length = self.record_length
+        self.dx_records.dt_exact = 1 / self.dx_records.config["fs"] * 1e9  # Convert to ns
+
+    def teardown_method(self):
+        """Clean up temporary files."""
+        shutil.rmtree(self.temp_dir)
+
+    def test_compute_basic(self):
+        """Test basic compute functionality with mock data."""
+        # Setup the plugin
+        self.dx_records._setup_iq_correction_and_calibration()
+        self.dx_records._setup_frequency_interpolation_models()
+
+        # Pre-compute kernels
+        self.dx_records.kernel = DxRecords.pulse_kernel(
+            self.record_length,
+            self.dx_records.config["fs"],
+            self.dx_records.config["pulse_kernel_start_time"],
+            self.dx_records.config["pulse_kernel_decay_time"],
+            self.dx_records.config["pulse_kernel_gaussian_smearing_width"],
+            self.dx_records.config["pulse_kernel_truncation_factor"],
+        )
+
+        moving_average_kernel_width = int(
+            self.dx_records.config["moving_average_width"] / self.dx_records.dt_exact
+        )
+        self.dx_records.moving_average_kernel = (
+            np.ones(moving_average_kernel_width) / moving_average_kernel_width
+        )
+
+        # Create mock raw records
+        raw_records = np.zeros(
+            2,
+            dtype=[
+                ("time", np.int64),
+                ("endtime", np.int64),
+                ("length", np.int64),
+                ("dt", np.int64),
+                ("channel", np.int16),
+                ("data_i", np.float32, self.record_length),
+                ("data_q", np.float32, self.record_length),
+            ],
+        )
+
+        raw_records[0]["time"] = 0
+        raw_records[0]["length"] = self.record_length
+        raw_records[0]["dt"] = int(self.dx_records.dt_exact)
+        raw_records[0]["endtime"] = (
+            raw_records[0]["time"] + raw_records[0]["length"] * raw_records[0]["dt"]
+        )
+        raw_records[0]["channel"] = 0
+        raw_records[0]["data_i"] = np.random.randn(self.record_length)
+        raw_records[0]["data_q"] = np.random.randn(self.record_length)
+
+        raw_records[1]["time"] = self.record_length * int(self.dx_records.dt_exact)
+        raw_records[1]["length"] = self.record_length
+        raw_records[1]["dt"] = int(self.dx_records.dt_exact)
+        raw_records[1]["endtime"] = (
+            raw_records[1]["time"] + raw_records[1]["length"] * raw_records[1]["dt"]
+        )
+        raw_records[1]["channel"] = 1
+        raw_records[1]["data_i"] = np.random.randn(self.record_length)
+        raw_records[1]["data_q"] = np.random.randn(self.record_length)
+
+        # Test compute
+        results = self.dx_records.compute(raw_records)
+
+        # Basic validation
+        assert len(results) == 2
+        assert results.dtype.names is not None
+
+        # Check required fields
+        required_fields = [
+            "time",
+            "endtime",
+            "length",
+            "dt",
+            "channel",
+            "data_dx",
+            "data_dx_moving_average",
+            "data_dx_convolved",
+        ]
+        for field in required_fields:
+            assert field in results.dtype.names
+
+        # Check data shapes
+        for i, result in enumerate(results):
+            assert result["data_dx"].shape == (self.record_length,)
+            assert result["data_dx_moving_average"].shape == (self.record_length,)
+            assert result["data_dx_convolved"].shape == (self.record_length,)
+
+            # Check that data is finite
+            assert np.all(np.isfinite(result["data_dx"]))
+            assert np.all(np.isfinite(result["data_dx_moving_average"]))
+            assert np.all(np.isfinite(result["data_dx_convolved"]))
+
+    def test_compute_empty_input(self):
+        """Test compute with empty input."""
+        # Setup the plugin
+        self.dx_records._setup_iq_correction_and_calibration()
+        self.dx_records._setup_frequency_interpolation_models()
+
+        # Pre-compute kernels
+        self.dx_records.kernel = DxRecords.pulse_kernel(
+            self.record_length,
+            self.dx_records.config["fs"],
+            self.dx_records.config["pulse_kernel_start_time"],
+            self.dx_records.config["pulse_kernel_decay_time"],
+            self.dx_records.config["pulse_kernel_gaussian_smearing_width"],
+            self.dx_records.config["pulse_kernel_truncation_factor"],
+        )
+
+        moving_average_kernel_width = int(
+            self.dx_records.config["moving_average_width"] / self.dx_records.dt_exact
+        )
+        self.dx_records.moving_average_kernel = (
+            np.ones(moving_average_kernel_width) / moving_average_kernel_width
+        )
+
+        # Empty input
+        raw_records = np.zeros(
+            0,
+            dtype=[
+                ("time", np.int64),
+                ("endtime", np.int64),
+                ("length", np.int64),
+                ("dt", np.int64),
+                ("channel", np.int16),
+                ("data_i", np.float32, self.record_length),
+                ("data_q", np.float32, self.record_length),
+            ],
+        )
+
+        results = self.dx_records.compute(raw_records)
+        assert len(results) == 0
 
 
 def clean_strax_data():
@@ -584,6 +1159,8 @@ class TestRecordsWithRealDataOffline:
                 "dt",
                 "channel",
                 "data_dx",
+                "data_dx_moving_average",
+                "data_dx_convolved",
             ]
             for field in required_fields:
                 assert (
@@ -597,6 +1174,8 @@ class TestRecordsWithRealDataOffline:
             assert records["dt"].dtype == np.int64
             assert records["channel"].dtype == np.int16
             assert records["data_dx"].dtype == np.float32
+            assert records["data_dx_moving_average"].dtype == np.float32
+            assert records["data_dx_convolved"].dtype == np.float32
 
             # Check that all records have reasonable lengths
             assert all(records["length"] > 0)
@@ -605,6 +1184,8 @@ class TestRecordsWithRealDataOffline:
             # Check that data arrays have the correct shape
             for record in records:
                 assert record["data_dx"].shape == (record["length"],)
+                assert record["data_dx_moving_average"].shape == (record["length"],)
+                assert record["data_dx_convolved"].shape == (record["length"],)
 
             print(
                 f"Successfully processed {len(records)} records "
@@ -649,6 +1230,12 @@ class TestRecordsWithRealDataOffline:
 
             # Check finite data
             assert np.all(np.isfinite(records["data_dx"])), "Non-finite values found in data_dx"
+            assert np.all(
+                np.isfinite(records["data_dx_moving_average"])
+            ), "Non-finite values found in data_dx_moving_average"
+            assert np.all(
+                np.isfinite(records["data_dx_convolved"])
+            ), "Non-finite values found in data_dx_convolved"
 
         except Exception as e:
             pytest.fail(f"Failed to validate records consistency: {str(e)}")
