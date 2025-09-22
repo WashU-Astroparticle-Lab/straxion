@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: False
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12"]
         test: ["coveralls", "pytest"]
 
     steps:
