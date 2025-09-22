@@ -545,8 +545,13 @@ class TestHitsWithRealDataOffline:
                 "channel",
                 "width",
                 "data_dx",
+                "data_dx_moving_average",
+                "data_dx_convolved",
                 "amplitude",
+                "amplitude_moving_average",
+                "amplitude_convolved",
                 "amplitude_max_record_i",
+                "hit_threshold",
             ]
             for field in required_fields:
                 assert field in hits.dtype.names, f"Required field '{field}' missing from hits"
@@ -559,8 +564,13 @@ class TestHitsWithRealDataOffline:
             assert hits["channel"].dtype == np.int16
             assert hits["width"].dtype == np.int32
             assert hits["data_dx"].dtype == np.float32
+            assert hits["data_dx_moving_average"].dtype == np.float32
+            assert hits["data_dx_convolved"].dtype == np.float32
             assert hits["amplitude"].dtype == np.float32
+            assert hits["amplitude_moving_average"].dtype == np.float32
+            assert hits["amplitude_convolved"].dtype == np.float32
             assert hits["amplitude_max_record_i"].dtype == np.int32
+            assert hits["hit_threshold"].dtype == np.float32
 
             # Check that all hits have reasonable lengths and dt
             if len(hits) > 0:
@@ -574,6 +584,8 @@ class TestHitsWithRealDataOffline:
                 expected_waveform_length = 600  # HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
                 for hit in hits:
                     assert hit["data_dx"].shape == (expected_waveform_length,)
+                    assert hit["data_dx_moving_average"].shape == (expected_waveform_length,)
+                    assert hit["data_dx_convolved"].shape == (expected_waveform_length,)
 
                 # Check that timing information is consistent
                 for h_i, hit in enumerate(hits):
@@ -635,6 +647,12 @@ class TestHitsWithRealDataOffline:
 
                 # Check finite data
                 assert np.all(np.isfinite(hits["data_dx"])), "Non-finite values found in data_dx"
+                assert np.all(
+                    np.isfinite(hits["data_dx_moving_average"])
+                ), "Non-finite values found in data_dx_moving_average"
+                assert np.all(
+                    np.isfinite(hits["data_dx_convolved"])
+                ), "Non-finite values found in data_dx_convolved"
 
         except Exception as e:
             pytest.fail(f"Failed to validate hits consistency: {str(e)}")
