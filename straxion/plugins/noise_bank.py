@@ -151,6 +151,7 @@ class NoiseBank(strax.Plugin):
         results["channel"] = noise_data["channel"]
         results["length"] = noise_data["length"]
         results["hit_threshold"] = noise_data["hit_threshold"]
+        results["dt"] = noise_data["dt"]
 
         # Sort by time
         results = results[np.argsort(results["time"])]
@@ -174,6 +175,7 @@ class NoiseBank(strax.Plugin):
             "channel": [],
             "length": [],
             "hit_threshold": [],
+            "dt": [],
         }
 
         # Process each channel separately to maintain hit ordering
@@ -227,6 +229,7 @@ class NoiseBank(strax.Plugin):
                 noise_data["channel"].append(ch)
                 noise_data["length"].append(end_i - start_i)
                 noise_data["hit_threshold"].append(hit["hit_threshold"])
+                noise_data["dt"].append(records[ch]["dt"])
 
         # Convert lists to numpy arrays
         if valid_hits:
