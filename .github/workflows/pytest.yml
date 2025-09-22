@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: False
       matrix:
-        python-version: ["3.11"]
+        python-version: ["3.11", "3.12", "3.13"]
         test: ["coveralls", "pytest"]
 
     steps:
@@ -43,7 +43,7 @@ jobs:
       - name: Install test tollkits
         run: pip install pytest hypothesis coverage coveralls
 
-      - name: Install requirements for Python 3.11
+      - name: Install requirements for Python 3.11, 3.12, 3.13
         if: matrix.python-version == '3.11'
         run: pip install git+https://github.com/XENONnT/base_environment.git --force-reinstall
 

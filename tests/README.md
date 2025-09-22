@@ -86,7 +86,7 @@ See `docs/SECURE_TEST_DATA_SETUP.md` for detailed step-by-step instructions.
 
 The tests are integrated into the existing `.github/workflows/pytest.yml` workflow, which will:
 
-1. Run basic tests without test data on Python 3.11
+1. Run basic tests without test data on Python 3.11, 3.12, 3.13.
 2. Automatically download `qualiphide_fir_test_data.tar.gz` from GitHub Releases (if available)
 3. Run comprehensive tests with real data for all plugins:
    - raw_records processing with `qualiphide_thz_offline` context (`qualiphide_thz_online` uses the same one)
