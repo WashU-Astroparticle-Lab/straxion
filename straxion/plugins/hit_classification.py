@@ -241,7 +241,7 @@ class SpikeCoincidence(strax.Plugin):
         all_indices = start_indices + window_indices  # Shape: (n_hits, ss_window)
 
         # Use advanced indexing to extract all windows at once
-        return hits["data_theta_moving_average"][np.arange(n_hits)[:, None], all_indices]
+        return hits["data_dx_moving_average"][np.arange(n_hits)[:, None], all_indices]
 
     def compute_rise_edge_slope(self, hits, hit_classification):
         """Compute the rise edge slope of the moving averaged signal."""
