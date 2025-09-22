@@ -43,8 +43,8 @@ jobs:
       - name: Install test tollkits
         run: pip install pytest hypothesis coverage coveralls
 
-      - name: Install requirements for Python 3.11, 3.12, 3.13
-        if: matrix.python-version == '3.11'
+      - name: Install requirements for Python 3.11, 3.12
+        if: ${{ matrix.python-version == '3.11' || matrix.python-version == '3.12' }}
         run: pip install git+https://github.com/XENONnT/base_environment.git --force-reinstall
 
       - name: Install strax and straxion
