@@ -3,6 +3,7 @@ import pytest
 import numpy as np
 import straxion
 from straxion.plugins.hits import Hits
+from straxion.utils import HIT_WINDOW_LENGTH_LEFT, HIT_WINDOW_LENGTH_RIGHT
 import shutil
 
 
@@ -332,7 +333,7 @@ class TestHitsWithRealDataOnline:
                 assert all(0 <= hits["channel"]) and all(hits["channel"] <= 40)
 
                 # Check that waveform data has the correct shape
-                expected_waveform_length = 600  # HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
+                expected_waveform_length = HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
                 for hit in hits:
                     assert hit["data_theta"].shape == (expected_waveform_length,)
                     assert hit["data_theta_moving_average"].shape == (expected_waveform_length,)
@@ -581,7 +582,7 @@ class TestHitsWithRealDataOffline:
                 assert all(0 <= hits["channel"]) and all(hits["channel"] <= 40)
 
                 # Check that waveform data has the correct shape
-                expected_waveform_length = 600  # HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
+                expected_waveform_length = HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
                 for hit in hits:
                     assert hit["data_dx"].shape == (expected_waveform_length,)
                     assert hit["data_dx_moving_average"].shape == (expected_waveform_length,)
