@@ -231,45 +231,6 @@ class DxHits(strax.Plugin):
 
         return hit_threshold
 
-    @staticmethod
-    def find_hit_candidates(signal, hit_threshold, min_pulse_width):
-        """Finds potential hit candidates, correctly handling edge cases.
-
-        Args:
-            signal: The signal array.
-            hit_threshold: Threshold value for hit detection.
-            min_pulse_width: Minimum width required for a valid hit in samples.
-
-        Returns:
-            tuple: (hit_start_indices, hit_widths) for valid hits.
-        """
-        # 1. Create a boolean array where True means the signal is at or above the threshold
-        above_threshold = signal >= hit_threshold
-
-        # 2. Pad the array with False at both ends. This is the key to finding
-        #    hits that start at index 0 or end at the last index.
-        padded_array = np.concatenate(([False], above_threshold, [False]))
-
-        # 3. Find the changes from False to True (starts) and True to False (ends)
-        #    A change from 0 to 1 is a start (diff = 1).
-        #    A change from 1 to 0 is an end (diff = -1).
-        diffs = np.diff(padded_array.astype(int))
-
-        hit_start_indices = np.where(diffs == 1)[0]
-        hit_end_indices = np.where(diffs == -1)[0]
-
-        # If no hits are found, return empty lists
-        if len(hit_start_indices) == 0:
-            return np.array([]), np.array([])
-
-        # 4. Calculate the width of each potential hit
-        hit_widths = hit_end_indices - hit_start_indices
-
-        # 5. Filter the hits by the minimum pulse width
-        valid_mask = hit_widths >= min_pulse_width
-
-        return hit_start_indices[valid_mask], hit_widths[valid_mask]
-
     def determine_hit_threshold(self, records):
         """Determine the hit threshold based on the provided configuration.
         You can either provide hit_threshold_dx or
@@ -318,6 +279,45 @@ class DxHits(strax.Plugin):
                 "Either hit_threshold_dx or hit_thresholds_sigma and "
                 "noisy_channel_signal_std_multipliers must be provided. You cannot provide both."
             )
+
+    @staticmethod
+    def find_hit_candidates(signal, hit_threshold, min_pulse_width):
+        """Finds potential hit candidates, correctly handling edge cases.
+
+        Args:
+            signal: The signal array.
+            hit_threshold: Threshold value for hit detection.
+            min_pulse_width: Minimum width required for a valid hit in samples.
+
+        Returns:
+            tuple: (hit_start_indices, hit_widths) for valid hits.
+        """
+        # 1. Create a boolean array where True means the signal is at or above the threshold
+        above_threshold = signal >= hit_threshold
+
+        # 2. Pad the array with False at both ends. This is the key to finding
+        #    hits that start at index 0 or end at the last index.
+        padded_array = np.concatenate(([False], above_threshold, [False]))
+
+        # 3. Find the changes from False to True (starts) and True to False (ends)
+        #    A change from 0 to 1 is a start (diff = 1).
+        #    A change from 1 to 0 is an end (diff = -1).
+        diffs = np.diff(padded_array.astype(int))
+
+        hit_start_indices = np.where(diffs == 1)[0]
+        hit_end_indices = np.where(diffs == -1)[0]
+
+        # If no hits are found, return empty lists
+        if len(hit_start_indices) == 0:
+            return np.array([]), np.array([])
+
+        # 4. Calculate the width of each potential hit
+        hit_widths = hit_end_indices - hit_start_indices
+
+        # 5. Filter the hits by the minimum pulse width
+        valid_mask = hit_widths >= min_pulse_width
+
+        return hit_start_indices[valid_mask], hit_widths[valid_mask]
 
     def compute(self, records):
         """Process records to find and characterize hits.
