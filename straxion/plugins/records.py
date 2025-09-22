@@ -85,9 +85,51 @@ export, __all__ = strax.exporter()
         type=int,
         help="Order of the polynomial fit for cable correction",
     ),
+    strax.Option(
+        "pulse_kernel_start_time",
+        default=200_000,
+        track=True,
+        type=int,
+        help="Relative start time of the exponential decay in pulse kernel (t0), in unit of ns.",
+    ),
+    strax.Option(
+        "pulse_kernel_decay_time",
+        default=600_000,
+        track=True,
+        type=int,
+        help="Decay time of the exponential falling in pulse kernel (tau), in unit of ns.",
+    ),
+    strax.Option(
+        "pulse_kernel_gaussian_smearing_width",
+        default=28_000,
+        track=True,
+        type=int,
+        help=(
+            "Gaussian smearing width of the exponentially-modified-gaussian kernel "
+            "(sigma), in unit of ns."
+        ),
+    ),
+    strax.Option(
+        "moving_average_width",
+        default=100_000,  # The original Matlab code says 5 samples (with fs = 5E4Hz).
+        track=True,
+        type=int,
+        help="Moving average width for smoothed reference waveform, in unit of ns.",
+    ),
+    strax.Option(
+        "pulse_kernel_truncation_factor",
+        default=10,
+        track=True,
+        type=float,
+        help=(
+            "Factor for truncating the pulse kernel to improve performance. "
+            "The kernel is truncated after truncation_factor * tau samples, "
+            "where the exponential decay becomes negligible."
+        ),
+    ),
 )
 class DxRecords(strax.Plugin):
-    __version__ = "0.0.0"
+    __version__ = "0.1.0"
     rechunk_on_save = False
     compressor = "zstd"  # Inherited from straxen. Not optimized outside XENONnT.
 
@@ -314,6 +356,62 @@ class DxRecords(strax.Plugin):
             # This is just for self-consistency check
             self.interpolated_freqs[ch] = self.f_interpolation_models[ch](0)
 
+    @staticmethod
+    def pulse_kernel(ns, fs, t0, tau, sigma, truncation_factor=5):
+        """Generate a pulse train with flipped, truncated exponential decay and Gaussian smoothing.
+
+        Translated from Chris Albert's Matlab codes:
+        https://caltechobscosgroup.slack.com/archives/C07SZDKRNF9/p1752010145654029.
+
+        Args:
+            ns (int): Number of samples.
+            fs (int): Sampling frequency in unit of Hz.
+            t0 (int): Start time of the pulse in unit of ns.
+            tau (int): Decay time constant in unit of ns.
+            sigma (int): Smearing width constant in unit of ns in unit of ns.
+            truncation_factor (float): Factor for truncating the kernel in unit of tau.
+                After truncation_factor * tau, the exponential is less than
+                exp(-truncation_factor) of its peak value.
+
+        Returns:
+            pulse_kernal (np.ndarray): Smoothed pulse train
+
+        """
+        dt = int(1 / fs * SECOND_TO_NANOSECOND)
+
+        # Calculate significant length upfront to avoid unnecessary computation.
+        significant_length = min(ns, int((truncation_factor * tau + t0) / dt))
+
+        # Only create time array for needed samples.
+        t = np.arange(significant_length) * dt
+
+        # Create exponential decay pulse only for significant portion.
+        mask = t >= t0
+        exponential = np.zeros(significant_length)
+        exponential[mask] = np.exp(-(t[mask] - t0) / tau)
+
+        # Convert sigma to samples.
+        sigma_sample = int(sigma / dt)
+
+        # Apply Gaussian smoothing.
+        pulse_kernal = gaussian_filter1d(exponential, sigma=sigma_sample)
+
+        # No need for truncation since we already computed only the significant portion.
+        # But we still need to normalize.
+        kernel_sum = np.sum(pulse_kernal)
+        if kernel_sum > 0:  # Avoid division by zero.
+            pulse_kernal /= kernel_sum
+
+        # Normalize again to make sure the integral is 1.
+        kernel_sum = np.sum(pulse_kernal)
+        if kernel_sum > 0:  # Avoid division by zero.
+            pulse_kernal /= kernel_sum
+
+        # Flip the kernel.
+        pulse_kernal = np.flip(pulse_kernal)
+
+        return pulse_kernal
+
     def setup(self):
         # Get record_length from the plugin making raw_records.
         raw_records_dtype = self.deps["raw_records"].dtype_for("raw_records")
@@ -325,6 +423,22 @@ class DxRecords(strax.Plugin):
 
         # Setup frequency interpolation models
         self._setup_frequency_interpolation_models()
+
+        # Pre-compute pulse kernel.
+        self.kernel = self.pulse_kernel(
+            self.record_length,
+            self.config["fs"],
+            self.config["pulse_kernel_start_time"],
+            self.config["pulse_kernel_decay_time"],
+            self.config["pulse_kernel_gaussian_smearing_width"],
+            self.config["pulse_kernel_truncation_factor"],
+        )
+
+        # Pre-compute moving average kernel.
+        moving_average_kernel_width = int(self.config["moving_average_width"] / self.dt_exact)
+        self.moving_average_kernel = (
+            np.ones(moving_average_kernel_width) / moving_average_kernel_width
+        )
 
     def compute(self, raw_records):
         """Compute the dx=df/f0 for the timestream data."""
