@@ -15,8 +15,8 @@ INDEX_DTYPE = np.int32
 N_BASELINE_MONITOR_INTERVAL = 100
 
 # Hit waveform recording window length.
-HIT_WINDOW_LENGTH_LEFT = 300
-HIT_WINDOW_LENGTH_RIGHT = 300
+HIT_WINDOW_LENGTH_LEFT = 200
+HIT_WINDOW_LENGTH_RIGHT = 600
 
 
 def base_waveform_dtype():
