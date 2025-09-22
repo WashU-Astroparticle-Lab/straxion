@@ -152,6 +152,16 @@ class DxRecords(strax.Plugin):
         dtype.append(
             (
                 (
+                    "Waveform data of phase angle after baseline corrections",
+                    "data_dtheta",
+                ),
+                DATA_DTYPE,
+                record_length,
+            )
+        )
+        dtype.append(
+            (
+                (
                     "Waveform data of df/f after baseline corrections",
                     "data_dx",
                 ),
@@ -497,6 +507,7 @@ class DxRecords(strax.Plugin):
             # Convert to theta (phase angle) relative to the IQ loop center.
             theta = np.mod(np.angle(data_z), 2 * np.pi)
             dtheta = theta - self.thetas_at_fres[rr["channel"]]
+            r["data_dtheta"] = dtheta
 
             # Interpolate to get the frequency offset.
             r["data_dx"] = (

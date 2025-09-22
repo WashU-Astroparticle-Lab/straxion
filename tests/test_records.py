@@ -203,6 +203,7 @@ class TestDxRecordsStaticMethods:
             "length",
             "dt",
             "channel",
+            "data_dtheta",
             "data_dx",
             "data_dx_moving_average",
             "data_dx_convolved",
@@ -211,6 +212,7 @@ class TestDxRecordsStaticMethods:
             assert field in dtype.names, f"Field '{field}' missing from dtype"
 
         # Check that data fields have the correct shape
+        assert dtype["data_dtheta"].shape == (1000,)
         assert dtype["data_dx"].shape == (1000,)
         assert dtype["data_dx_moving_average"].shape == (1000,)
         assert dtype["data_dx_convolved"].shape == (1000,)
@@ -697,6 +699,7 @@ class TestDxRecordsCompute:
             "length",
             "dt",
             "channel",
+            "data_dtheta",
             "data_dx",
             "data_dx_moving_average",
             "data_dx_convolved",
@@ -706,11 +709,13 @@ class TestDxRecordsCompute:
 
         # Check data shapes
         for i, result in enumerate(results):
+            assert result["data_dtheta"].shape == (self.record_length,)
             assert result["data_dx"].shape == (self.record_length,)
             assert result["data_dx_moving_average"].shape == (self.record_length,)
             assert result["data_dx_convolved"].shape == (self.record_length,)
 
             # Check that data is finite
+            assert np.all(np.isfinite(result["data_dtheta"]))
             assert np.all(np.isfinite(result["data_dx"]))
             assert np.all(np.isfinite(result["data_dx_moving_average"]))
             assert np.all(np.isfinite(result["data_dx_convolved"]))
@@ -1161,6 +1166,7 @@ class TestRecordsWithRealDataOffline:
                 "length",
                 "dt",
                 "channel",
+                "data_dtheta",
                 "data_dx",
                 "data_dx_moving_average",
                 "data_dx_convolved",
@@ -1176,6 +1182,7 @@ class TestRecordsWithRealDataOffline:
             assert records["length"].dtype == np.int64
             assert records["dt"].dtype == np.int64
             assert records["channel"].dtype == np.int16
+            assert records["data_dtheta"].dtype == np.float32
             assert records["data_dx"].dtype == np.float32
             assert records["data_dx_moving_average"].dtype == np.float32
             assert records["data_dx_convolved"].dtype == np.float32
@@ -1186,6 +1193,7 @@ class TestRecordsWithRealDataOffline:
 
             # Check that data arrays have the correct shape
             for record in records:
+                assert record["data_dtheta"].shape == (record["length"],)
                 assert record["data_dx"].shape == (record["length"],)
                 assert record["data_dx_moving_average"].shape == (record["length"],)
                 assert record["data_dx_convolved"].shape == (record["length"],)
@@ -1232,6 +1240,9 @@ class TestRecordsWithRealDataOffline:
                     ), f"Time stamps not monotonically increasing for channel {channel}"
 
             # Check finite data
+            assert np.all(
+                np.isfinite(records["data_dtheta"])
+            ), "Non-finite values found in data_dtheta"
             assert np.all(np.isfinite(records["data_dx"])), "Non-finite values found in data_dx"
             assert np.all(
                 np.isfinite(records["data_dx_moving_average"])
