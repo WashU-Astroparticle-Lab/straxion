@@ -19,7 +19,7 @@ repository = "https://github.com/WashU-Astroparticle-Lab/straxion"
 
 [tool.poetry.dependencies]
 python = ">=3.11"
-strax = "2.2.1"
+strax = "*"
 numpy = "*"
 numba = "*"
 pandas = "*"

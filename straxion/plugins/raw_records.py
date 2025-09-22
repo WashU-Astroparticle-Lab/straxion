@@ -75,7 +75,7 @@ class QUALIPHIDETHzReader(strax.Plugin):
 
     # Memory management related:
     rechunk_on_load = False  # Assumed no single dataset will be larger than 1 GB.
-    chunk_source_size_mb = strax.DEFAULT_CHUNK_SIZE_MB  # 200 MB; Neglected if no rechunk on load.
+    chunk_source_size_mb = 200  # 200 MB; Neglected if no rechunk on load.
     rechunk_on_save = False  # Assumed no chunking at DAQ.
     chunk_target_size_mb = 1000  # Meaningless if rechunk_on_save is False.
     compressor = "lz4"  # Inherited from straxen. Not optimized outside XENONnT.
@@ -246,7 +246,7 @@ class NX3LikeReader(strax.Plugin):
 
     # Memory management related:
     rechunk_on_load = False  # Assumed no single dataset will be larger than 1 GB.
-    chunk_source_size_mb = strax.DEFAULT_CHUNK_SIZE_MB  # 200 MB; Neglected if no rechunk on load.
+    chunk_source_size_mb = 200  # 200 MB; Neglected if no rechunk on load.
     rechunk_on_save = False  # Assumed no chunking at DAQ.
     chunk_target_size_mb = 1000  # Meaningless if rechunk_on_save is False.
     compressor = "lz4"  # Inherited from straxen. Not optimized outside XENONnT.
