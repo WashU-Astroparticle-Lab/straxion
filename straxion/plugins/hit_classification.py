@@ -212,6 +212,37 @@ class SpikeCoincidence(strax.Plugin):
                 "noisy_channel_signal_std_multipliers must be provided. You cannot provide both."
             )
 
+    def _get_ss_window(self, hits, window_start_offset, window_end_offset):
+        """Extract windows from all hits using vectorized operations.
+
+        Args:
+            hits: Array of hits containing the data
+            window_start_offset: Offset from climax_shift for window start
+            window_end_offset: Offset from climax_shift for window end
+
+        Returns:
+            Array of extracted windows with shape (n_hits, window_length)
+        """
+        # The inspected window ends at the maximum of the moving averaged signal.
+        climax_shift = (
+            hits["amplitude_moving_average_max_record_i"] - hits["amplitude_convolved_max_record_i"]
+        )
+
+        # Calculate start indices for all hits at once
+        start_indices = window_start_offset + climax_shift
+
+        # Extract windows using vectorized operations
+        # Create index arrays for all hits
+        n_hits = len(hits)
+        window_indices = np.arange(self.ss_window)[None, :]  # Shape: (1, ss_window)
+        start_indices = start_indices[:, None]  # Shape: (n_hits, 1)
+
+        # Broadcast to get all indices for all hits
+        all_indices = start_indices + window_indices  # Shape: (n_hits, ss_window)
+
+        # Use advanced indexing to extract all windows at once
+        return hits["data_theta_moving_average"][np.arange(n_hits)[:, None], all_indices]
+
     def compute_rise_edge_slope(self, hits, hit_classification):
         """Compute the rise edge slope of the moving averaged signal."""
 
@@ -236,7 +267,7 @@ class SpikeCoincidence(strax.Plugin):
         spike_coincidence = np.zeros(len(hits))
         for i, hit in enumerate(hits):
             # Get the index of the hit maximum in the record
-            hit_climax_i = hit["amplitude_max_record_i"]
+            hit_climax_i = hit["amplitude_convolved_max_record_i"]
 
             # Extract windows from all records at once
             inspected_wfs = records["data_dx_convolved"][
@@ -375,9 +406,10 @@ class HitClassification(strax.Plugin):
         dt = hits["dt"][0]
         times = np.arange(self.ss_window) * dt / SECOND_TO_NANOSECOND
 
-        inspected_wfs = hits["data_theta_moving_average"][
-            :, HIT_WINDOW_LENGTH_LEFT - self.ss_window : HIT_WINDOW_LENGTH_LEFT
-        ]
+        # Extract windows from all hits at once (fully vectorized)
+        inspected_wfs = self._get_ss_window(
+            hits, HIT_WINDOW_LENGTH_LEFT - self.ss_window, HIT_WINDOW_LENGTH_LEFT
+        )
         # Fit a linear model to the inspected window.
         hit_classification["ma_rise_edge_slope"] = np.polyfit(times, inspected_wfs.T, 1)[0]
 
