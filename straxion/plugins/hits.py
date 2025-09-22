@@ -17,10 +17,34 @@ export, __all__ = strax.exporter()
 @strax.takes_config(
     strax.Option(
         "hit_threshold_dx",
-        default=0.6e-6,
+        default=None,
         track=True,
         type=float,
-        help="Threshold for hit finding in units of dx=df/f0.",
+        help=(
+            "Threshold for hit finding in units of dx=df/f0. "
+            "If None, the hit threshold will be calculated based on the signal statistics."
+        ),
+    ),
+    strax.Option(
+        "hit_thresholds_sigma",
+        default=[3.0 for _ in range(41)],
+        track=True,
+        type=list,
+        help=(
+            "Threshold for hit finding in units of sigma of standard deviation of the noise. "
+            "If None, the hit threshold will be calculated based on the signal statistics."
+        ),
+    ),
+    strax.Option(
+        "noisy_channel_signal_std_multipliers",
+        default=[2.0 for _ in range(41)],
+        track=True,
+        type=list,
+        help=(
+            "If the signal standard deviation above this threshold times of signal absolute "
+            "mean, the signal is considered noisy and the hit threshold is increased. "
+            "If None, the hit threshold will be calculated based on the signal statistics."
+        ),
     ),
     strax.Option(
         "hit_min_width",
@@ -38,7 +62,10 @@ export, __all__ = strax.exporter()
     ),
 )
 class DxHits(strax.Plugin):
-    """Find and characterize hits in dx=df/f0 data."""
+    """Find and characterize hits in dx=df/f0 data.
+
+    The hit-finding algorithm is based on the kernel convolved signal.
+    """
 
     __version__ = "0.0.0"
 
@@ -96,12 +123,79 @@ class DxHits(strax.Plugin):
         dtype.append(
             (
                 (
-                    "Record index of the maximum amplitude of the dx hit waveform",
-                    "amplitude_max_record_i",
+                    "Maximum amplitude of the dx hit waveform further smoothed by moving average",
+                    "amplitude_moving_average",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Maximum amplitude of the dx hit waveform further smoothed by pulse kernel",
+                    "amplitude_convolved",
+                ),
+                DATA_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    (
+                        "Record index of the maximum amplitude of the dx hit waveform "
+                        "further smoothed by pulse kernel."
+                    ),
+                    "amplitude_convolved_max_record_i",
                 ),
                 INDEX_DTYPE,
             )
         )
+        dtype.append(
+            (
+                (
+                    (
+                        "Record index of the maximum amplitude of the dx hit waveform "
+                        "further smoothed by moving average."
+                    ),
+                    "amplitude_moving_average_max_record_i",
+                ),
+                INDEX_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    (
+                        "Hit waveform of dx=df/f0 further smoothed by moving average, "
+                        "aligned at the maximum of the dx=df/f0 waveform."
+                    ),
+                    "data_dx_moving_average",
+                ),
+                DATA_DTYPE,
+                self.hit_waveform_length,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Hit waveform of dx=df/f0 further smoothed by pulse kernel, "
+                    "aligned at the maximum of the dx=df/f0 waveform.",
+                    "data_dx_convolved",
+                ),
+                DATA_DTYPE,
+                self.hit_waveform_length,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Hit finding threshold in unit of dx=df/f0 for kernel convolved signal.",
+                    "hit_threshold",
+                ),
+                DATA_DTYPE,
+            )
+        )
+
         return dtype
 
     def setup(self):
@@ -110,9 +204,93 @@ class DxHits(strax.Plugin):
         self.hit_window_length_right = HIT_WINDOW_LENGTH_RIGHT
 
         self.hit_threshold_dx = self.config["hit_threshold_dx"]
+        self.hit_thresholds_sigma = self.config["hit_thresholds_sigma"]
+        self.noisy_channel_signal_std_multipliers = self.config[
+            "noisy_channel_signal_std_multipliers"
+        ]
         self.hit_min_width_samples = self.config["hit_min_width"] * self.fs
         self.fs = self.config["fs"]
         self.dt_exact = 1 / self.fs * SECOND_TO_NANOSECOND
+
+    @staticmethod
+    def calculate_hit_threshold(signal, hit_threshold_sigma, noisy_channel_signal_std_multiplier):
+        """Calculate hit threshold based on signal statistics.
+
+        Args:
+            signal (np.ndarray): The signal array to analyze.
+            hit_threshold_sigma (float): Threshold multiplier in units of sigma.
+            noisy_channel_signal_std_multiplier (float): Multiplier to detect noisy channels.
+
+        Returns:
+            float: The calculated hit threshold.
+
+        """
+        signal_mean = np.mean(signal, axis=1)
+        signal_abs_mean = np.mean(np.abs(signal), axis=1)
+        signal_std = np.std(signal, axis=1)
+
+        # The naive hit threshold is a multiple of the standard deviation of the signal.
+        hit_threshold = signal_mean + hit_threshold_sigma * signal_std
+
+        # If the signal is noisy, the baseline might be too high.
+        for ch in range(len(signal_std)):
+            if signal_std[ch] > noisy_channel_signal_std_multiplier[ch] * signal_abs_mean[ch]:
+                # We will use the quiet part of the signal to redefine a lowered hit threshold.
+                quiet_mask = signal[ch] < hit_threshold[ch]
+                hit_threshold[ch] = signal_mean[ch] + hit_threshold_sigma[ch] * np.std(
+                    signal[ch][quiet_mask]
+                )
+
+        return hit_threshold
+
+    def determine_hit_threshold(self, records):
+        """Determine the hit threshold based on the provided configuration.
+        You can either provide hit_threshold_dx or
+        (hit_thresholds_sigma and noisy_channel_signal_std_multipliers).
+        You cannot provide both.
+        """
+        if (
+            self.hit_threshold_dx is None
+            and self.hit_thresholds_sigma is not None
+            and self.noisy_channel_signal_std_multipliers is not None
+        ):
+            # If hit_thresholds_sigma and noisy_channel_signal_std_multipliers are single values,
+            # we need to convert them to arrays.
+            if isinstance(self.hit_thresholds_sigma, float):
+                self.hit_thresholds_sigma = np.full(
+                    len(records["channel"]), self.hit_thresholds_sigma
+                )
+            else:
+                self.hit_thresholds_sigma = np.array(self.hit_thresholds_sigma)
+            if isinstance(self.noisy_channel_signal_std_multipliers, float):
+                self.noisy_channel_signal_std_multipliers = np.full(
+                    len(records["channel"]), self.noisy_channel_signal_std_multipliers
+                )
+            else:
+                self.noisy_channel_signal_std_multipliers = np.array(
+                    self.noisy_channel_signal_std_multipliers
+                )
+            # Calculate hit threshold and find hit candidates
+            self.hit_threshold_dx = self.calculate_hit_threshold(
+                records["data_dx_convolved"],
+                self.hit_thresholds_sigma[records["channel"]],
+                self.noisy_channel_signal_std_multipliers[records["channel"]],
+            )
+        elif (
+            self.hit_threshold_dx is not None
+            and self.hit_thresholds_sigma is None
+            and self.noisy_channel_signal_std_multipliers is None
+        ):
+            # If hit_threshold_dx is a single value, we need to convert it to an array.
+            if isinstance(self.hit_threshold_dx, float):
+                self.hit_threshold_dx = np.full(len(records["channel"]), self.hit_threshold_dx)
+            else:
+                self.hit_threshold_dx = np.array(self.hit_threshold_dx)
+        else:
+            raise ValueError(
+                "Either hit_threshold_dx or hit_thresholds_sigma and "
+                "noisy_channel_signal_std_multipliers must be provided. You cannot provide both."
+            )
 
     @staticmethod
     def find_hit_candidates(signal, hit_threshold, min_pulse_width):
@@ -162,6 +340,8 @@ class DxHits(strax.Plugin):
         Returns:
             np.ndarray: Array of hits with waveform data and characteristics.
         """
+        self.determine_hit_threshold(records)
+
         results = []
 
         for record in records:
@@ -177,6 +357,9 @@ class DxHits(strax.Plugin):
         # Order hits first by time
         results = results[np.argsort(results["time"])]
 
+        # Truncate hits endtime to record endtime
+        results["endtime"] = np.minimum(results["endtime"], records["endtime"][0])
+
         return results
 
     def _process_single_record(self, record):
@@ -188,8 +371,9 @@ class DxHits(strax.Plugin):
         Returns:
             np.ndarray or None: Array of hits found in the record, or None if no hits.
         """
+        ch = int(record["channel"])
         hit_start_i, hit_widths = self.find_hit_candidates(
-            record["data_dx"], self.hit_threshold_dx, self.hit_min_width_samples
+            record["data_dx_convolved"], self.hit_threshold_dx[ch], self.hit_min_width_samples
         )
 
         if len(hit_start_i) == 0:
@@ -199,10 +383,13 @@ class DxHits(strax.Plugin):
         hits["width"] = hit_widths
         hits["channel"] = record["channel"]
         hits["dt"] = self.dt_exact  # Will be converted to int when saving
+        hits["hit_threshold"] = self.hit_threshold_dx[hits["channel"]]
 
         for i, start_i in enumerate(hit_start_i):
             self._process_hit(
                 hits[i],
+                record["data_dx_convolved"],
+                record["data_dx_moving_average"],
                 record["data_dx"],
                 start_i,
                 hit_widths[i],
@@ -216,7 +403,9 @@ class DxHits(strax.Plugin):
     def _process_hit(
         self,
         hit,
-        signal,
+        signal_convolved,
+        signal_ma,
+        signal_raw,
         start_i,
         width,
         start_time,
@@ -227,7 +416,9 @@ class DxHits(strax.Plugin):
 
         Args:
             hit: Hit array to populate
-            signal: Full signal array
+            signal_convolved: Convolved signal array
+            signal_ma: Moving average signal array
+            signal_raw: Raw signal array
             start_i: Start index of the hit
             width: Width of the hit in samples
             start_time: Start time of the record
@@ -235,7 +426,7 @@ class DxHits(strax.Plugin):
             next_hit_start_i: Start index of the next hit
         """
         # Extract hit waveform
-        above_threshold = signal[start_i : start_i + width]
+        above_threshold = signal_convolved[start_i : start_i + width]
 
         # Find maximum amplitude and its position
         max_i = np.argmax(above_threshold)
@@ -253,9 +444,9 @@ class DxHits(strax.Plugin):
         # Handle right boundary, considering next hit if it exists
         right_boundary = aligned_i + self.hit_window_length_right
         if next_hit_start_i is not None:
-            right_i = min(len(signal), right_boundary, next_hit_start_i)
+            right_i = min(len(signal_convolved), right_boundary, next_hit_start_i)
         else:
-            right_i = min(len(signal), right_boundary)
+            right_i = min(len(signal_convolved), right_boundary)
 
         # Calculate valid sample ranges
         n_right_valid_samples = min(right_i - aligned_i, self.hit_window_length_right)
@@ -266,10 +457,19 @@ class DxHits(strax.Plugin):
         target_end = self.hit_window_length_left + n_right_valid_samples
 
         # Extract waveform
-        hit["data_dx"][target_start:target_end] = signal[left_i:right_i]
-        hit["amplitude"] = np.max(signal[left_i:right_i])
+        hit["data_dx_convolved"][target_start:target_end] = signal_convolved[left_i:right_i]
+        hit["data_dx_moving_average"][target_start:target_end] = signal_ma[left_i:right_i]
+        hit["data_dx"][target_start:target_end] = signal_raw[left_i:right_i]
+        hit["amplitude_convolved"] = np.max(signal_convolved[left_i:right_i])
+        hit["amplitude_moving_average"] = np.max(signal_ma[left_i:right_i])
+        hit["amplitude"] = np.max(signal_raw[left_i:right_i])
         hit["length"] = right_i - left_i
-        hit["amplitude_max_record_i"] = np.int32(np.argmax(signal[left_i:right_i]) + left_i)
+        hit["amplitude_convolved_max_record_i"] = np.int32(
+            np.argmax(signal_convolved[left_i:right_i]) + left_i
+        )
+        hit["amplitude_moving_average_max_record_i"] = np.int32(
+            np.argmax(signal_ma[left_i:right_i]) + left_i
+        )
 
         # Calculate time and endtime
         hit["time"] = np.int64(start_time + np.int64(left_i * self.dt_exact))

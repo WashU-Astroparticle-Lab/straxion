@@ -85,9 +85,51 @@ export, __all__ = strax.exporter()
         type=int,
         help="Order of the polynomial fit for cable correction",
     ),
+    strax.Option(
+        "pulse_kernel_start_time",
+        default=200_000,
+        track=True,
+        type=int,
+        help="Relative start time of the exponential decay in pulse kernel (t0), in unit of ns.",
+    ),
+    strax.Option(
+        "pulse_kernel_decay_time",
+        default=600_000,
+        track=True,
+        type=int,
+        help="Decay time of the exponential falling in pulse kernel (tau), in unit of ns.",
+    ),
+    strax.Option(
+        "pulse_kernel_gaussian_smearing_width",
+        default=28_000,
+        track=True,
+        type=int,
+        help=(
+            "Gaussian smearing width of the exponentially-modified-gaussian kernel "
+            "(sigma), in unit of ns."
+        ),
+    ),
+    strax.Option(
+        "moving_average_width",
+        default=100_000,  # The original Matlab code says 5 samples (with fs = 5E4Hz).
+        track=True,
+        type=int,
+        help="Moving average width for smoothed reference waveform, in unit of ns.",
+    ),
+    strax.Option(
+        "pulse_kernel_truncation_factor",
+        default=10,
+        track=True,
+        type=float,
+        help=(
+            "Factor for truncating the pulse kernel to improve performance. "
+            "The kernel is truncated after truncation_factor * tau samples, "
+            "where the exponential decay becomes negligible."
+        ),
+    ),
 )
 class DxRecords(strax.Plugin):
-    __version__ = "0.0.0"
+    __version__ = "0.1.0"
     rechunk_on_save = False
     compressor = "zstd"  # Inherited from straxen. Not optimized outside XENONnT.
 
@@ -110,6 +152,16 @@ class DxRecords(strax.Plugin):
         dtype.append(
             (
                 (
+                    "Waveform data of phase angle after baseline corrections",
+                    "data_dtheta",
+                ),
+                DATA_DTYPE,
+                record_length,
+            )
+        )
+        dtype.append(
+            (
+                (
                     "Waveform data of df/f after baseline corrections",
                     "data_dx",
                 ),
@@ -117,8 +169,28 @@ class DxRecords(strax.Plugin):
                 record_length,
             )
         )
+        dtype.append(
+            (
+                (
+                    "Waveform data of df/f further smoothed by moving average",
+                    "data_dx_moving_average",
+                ),
+                DATA_DTYPE,
+                record_length,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    "Waveform data of df/f further smoothed by pulse kernel",
+                    "data_dx_convolved",
+                ),
+                DATA_DTYPE,
+                record_length,
+            )
+        )
 
-        return dtype
+        return np.dtype(dtype)
 
     def _load_correction_files(self):
         """Load fine and wide scan files, as well as resonant frequency file.
@@ -209,16 +281,24 @@ class DxRecords(strax.Plugin):
                 if wide_f[ch, ind] < fine_f[ch, 0] and wide_f[ch, ind] > fine_f[ch, -1]:
                     mask_calc_corr[ind] = 0
 
-            pfit_i = np.polyfit(
-                wide_f[ch, mask_calc_corr] - fres[ch],
-                np.real(wide_z[ch, mask_calc_corr]),
-                polyfit_order,
-            )
-            pfit_q = np.polyfit(
-                wide_f[ch, mask_calc_corr] - fres[ch],
-                np.imag(wide_z[ch, mask_calc_corr]),
-                polyfit_order,
-            )
+            # Check if we have any data points for fitting
+            if not np.any(mask_calc_corr):
+                # If no data points, create a constant model (zero-order polynomial)
+                pfit_i = np.zeros(polyfit_order + 1)
+                pfit_q = np.zeros(polyfit_order + 1)
+                pfit_i[-1] = 1.0  # Constant term
+                pfit_q[-1] = 1.0  # Constant term
+            else:
+                pfit_i = np.polyfit(
+                    wide_f[ch, mask_calc_corr] - fres[ch],
+                    np.real(wide_z[ch, mask_calc_corr]),
+                    polyfit_order,
+                )
+                pfit_q = np.polyfit(
+                    wide_f[ch, mask_calc_corr] - fres[ch],
+                    np.imag(wide_z[ch, mask_calc_corr]),
+                    polyfit_order,
+                )
 
             i_model = np.poly1d(pfit_i)
             q_model = np.poly1d(pfit_q)
@@ -308,11 +388,71 @@ class DxRecords(strax.Plugin):
             dtheta_fine = self.fine_z_corrected[ch] - self.thetas_at_fres[ch]
 
             # Create interpolation model mapping theta differences to frequencies
-            self.f_interpolation_models.append(interp1d(dtheta_fine, self.fine_f[ch]))
+            # Use bounds_error=False to handle out-of-bounds values gracefully
+            # and fill_value='extrapolate' to extrapolate beyond the range
+            self.f_interpolation_models.append(
+                interp1d(dtheta_fine, self.fine_f[ch], bounds_error=False, fill_value="extrapolate")
+            )
 
             # Validate interpolation model (should return resonant frequency at theta=0)
             # This is just for self-consistency check
             self.interpolated_freqs[ch] = self.f_interpolation_models[ch](0)
+
+    @staticmethod
+    def pulse_kernel(ns, fs, t0, tau, sigma, truncation_factor=5):
+        """Generate a pulse train with flipped, truncated exponential decay and Gaussian smoothing.
+
+        Translated from Chris Albert's Matlab codes:
+        https://caltechobscosgroup.slack.com/archives/C07SZDKRNF9/p1752010145654029.
+
+        Args:
+            ns (int): Number of samples.
+            fs (int): Sampling frequency in unit of Hz.
+            t0 (int): Start time of the pulse in unit of ns.
+            tau (int): Decay time constant in unit of ns.
+            sigma (int): Smearing width constant in unit of ns in unit of ns.
+            truncation_factor (float): Factor for truncating the kernel in unit of tau.
+                After truncation_factor * tau, the exponential is less than
+                exp(-truncation_factor) of its peak value.
+
+        Returns:
+            pulse_kernal (np.ndarray): Smoothed pulse train
+
+        """
+        dt = int(1 / fs * SECOND_TO_NANOSECOND)
+
+        # Calculate significant length upfront to avoid unnecessary computation.
+        significant_length = min(ns, int((truncation_factor * tau + t0) / dt))
+
+        # Only create time array for needed samples.
+        t = np.arange(significant_length) * dt
+
+        # Create exponential decay pulse only for significant portion.
+        mask = t >= t0
+        exponential = np.zeros(significant_length)
+        exponential[mask] = np.exp(-(t[mask] - t0) / tau)
+
+        # Convert sigma to samples.
+        sigma_sample = int(sigma / dt)
+
+        # Apply Gaussian smoothing.
+        pulse_kernal = gaussian_filter1d(exponential, sigma=sigma_sample)
+
+        # No need for truncation since we already computed only the significant portion.
+        # But we still need to normalize.
+        kernel_sum = np.sum(pulse_kernal)
+        if kernel_sum > 0:  # Avoid division by zero.
+            pulse_kernal /= kernel_sum
+
+        # Normalize again to make sure the integral is 1.
+        kernel_sum = np.sum(pulse_kernal)
+        if kernel_sum > 0:  # Avoid division by zero.
+            pulse_kernal /= kernel_sum
+
+        # Flip the kernel.
+        pulse_kernal = np.flip(pulse_kernal)
+
+        return pulse_kernal
 
     def setup(self):
         # Get record_length from the plugin making raw_records.
@@ -325,6 +465,22 @@ class DxRecords(strax.Plugin):
 
         # Setup frequency interpolation models
         self._setup_frequency_interpolation_models()
+
+        # Pre-compute pulse kernel.
+        self.kernel = self.pulse_kernel(
+            self.record_length,
+            self.config["fs"],
+            self.config["pulse_kernel_start_time"],
+            self.config["pulse_kernel_decay_time"],
+            self.config["pulse_kernel_gaussian_smearing_width"],
+            self.config["pulse_kernel_truncation_factor"],
+        )
+
+        # Pre-compute moving average kernel.
+        moving_average_kernel_width = int(self.config["moving_average_width"] / self.dt_exact)
+        self.moving_average_kernel = (
+            np.ones(moving_average_kernel_width) / moving_average_kernel_width
+        )
 
     def compute(self, raw_records):
         """Compute the dx=df/f0 for the timestream data."""
@@ -351,12 +507,28 @@ class DxRecords(strax.Plugin):
             # Convert to theta (phase angle) relative to the IQ loop center.
             theta = np.mod(np.angle(data_z), 2 * np.pi)
             dtheta = theta - self.thetas_at_fres[rr["channel"]]
+            r["data_dtheta"] = dtheta
 
             # Interpolate to get the frequency offset.
             r["data_dx"] = (
                 self.f_interpolation_models[rr["channel"]](dtheta)
                 - self.interpolated_freqs[rr["channel"]]
             ) / self.interpolated_freqs[rr["channel"]]
+
+            # Moving average (convolve with a boxcar).
+            r["data_dx_moving_average"] = np.convolve(
+                r["data_dx"],
+                self.moving_average_kernel,
+                mode="same",
+            )
+
+            # Convolve with pulse kernel.
+            # Use FFT-based convolution for large kernels (faster than np.convolve).
+            if len(self.kernel) > 10000:  # Use FFT for kernels larger than 10k samples.
+                _convolved = fftconvolve(r["data_dx"], self.kernel, mode="full")
+            else:
+                _convolved = np.convolve(r["data_dx"], self.kernel, mode="full")
+            r["data_dx_convolved"] = _convolved[-self.record_length :]
 
         return results
 
