@@ -123,7 +123,7 @@ class SpikeCoincidence(strax.Plugin):
             round(self.config["spike_coincidence_window"] * self.config["fs"])
         )
         self.spike_threshold_dx = self.config["spike_threshold_dx"]
-        self.ss_min_slope = self.config["symmetric_spike_min_slope"]
+        self.ss_min_slope = np.array(self.config["symmetric_spike_min_slope"])
         self.ss_window = self.config["symmetric_spike_inspection_window_length"]
         self.max_spike_coincidence = self.config["max_spike_coincidence"]
         self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
@@ -262,6 +262,7 @@ class SpikeCoincidence(strax.Plugin):
 
         self.compute_rise_edge_slope(hits, hit_classification)
         self.find_spike_coincidence(hit_classification, hits, records)
+        self.is_symmetric_spike_hit(hits, hit_classification)
 
         hit_classification["is_coincident_with_spikes"] = (
             hit_classification["n_spikes_coinciding"] > self.max_spike_coincidence
