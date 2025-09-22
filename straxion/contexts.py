@@ -50,7 +50,7 @@ def qualiphide_thz_offline(
     """
     context_options = {**common_options, **kwargs}
 
-    st = strax.Context(config=test_context_config, **context_options)
+    st = strax.Context(config=common_config, **context_options)
     st.register(straxion.plugins.raw_records.QUALIPHIDETHzReader)
     st.register(straxion.plugins.records.DxRecords)
     st.register(straxion.plugins.hits.DxHits)
@@ -93,7 +93,7 @@ def qualiphide_thz_online(
     """
     context_options = {**common_options, **kwargs}
 
-    st = strax.Context(config=test_context_config, **context_options)
+    st = strax.Context(config=common_config, **context_options)
     st.register(straxion.plugins.raw_records.QUALIPHIDETHzReader)
     st.register(straxion.plugins.records.PulseProcessing)
     st.register_all(straxion.plugins.baseline_monitor)
