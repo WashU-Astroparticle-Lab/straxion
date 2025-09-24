@@ -43,17 +43,6 @@ export, __all__ = strax.exporter()
         ),
     ),
     strax.Option(
-        "noisy_channel_signal_std_multipliers",
-        default=[2.0 for _ in range(41)],
-        track=True,
-        type=list,
-        help=(
-            "If the signal standard deviation above this threshold times of signal absolute "
-            "mean, the signal is considered noisy and the spike threshold is increased. "
-            "If None, the spike threshold will be calculated based on the signal statistics."
-        ),
-    ),
-    strax.Option(
         "fs",
         default=38_000,
         track=True,
@@ -129,87 +118,54 @@ class SpikeCoincidence(strax.Plugin):
         self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
 
     @staticmethod
-    def calculate_spike_threshold(
-        signal, spike_threshold_sigma, noisy_channel_signal_std_multiplier
-    ):
+    def calculate_hit_threshold(signal, hit_threshold_sigma):
         """Calculate hit threshold based on signal statistics.
-        The algorithm is the same as DxHits.calculate_hit_threshold.
 
         Args:
             signal (np.ndarray): The signal array to analyze.
             hit_threshold_sigma (float): Threshold multiplier in units of sigma.
-            noisy_channel_signal_std_multiplier (float): Multiplier to detect noisy channels.
 
         Returns:
             float: The calculated hit threshold.
 
         """
         signal_mean = np.mean(signal, axis=1)
-        signal_abs_mean = np.mean(np.abs(signal), axis=1)
         signal_std = np.std(signal, axis=1)
 
         # The naive hit threshold is a multiple of the standard deviation of the signal.
-        spike_threshold = signal_mean + spike_threshold_sigma * signal_std
+        hit_threshold = signal_mean + hit_threshold_sigma * signal_std
 
-        # If the signal is noisy, the baseline might be too high.
-        for ch in range(len(signal_std)):
-            if signal_std[ch] > noisy_channel_signal_std_multiplier[ch] * signal_abs_mean[ch]:
-                # We will use the quiet part of the signal to redefine a lowered hit threshold.
-                quiet_mask = signal[ch] < spike_threshold[ch]
-                spike_threshold[ch] = signal_mean[ch] + spike_threshold_sigma[ch] * np.std(
-                    signal[ch][quiet_mask]
-                )
+        return hit_threshold
 
-        return spike_threshold
-
-    def determine_spike_threshold(self, records):
-        """Determine the spike threshold based on the provided configuration.
-        You can either provide spike_threshold_dx or
-        (hit_thresholds_sigma and noisy_channel_signal_std_multipliers).
+    def determine_hit_threshold(self, records):
+        """Determine the hit threshold based on the provided configuration.
+        You can either provide hit_threshold_dx or hit_thresholds_sigma.
         You cannot provide both.
-        The algorithm is the same as DxHits.determine_hit_threshold.
         """
-        if (
-            self.spike_threshold_dx is None
-            and self.spike_thresholds_sigma is not None
-            and self.noisy_channel_signal_std_multipliers is not None
-        ):
-            # If hit_thresholds_sigma and noisy_channel_signal_std_multipliers are single values,
+        if self.hit_threshold_dx is None and self.hit_thresholds_sigma is not None:
+            # If hit_thresholds_sigma are single values,
             # we need to convert them to arrays.
-            if isinstance(self.spike_thresholds_sigma, float):
-                self.spike_thresholds_sigma = np.full(
-                    len(records["channel"]), self.spike_thresholds_sigma
+            if isinstance(self.hit_thresholds_sigma, float):
+                self.hit_thresholds_sigma = np.full(
+                    len(records["channel"]), self.hit_thresholds_sigma
                 )
             else:
-                self.spike_thresholds_sigma = np.array(self.spike_thresholds_sigma)
-            if isinstance(self.noisy_channel_signal_std_multipliers, float):
-                self.noisy_channel_signal_std_multipliers = np.full(
-                    len(records["channel"]), self.noisy_channel_signal_std_multipliers
-                )
-            else:
-                self.noisy_channel_signal_std_multipliers = np.array(
-                    self.noisy_channel_signal_std_multipliers
-                )
-            # Calculate spike threshold and find spike candidates
-            self.spike_threshold_dx = self.calculate_spike_threshold(
+                self.hit_thresholds_sigma = np.array(self.hit_thresholds_sigma)
+            # Calculate hit threshold and find hit candidates
+            self.hit_threshold_dx = self.calculate_hit_threshold(
                 records["data_dx_convolved"],
-                self.spike_thresholds_sigma[records["channel"]],
-                self.noisy_channel_signal_std_multipliers[records["channel"]],
+                self.hit_thresholds_sigma[records["channel"]],
             )
-        elif (
-            self.spike_threshold_dx is not None
-            and self.spike_thresholds_sigma is None
-            and self.noisy_channel_signal_std_multipliers is None
-        ):
-            # If spike_threshold_dx is a single value, we need to convert it to an array.
-            if isinstance(self.spike_threshold_dx, float):
-                self.spike_threshold_dx = np.full(len(records["channel"]), self.spike_threshold_dx)
+        elif self.hit_threshold_dx is not None and self.hit_thresholds_sigma is None:
+            # If hit_threshold_dx is a single value, we need to convert it to an array.
+            if isinstance(self.hit_threshold_dx, float):
+                self.hit_threshold_dx = np.full(len(records["channel"]), self.hit_threshold_dx)
             else:
-                self.spike_threshold_dx = np.array(self.spike_threshold_dx)
+                self.hit_threshold_dx = np.array(self.hit_threshold_dx)
         else:
             raise ValueError(
-                "Either spike_threshold_dx or spike_thresholds_sigma and "
-                "noisy_channel_signal_std_multipliers must be provided. You cannot provide both."
+                "Either hit_threshold_dx or hit_thresholds_sigma "
+                "must be provided. You cannot provide both."
             )
 
     def _get_ss_window(self, hits, window_start_offset, window_end_offset):
