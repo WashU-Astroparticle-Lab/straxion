@@ -199,33 +199,22 @@ class DxHits(strax.Plugin):
         self.dt_exact = 1 / self.fs * SECOND_TO_NANOSECOND
 
     @staticmethod
-    def calculate_hit_threshold(signal, hit_threshold_sigma, noisy_channel_signal_std_multiplier):
+    def calculate_hit_threshold(signal, hit_threshold_sigma):
         """Calculate hit threshold based on signal statistics.
 
         Args:
             signal (np.ndarray): The signal array to analyze.
             hit_threshold_sigma (float): Threshold multiplier in units of sigma.
-            noisy_channel_signal_std_multiplier (float): Multiplier to detect noisy channels.
 
         Returns:
             float: The calculated hit threshold.
 
         """
         signal_mean = np.mean(signal, axis=1)
-        signal_abs_mean = np.mean(np.abs(signal), axis=1)
         signal_std = np.std(signal, axis=1)
 
         # The naive hit threshold is a multiple of the standard deviation of the signal.
         hit_threshold = signal_mean + hit_threshold_sigma * signal_std
-
-        # If the signal is noisy, the baseline might be too high.
-        for ch in range(len(signal_std)):
-            if signal_std[ch] > noisy_channel_signal_std_multiplier[ch] * signal_abs_mean[ch]:
-                # We will use the quiet part of the signal to redefine a lowered hit threshold.
-                quiet_mask = signal[ch] < hit_threshold[ch]
-                hit_threshold[ch] = signal_mean[ch] + hit_threshold_sigma[ch] * np.std(
-                    signal[ch][quiet_mask]
-                )
 
         return hit_threshold
 
@@ -235,7 +224,7 @@ class DxHits(strax.Plugin):
         You cannot provide both.
         """
         if self.hit_threshold_dx is None and self.hit_thresholds_sigma is not None:
-            # If hit_thresholds_sigma and noisy_channel_signal_std_multipliers are single values,
+            # If hit_thresholds_sigma are single values,
             # we need to convert them to arrays.
             if isinstance(self.hit_thresholds_sigma, float):
                 self.hit_thresholds_sigma = np.full(
@@ -826,7 +815,7 @@ class Hits(strax.Plugin):
         return dtype
 
     @staticmethod
-    def calculate_hit_threshold(signal, hit_threshold_sigma):
+    def calculate_hit_threshold(signal, hit_threshold_sigma, noisy_channel_signal_std_multiplier):
         """Calculate hit threshold based on signal statistics.
 
         Args:
@@ -839,10 +828,17 @@ class Hits(strax.Plugin):
 
         """
         signal_mean = np.mean(signal)
+        signal_abs_mean = np.mean(np.abs(signal))
         signal_std = np.std(signal)
 
         # The naive hit threshold is a multiple of the standard deviation of the signal.
         hit_threshold = signal_mean + hit_threshold_sigma * signal_std
+
+        # If the signal is noisy, the baseline might be too high.
+        if signal_std > noisy_channel_signal_std_multiplier * signal_abs_mean:
+            # We will use the quiet part of the signal to redefine a lowered hit threshold.
+            quiet_mask = signal < hit_threshold
+            hit_threshold = signal_mean + hit_threshold_sigma * np.std(signal[quiet_mask])
 
         return hit_threshold
 
@@ -889,7 +885,9 @@ class Hits(strax.Plugin):
         min_pulse_width = self.config["min_pulse_widths"][ch]
 
         # Calculate hit threshold and find hit candidates
-        hit_threshold = self.calculate_hit_threshold(signal, self.hit_thresholds_sigma[ch])
+        hit_threshold = self.calculate_hit_threshold(
+            signal, self.hit_thresholds_sigma[ch], self.noisy_channel_signal_std_multipliers[ch]
+        )
 
         hit_candidates = self._find_hit_candidates(signal, hit_threshold, min_pulse_width)
         if len(hit_candidates) == 0:
