@@ -31,7 +31,7 @@ export, __all__ = strax.exporter()
 class NoiseBank(strax.Plugin):
     """Use the waveform noise_window_gap before the hit window to estimate the noise condition."""
 
-    __version__ = "0.0.0"
+    __version__ = "0.0.1"
     # Inherited from straxen. Not optimized outside XENONnT.
     rechunk_on_save = False
     compressor = "zstd"
@@ -124,6 +124,8 @@ class NoiseBank(strax.Plugin):
         self.noise_window_length = HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
         self.fs = self.config["fs"]
         self.dt_exact = 1 / self.fs * SECOND_TO_NANOSECOND
+        self.gap = self.config["noise_window_gap"]
+        assert self.gap >= 0, "noise_window_gap must be non-negative."
 
     def compute(self, records, hits):
         """Extract noise windows before each hit for noise characterization."""
@@ -191,19 +193,28 @@ class NoiseBank(strax.Plugin):
                 hits_ch["amplitude_convolved_max_record_i"]
                 - HIT_WINDOW_LENGTH_LEFT
                 - self.noise_window_length
+                - self.gap
             )
-            end_indices = hits_ch["amplitude_convolved_max_record_i"] - HIT_WINDOW_LENGTH_LEFT
+            end_indices = (
+                hits_ch["amplitude_convolved_max_record_i"] - HIT_WINDOW_LENGTH_LEFT - self.gap
+            )
 
             # Filter valid hits (start_i >= 0)
             valid_mask = start_indices >= 0
 
             # Check for overlaps with previous hits
             if len(hits_ch) > 1:
+                previous_hit_starts = np.full(len(hits_ch), -1)
+                previous_hit_starts[1:] = (
+                    hits_ch["amplitude_convolved_max_record_i"][:-1] - HIT_WINDOW_LENGTH_LEFT
+                )
                 prev_hit_ends = np.full(len(hits_ch), -1)
                 prev_hit_ends[1:] = (
                     hits_ch["amplitude_convolved_max_record_i"][:-1] + HIT_WINDOW_LENGTH_RIGHT
                 )
-                overlap_mask = prev_hit_ends < start_indices
+                overlap_mask = ~(
+                    (prev_hit_ends > start_indices) & (previous_hit_starts < end_indices)
+                )
                 valid_mask &= overlap_mask
 
             # Process valid hits
