@@ -124,6 +124,7 @@ class NoiseBank(strax.Plugin):
         self.noise_window_length = HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
         self.fs = self.config["fs"]
         self.dt_exact = 1 / self.fs * SECOND_TO_NANOSECOND
+        self.gap = self.config["noise_window_gap"]
 
     def compute(self, records, hits):
         """Extract noise windows before each hit for noise characterization."""
@@ -191,8 +192,11 @@ class NoiseBank(strax.Plugin):
                 hits_ch["amplitude_convolved_max_record_i"]
                 - HIT_WINDOW_LENGTH_LEFT
                 - self.noise_window_length
+                - self.gap
             )
-            end_indices = hits_ch["amplitude_convolved_max_record_i"] - HIT_WINDOW_LENGTH_LEFT
+            end_indices = (
+                hits_ch["amplitude_convolved_max_record_i"] - HIT_WINDOW_LENGTH_LEFT - self.gap
+            )
 
             # Filter valid hits (start_i >= 0)
             valid_mask = start_indices >= 0
