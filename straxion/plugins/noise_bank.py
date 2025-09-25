@@ -204,11 +204,17 @@ class NoiseBank(strax.Plugin):
 
             # Check for overlaps with previous hits
             if len(hits_ch) > 1:
+                previous_hit_starts = np.full(len(hits_ch), -1)
+                previous_hit_starts[1:] = (
+                    hits_ch["amplitude_convolved_max_record_i"][:-1] - HIT_WINDOW_LENGTH_LEFT
+                )
                 prev_hit_ends = np.full(len(hits_ch), -1)
                 prev_hit_ends[1:] = (
                     hits_ch["amplitude_convolved_max_record_i"][:-1] + HIT_WINDOW_LENGTH_RIGHT
                 )
-                overlap_mask = prev_hit_ends < start_indices
+                overlap_mask = ~(
+                    (prev_hit_ends > start_indices) & (previous_hit_starts < end_indices)
+                )
                 valid_mask &= overlap_mask
 
             # Process valid hits
