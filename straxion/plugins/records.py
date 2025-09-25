@@ -318,6 +318,7 @@ class DxRecords(strax.Plugin):
         4. Calculates IQ loop centers using circle fitting
         5. Computes phi values for each channel
         6. Corrects the fine scan data by rotating back the centered IQ by the phi values.
+        7. Corrects the fine scan data by the mean of the kernel-convolved dx.
         """
         # Load fine and wide scan files, as well as resonant frequency file.
         self._load_correction_files()
@@ -529,6 +530,12 @@ class DxRecords(strax.Plugin):
             else:
                 _convolved = np.convolve(r["data_dx"], self.kernel, mode="full")
             r["data_dx_convolved"] = _convolved[-self.record_length :]
+
+            # Correct all dx by the mean of the kernel-convolved dx.
+            dx_convolved_mean = np.mean(r["data_dx_convolved"])
+            r["data_dx"] = r["data_dx"] - dx_convolved_mean
+            r["data_dx_moving_average"] = r["data_dx_moving_average"] - dx_convolved_mean
+            r["data_dx_convolved"] = r["data_dx_convolved"] - dx_convolved_mean
 
         return results
 
