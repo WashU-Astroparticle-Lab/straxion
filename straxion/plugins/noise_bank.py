@@ -142,8 +142,10 @@ class NoiseBank(strax.Plugin):
         results = np.zeros(len(valid_hits), dtype=self.infer_dtype())
 
         # Vectorized assignments
-        results["time"] = valid_hits["time"] - np.int64(self.noise_window_length * self.dt_exact)
-        results["endtime"] = valid_hits["time"]
+        results["time"] = valid_hits["time"] - np.int64(
+            (self.noise_window_length + self.gap) * self.dt_exact
+        )
+        results["endtime"] = valid_hits["time"] - np.int64(self.gap * self.dt_exact)
         results["data_dx"] = noise_data["data_dx"]
         results["data_dx_moving_average"] = noise_data["data_dx_moving_average"]
         results["data_dx_convolved"] = noise_data["data_dx_convolved"]
