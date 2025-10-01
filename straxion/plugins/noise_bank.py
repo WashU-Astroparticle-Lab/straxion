@@ -31,7 +31,7 @@ export, __all__ = strax.exporter()
 class NoiseBank(strax.Plugin):
     """Use the waveform noise_window_gap before the hit window to estimate the noise condition."""
 
-    __version__ = "0.0.1"
+    __version__ = "0.0.2"
     # Inherited from straxen. Not optimized outside XENONnT.
     rechunk_on_save = False
     compressor = "zstd"
