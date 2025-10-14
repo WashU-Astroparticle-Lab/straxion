@@ -15,7 +15,7 @@ INDEX_DTYPE = np.int32
 N_BASELINE_MONITOR_INTERVAL = 100
 
 # Pulse template with sampling rate of 38 kHz.
-PULSE_TEMPLATE = np.array(
+PULSE_TEMPLATE_38kHz = np.array(
     [
         0.00000000e00,
         0.00000000e00,
@@ -519,7 +519,7 @@ PULSE_TEMPLATE = np.array(
         0.00000000e00,
     ]
 )
-PULSE_TEMPLATE_LENGTH = len(PULSE_TEMPLATE)
+PULSE_TEMPLATE_LENGTH = len(PULSE_TEMPLATE_38kHz)
 
 # Hit waveform recording window length.
 HIT_WINDOW_LENGTH_LEFT = 200

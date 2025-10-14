@@ -48,6 +48,13 @@ export, __all__ = strax.exporter()
             "or 'none' for no resolution smearing."
         ),
     ),
+    strax.Option(
+        "fs",
+        default=38_000,
+        track=True,
+        type=int,
+        help="Sampling frequency (assumed the same for all channels) in unit of Hz",
+    ),
 )
 class Truth(strax.Plugin):
     """Generate ground truth SALT events for simulation.
