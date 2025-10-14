@@ -71,7 +71,7 @@ class TestTruthWithRealData:
 
         # Check expected fields
         expected_fields = ["time", "endtime", "energy_true", "dx_true", "channel"]
-        field_names = [t[1] for t in dtype]
+        field_names = [name[1] for name, *_ in dtype]
         for field in expected_fields:
             assert field in field_names
 
