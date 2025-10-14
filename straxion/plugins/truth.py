@@ -94,7 +94,10 @@ class Truth(strax.Plugin):
         """Initialize random number generator and time interval."""
         self.rng = np.random.default_rng(self.config["random_seed"])
         # Time interval between events in nanoseconds
-        self.dt_salt = int(SECOND_TO_NANOSECOND / self.config["salt_rate"])
+        if self.config["salt_rate"] > 0:
+            self.dt_salt = int(SECOND_TO_NANOSECOND / self.config["salt_rate"])
+        else:
+            self.dt_salt = None
         self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
 
     @staticmethod
