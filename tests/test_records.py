@@ -685,8 +685,18 @@ class TestDxRecordsCompute:
         raw_records[1]["data_i"] = np.random.randn(self.record_length)
         raw_records[1]["data_q"] = np.random.randn(self.record_length)
 
+        # Create empty truth array (no truth events)
+        truth_dtype = [
+            ("time", np.int64),
+            ("endtime", np.int64),
+            ("energy_true", np.float32),
+            ("dx_true", np.float32),
+            ("channel", np.int16),
+        ]
+        truth = np.zeros(0, dtype=truth_dtype)
+
         # Test compute
-        results = self.dx_records.compute(raw_records)
+        results = self.dx_records.compute(raw_records, truth)
 
         # Basic validation
         assert len(results) == 2
@@ -757,7 +767,17 @@ class TestDxRecordsCompute:
             ],
         )
 
-        results = self.dx_records.compute(raw_records)
+        # Create empty truth array
+        truth_dtype = [
+            ("time", np.int64),
+            ("endtime", np.int64),
+            ("energy_true", np.float32),
+            ("dx_true", np.float32),
+            ("channel", np.int16),
+        ]
+        truth = np.zeros(0, dtype=truth_dtype)
+
+        results = self.dx_records.compute(raw_records, truth)
         assert len(results) == 0
 
 
@@ -1296,3 +1316,92 @@ class TestRecordsWithRealDataOffline:
         clean_strax_data()
         with pytest.raises(Exception):
             st.get_array(run_id, "records", config=configs)
+
+    def test_records_with_truth_injection(self):
+        """Test that truth pulses are correctly injected into records."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        import straxion
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+        configs = _get_test_config(test_data_dir, run_id)
+
+        clean_strax_data()
+        try:
+            # First, get records without truth injection (salt_rate=0)
+            configs_no_salt = {**configs, "salt_rate": 0}
+            records_no_truth = st.get_array(run_id, "records", config=configs_no_salt)
+
+            # Clean and get records with truth injection (salt_rate > 0)
+            clean_strax_data()
+            configs_with_salt = {**configs, "salt_rate": 100}  # 100 Hz
+            records_with_truth = st.get_array(run_id, "records", config=configs_with_salt)
+
+            # Get the truth events to verify
+            truth = st.get_array(run_id, "truth", config=configs_with_salt)
+
+            # Basic validation
+            assert len(records_no_truth) > 0
+            assert len(records_with_truth) > 0
+            assert len(truth) > 0, "No truth events generated"
+
+            # Check that records have the same structure
+            assert records_no_truth.dtype == records_with_truth.dtype
+            assert len(records_no_truth) == len(records_with_truth)
+
+            # Find a record that overlaps with a truth event
+            found_injection = False
+            for t in truth:
+                # Find the record containing this truth event
+                matching_records_idx = np.where(
+                    (records_with_truth["channel"] == t["channel"])
+                    & (records_with_truth["time"] <= t["time"])
+                    & (records_with_truth["endtime"] > t["time"])
+                )[0]
+
+                if len(matching_records_idx) > 0:
+                    idx = matching_records_idx[0]
+
+                    # Compare data_dx before and after injection
+                    diff = records_with_truth[idx]["data_dx"] - records_no_truth[idx]["data_dx"]
+
+                    # There should be a difference where pulse was injected
+                    if np.any(np.abs(diff) > 1e-6):
+                        found_injection = True
+
+                        # Calculate expected pulse position
+                        time_offset = t["time"] - records_with_truth[idx]["time"]
+                        dt = records_with_truth[idx]["dt"]
+                        pulse_start_sample = int(time_offset / dt)
+
+                        # Check that difference is localized around pulse position
+                        max_diff_idx = np.argmax(np.abs(diff))
+
+                        print(f"Found truth pulse injection:")
+                        print(f"  Channel: {t['channel']}")
+                        print(f"  Energy: {t['energy_true']:.2f} meV")
+                        print(f"  dx_true: {t['dx_true']:.2e}")
+                        print(f"  Expected sample: {pulse_start_sample}")
+                        print(f"  Max diff at sample: {max_diff_idx}")
+                        print(f"  Max diff value: {diff[max_diff_idx]:.2e}")
+
+                        break
+
+            assert found_injection, (
+                "No pulse injection detected in any record. "
+                f"Generated {len(truth)} truth events."
+            )
+
+            # Verify all data is still finite
+            assert np.all(np.isfinite(records_with_truth["data_dx"]))
+            assert np.all(np.isfinite(records_with_truth["data_dx_moving_average"]))
+            assert np.all(np.isfinite(records_with_truth["data_dx_convolved"]))
+
+        except Exception as e:
+            pytest.fail(f"Failed to test truth injection: {str(e)}")

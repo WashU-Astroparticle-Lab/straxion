@@ -5,6 +5,8 @@ from straxion.utils import (
     SECOND_TO_NANOSECOND,
     base_waveform_dtype,
     circfit,
+    PULSE_TEMPLATE_38kHz,
+    PHOTON_25um_meV,
 )
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import fftconvolve
@@ -129,11 +131,11 @@ export, __all__ = strax.exporter()
     ),
 )
 class DxRecords(strax.Plugin):
-    __version__ = "0.1.0"
+    __version__ = "0.2.0"
     rechunk_on_save = False
     compressor = "zstd"  # Inherited from straxen. Not optimized outside XENONnT.
 
-    depends_on = "raw_records"
+    depends_on = ("raw_records", "truth")
     provides = "records"
     data_kind = "records"
     save_when = strax.SaveWhen.EXPLICIT
@@ -483,8 +485,41 @@ class DxRecords(strax.Plugin):
             np.ones(moving_average_kernel_width) / moving_average_kernel_width
         )
 
-    def compute(self, raw_records):
-        """Compute the dx=df/f0 for the timestream data."""
+    def _inject_truth_pulses(self, record, truth):
+        """Inject truth pulses into the record's data_dx field.
+
+        Args:
+            record: The record to inject pulses into (modified in place)
+            truth: Array of truth events
+        """
+        # Find truth events that match this record's channel and time range
+        matching_truth = truth[
+            (truth["channel"] == record["channel"])
+            & (truth["time"] >= record["time"])
+            & (truth["time"] < record["endtime"])
+        ]
+
+        for t in matching_truth:
+            # Calculate the pulse amplitude
+            pulse_amplitude = t["dx_true"] * t["energy_true"] / PHOTON_25um_meV
+
+            # Calculate the starting sample index in the record
+            time_offset = t["time"] - record["time"]
+            start_sample = int(time_offset / self.dt_exact)
+
+            # Determine how many samples of the template to inject
+            template_length = len(PULSE_TEMPLATE_38kHz)
+            samples_to_end = record["length"] - start_sample
+            inject_length = min(template_length, samples_to_end)
+
+            # Inject the pulse template if within bounds
+            if start_sample >= 0 and inject_length > 0:
+                record["data_dx"][start_sample : start_sample + inject_length] += (
+                    pulse_amplitude * PULSE_TEMPLATE_38kHz[:inject_length]
+                )
+
+    def compute(self, raw_records, truth):
+        """Compute the dx=df/f0 for the timestream data with truth pulse injection."""
         results = np.zeros(len(raw_records), dtype=self.infer_dtype())
 
         for i, rr in enumerate(raw_records):
@@ -516,6 +551,9 @@ class DxRecords(strax.Plugin):
                 - self.interpolated_freqs[rr["channel"]]
             ) / self.interpolated_freqs[rr["channel"]]
 
+            # Inject truth pulses into data_dx
+            self._inject_truth_pulses(r, truth)
+
             # Moving average (convolve with a boxcar).
             r["data_dx_moving_average"] = np.convolve(
                 r["data_dx"],
@@ -524,8 +562,8 @@ class DxRecords(strax.Plugin):
             )
 
             # Convolve with pulse kernel.
-            # Use FFT-based convolution for large kernels (faster than np.convolve).
-            if len(self.kernel) > 10000:  # Use FFT for kernels larger than 10k samples.
+            # Use FFT-based convolution for large kernels (faster).
+            if len(self.kernel) > 10000:
                 _convolved = fftconvolve(r["data_dx"], self.kernel, mode="full")
             else:
                 _convolved = np.convolve(r["data_dx"], self.kernel, mode="full")
