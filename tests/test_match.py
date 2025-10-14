@@ -90,7 +90,7 @@ class TestMatchWithRealData:
             "is_symmetric_spike",
             "is_coincident_with_spikes",
         ]
-        field_names = [name for name, *_ in dtype]
+        field_names = [t[1] for t in dtype]
         for field in expected_fields:
             assert field in field_names
 
