@@ -18,6 +18,14 @@ N_BASELINE_MONITOR_INTERVAL = 100
 HIT_WINDOW_LENGTH_LEFT = 200
 HIT_WINDOW_LENGTH_RIGHT = 600
 
+# Energy resolution constants for truth generation.
+# Reference photon energy and dx values for 25um wavelength
+PHOTON_25um_meV = 50  # meV
+PHOTON_25um_DX = 1.54e6  # dx units
+# Energy resolution in dx units (optimistic and conservative modes)
+DX_RESOL_OPTIMISTIC = 186835.48206306322
+DX_RESOL_CONSERVATIVE = 267423.0098878706
+
 
 def base_waveform_dtype():
     """Return the base dtype list for a waveform record, without the data fields.

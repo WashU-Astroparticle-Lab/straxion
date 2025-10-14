@@ -5,6 +5,10 @@ from straxion.utils import (
     CHANNEL_DTYPE,
     DATA_DTYPE,
     SECOND_TO_NANOSECOND,
+    PHOTON_25um_meV,
+    PHOTON_25um_DX,
+    DX_RESOL_OPTIMISTIC,
+    DX_RESOL_CONSERVATIVE,
 )
 
 export, __all__ = strax.exporter()
@@ -83,26 +87,20 @@ class Truth(strax.Plugin):
         # Time interval between events in nanoseconds
         self.dt_salt = int(SECOND_TO_NANOSECOND / self.config["salt_rate"])
 
-        # Energy resolution constants (dx units)
-        # Source: https://github.com/WashU-Astroparticle-Lab/qualiphide_thz/blob/main/hits/
-        # energy_resolution.ipynb
-        self.dx_resol_optimistic = 186835.48206306322
-        self.dx_resol_conservative = 267423.0098878706
-
     @staticmethod
     def sigma_deltax(photon_energy_meV, sigma_deltax_sph):
         """Calculate resolution in dx units."""
-        return np.sqrt(photon_energy_meV / 50) * sigma_deltax_sph
+        return np.sqrt(photon_energy_meV / PHOTON_25um_meV) * sigma_deltax_sph
 
     @staticmethod
     def meV_to_dx(photon_energy_meV):
         """Convert photon energy from meV to dx units."""
-        return 1.54e6 * photon_energy_meV / 50
+        return PHOTON_25um_DX * photon_energy_meV / PHOTON_25um_meV
 
     @staticmethod
     def dx_to_meV(dx):
         """Convert from dx units to meV."""
-        return dx / 1.54e6 * 50
+        return dx / PHOTON_25um_DX * PHOTON_25um_meV
 
     def sigma_E(self, photon_energy_meV, sigma_deltax_sph):
         """Calculate energy resolution in meV."""
@@ -148,9 +146,9 @@ class Truth(strax.Plugin):
 
         """
         if mode == "optimistic":
-            sigma_sph = self.dx_resol_optimistic
+            sigma_sph = DX_RESOL_OPTIMISTIC
         elif mode == "conservative":
-            sigma_sph = self.dx_resol_conservative
+            sigma_sph = DX_RESOL_CONSERVATIVE
         else:
             raise ValueError(f"Invalid mode: {mode}")
 
@@ -176,9 +174,9 @@ class Truth(strax.Plugin):
             return E_true
 
         if mode == "optimistic":
-            sigma_sph = self.dx_resol_optimistic
+            sigma_sph = DX_RESOL_OPTIMISTIC
         elif mode == "conservative":
-            sigma_sph = self.dx_resol_conservative
+            sigma_sph = DX_RESOL_CONSERVATIVE
         else:
             raise ValueError(
                 f"Invalid mode: {mode}. " "Must be 'optimistic', 'conservative', or 'none'."
