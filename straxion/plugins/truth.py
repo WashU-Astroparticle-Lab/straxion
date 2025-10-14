@@ -217,7 +217,10 @@ class Truth(strax.Plugin):
 
         # Calculate number of events based on time range and rate
         time_duration_ns = time_end - time_start
-        n_events = int(time_duration_ns / self.dt_salt)
+        if self.dt_salt is None:
+            n_events = 0
+        else:
+            n_events = int(time_duration_ns / self.dt_salt)
 
         if n_events == 0:
             # No events to generate, return empty array
