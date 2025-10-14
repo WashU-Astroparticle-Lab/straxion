@@ -142,16 +142,19 @@ class Match(strax.Plugin):
         ]
         return dtype
 
-    def compute(self, truth, hits, hit_classification):
+    def compute(self, truth, hits):
         """Match truth events with hits based on temporal overlap.
 
         Args:
             truth: Array of ground truth SALT events.
-            hits: Array of detected hits.
-            hit_classification: Array of hit classification results.
+            hits: Array of detected hits with classification fields merged.
 
         Returns:
             np.ndarray: Array of match results with same length as truth.
+
+        Note:
+            Since both hits and hit_classification have data_kind="hits",
+            strax automatically merges their fields into a single array.
 
         """
         # Initialize results array
@@ -200,12 +203,7 @@ class Match(strax.Plugin):
                     # Found: exactly one hit
                     results["destiny"][truth_idx] = "found"
                     hit_idx = ind_hits_ch[touching_windows_ch[i, 0]]
-                    self._fill_hit_info(
-                        results[truth_idx],
-                        hits[hit_idx],
-                        hit_classification[hit_idx],
-                        hit_idx,
-                    )
+                    self._fill_hit_info(results[truth_idx], hits[hit_idx], hit_idx)
                 else:
                     # Split: multiple hits, choose max amplitude_convolved
                     results["destiny"][truth_idx] = "split"
@@ -218,22 +216,16 @@ class Match(strax.Plugin):
                     max_amp_idx = np.argmax(overlapping_hits["amplitude_convolved"])
                     hit_idx = overlapping_hit_indices[max_amp_idx]
 
-                    self._fill_hit_info(
-                        results[truth_idx],
-                        hits[hit_idx],
-                        hit_classification[hit_idx],
-                        hit_idx,
-                    )
+                    self._fill_hit_info(results[truth_idx], hits[hit_idx], hit_idx)
 
         return results
 
-    def _fill_hit_info(self, result, hit, hit_class, hit_idx):
+    def _fill_hit_info(self, result, hit, hit_idx):
         """Fill match result with hit information.
 
         Args:
             result: Single match result element to populate.
-            hit: Single hit element.
-            hit_class: Single hit classification element.
+            hit: Single hit element with merged classification fields.
             hit_idx: Index of the hit in the full hits array.
 
         """
@@ -244,8 +236,8 @@ class Match(strax.Plugin):
         result["amplitude_convolved"] = hit["amplitude_convolved"]
         result["hit_threshold"] = hit["hit_threshold"]
         result["width"] = hit["width"]
-        result["rise_edge_slope"] = hit_class["rise_edge_slope"]
-        result["n_spikes_coinciding"] = hit_class["n_spikes_coinciding"]
-        result["is_photon_candidate"] = hit_class["is_photon_candidate"]
-        result["is_symmetric_spike"] = hit_class["is_symmetric_spike"]
-        result["is_coincident_with_spikes"] = hit_class["is_coincident_with_spikes"]
+        result["rise_edge_slope"] = hit["rise_edge_slope"]
+        result["n_spikes_coinciding"] = hit["n_spikes_coinciding"]
+        result["is_photon_candidate"] = hit["is_photon_candidate"]
+        result["is_symmetric_spike"] = hit["is_symmetric_spike"]
+        result["is_coincident_with_spikes"] = hit["is_coincident_with_spikes"]
