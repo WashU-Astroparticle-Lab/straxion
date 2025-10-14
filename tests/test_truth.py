@@ -51,6 +51,7 @@ def test_truth_default_config():
     assert plugin.config["random_seed"] == 137
     assert plugin.config["salt_rate"] == 0
     assert plugin.config["energy_meV"] == 50
+    assert plugin.config["energy_resolution_mode"] == "optimistic"
 
 
 def test_truth_custom_config():
@@ -134,7 +135,9 @@ def test_truth_compute_with_mock_data():
     assert len(truth_events) == expected_n_events
 
     # Check field values
-    assert all(truth_events["energy_true"] == 50)
+    # With energy resolution, energies are sampled from Gaussian
+    # Check they're near the expected value (within 5 sigma)
+    assert all(np.abs(truth_events["energy_true"] - 50) < 5 * 10)
     assert all(np.isin(truth_events["channel"], np.arange(n_channels)))
     assert all(truth_events["time"] >= time_start)
     assert all(truth_events["endtime"] <= time_end)
@@ -279,7 +282,7 @@ def test_truth_energy_values():
     """Test that Truth assigns correct energy values."""
     st = straxion.qualiphide_thz_online()
     energy_meV = 75
-    st.set_config({"energy_meV": energy_meV})
+    st.set_config({"energy_meV": energy_meV, "salt_rate": 100})
     plugin = st.get_single_plugin("1756824965", "truth")
 
     # Create mock raw_records
@@ -303,8 +306,107 @@ def test_truth_energy_values():
     result = plugin.compute(mock_raw_records)
     truth_events = result.data
 
-    # All events should have the specified energy
-    assert all(truth_events["energy_true"] == energy_meV)
+    # With energy resolution, energies are sampled from Gaussian
+    # Check they're centered around the expected value
+    assert np.abs(np.mean(truth_events["energy_true"]) - energy_meV) < 5
+
+
+def test_truth_energy_resolution_none():
+    """Test Truth with no energy resolution smearing."""
+    st = straxion.qualiphide_thz_online()
+    st.set_config({"energy_resolution_mode": "none", "salt_rate": 100})
+    plugin = st.get_single_plugin("1756824965", "truth")
+
+    # Create mock raw_records
+    time_start = 1000 * SECOND_TO_NANOSECOND
+    time_duration = 1 * SECOND_TO_NANOSECOND
+    time_end = time_start + time_duration
+
+    mock_raw_records = np.zeros(
+        1,
+        dtype=[
+            ("time", np.int64),
+            ("endtime", np.int64),
+            ("channel", np.int16),
+        ],
+    )
+    mock_raw_records["time"] = time_start
+    mock_raw_records["endtime"] = time_end
+    mock_raw_records["channel"] = 0
+
+    # Compute truth events
+    result = plugin.compute(mock_raw_records)
+    truth_events = result.data
+
+    # With mode="none", all energies should be exactly equal
+    assert all(truth_events["energy_true"] == 50)
+
+
+def test_truth_energy_resolution_modes():
+    """Test Truth with different energy resolution modes."""
+    energy_meV = 50
+    time_start = 1000 * SECOND_TO_NANOSECOND
+    time_duration = 10 * SECOND_TO_NANOSECOND
+    time_end = time_start + time_duration
+
+    mock_raw_records = np.zeros(
+        1,
+        dtype=[
+            ("time", np.int64),
+            ("endtime", np.int64),
+            ("channel", np.int16),
+        ],
+    )
+    mock_raw_records["time"] = time_start
+    mock_raw_records["endtime"] = time_end
+    mock_raw_records["channel"] = 0
+
+    # Test optimistic mode
+    st_opt = straxion.qualiphide_thz_online()
+    st_opt.set_config({"energy_resolution_mode": "optimistic", "salt_rate": 100})
+    plugin_opt = st_opt.get_single_plugin("1756824965", "truth")
+    result_opt = plugin_opt.compute(mock_raw_records)
+    energies_opt = result_opt.data["energy_true"]
+
+    # Test conservative mode
+    st_cons = straxion.qualiphide_thz_online()
+    st_cons.set_config({"energy_resolution_mode": "conservative", "salt_rate": 100})
+    plugin_cons = st_cons.get_single_plugin("1756824965", "truth")
+    result_cons = plugin_cons.compute(mock_raw_records)
+    energies_cons = result_cons.data["energy_true"]
+
+    # Conservative should have larger spread than optimistic
+    assert np.std(energies_cons) > np.std(energies_opt)
+
+    # Both should be centered near the true energy
+    assert np.abs(np.mean(energies_opt) - energy_meV) < 5
+    assert np.abs(np.mean(energies_cons) - energy_meV) < 5
+
+
+def test_truth_invalid_resolution_mode():
+    """Test that invalid resolution mode raises error."""
+    st = straxion.qualiphide_thz_online()
+    st.set_config({"energy_resolution_mode": "invalid", "salt_rate": 100})
+    plugin = st.get_single_plugin("1756824965", "truth")
+
+    time_start = 1000 * SECOND_TO_NANOSECOND
+    time_end = time_start + SECOND_TO_NANOSECOND
+
+    mock_raw_records = np.zeros(
+        1,
+        dtype=[
+            ("time", np.int64),
+            ("endtime", np.int64),
+            ("channel", np.int16),
+        ],
+    )
+    mock_raw_records["time"] = time_start
+    mock_raw_records["endtime"] = time_end
+    mock_raw_records["channel"] = 0
+
+    # Should raise ValueError for invalid mode
+    with pytest.raises(ValueError):
+        plugin.compute(mock_raw_records)
 
 
 @pytest.mark.skipif(
@@ -371,7 +473,8 @@ class TestTruthWithRealData:
 
             # Check that all truth events have consistent properties
             assert all(truth["endtime"] > truth["time"])
-            assert all(truth["energy_true"] == 50)  # Default value
+            # With energy resolution, check energies are near expected value
+            assert np.abs(np.mean(truth["energy_true"]) - 50) < 10
             assert all(truth["channel"] >= 0)
 
             # Check time ordering

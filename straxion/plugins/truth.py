@@ -33,6 +33,16 @@ export, __all__ = strax.exporter()
         type=(int, float),
         help="Photon energy in unit of meV.",
     ),
+    strax.Option(
+        "energy_resolution_mode",
+        default="optimistic",
+        track=True,
+        type=str,
+        help=(
+            "Energy resolution mode: 'optimistic', 'conservative', "
+            "or 'none' for no resolution smearing."
+        ),
+    ),
 )
 class Truth(strax.Plugin):
     """Generate ground truth SALT events for simulation.
@@ -73,6 +83,110 @@ class Truth(strax.Plugin):
         # Time interval between events in nanoseconds
         self.dt_salt = int(SECOND_TO_NANOSECOND / self.config["salt_rate"])
 
+        # Energy resolution constants (dx units)
+        # Source: https://github.com/WashU-Astroparticle-Lab/qualiphide_thz/blob/main/hits/
+        # energy_resolution.ipynb
+        self.dx_resol_optimistic = 186835.48206306322
+        self.dx_resol_conservative = 267423.0098878706
+
+    @staticmethod
+    def sigma_deltax(photon_energy_meV, sigma_deltax_sph):
+        """Calculate resolution in dx units."""
+        return np.sqrt(photon_energy_meV / 50) * sigma_deltax_sph
+
+    @staticmethod
+    def meV_to_dx(photon_energy_meV):
+        """Convert photon energy from meV to dx units."""
+        return 1.54e6 * photon_energy_meV / 50
+
+    @staticmethod
+    def dx_to_meV(dx):
+        """Convert from dx units to meV."""
+        return dx / 1.54e6 * 50
+
+    def sigma_E(self, photon_energy_meV, sigma_deltax_sph):
+        """Calculate energy resolution in meV."""
+        return self.dx_to_meV(self.sigma_deltax(photon_energy_meV, sigma_deltax_sph))
+
+    @staticmethod
+    def gaussian(x, mean, std):
+        """Gaussian/Normal distribution probability density function.
+
+        Parameters:
+        -----------
+        x : float or array-like
+            Input value(s) at which to evaluate the Gaussian
+        mean : float
+            Mean (center) of the distribution
+        std : float
+            Standard deviation (width) of the distribution
+
+        Returns:
+        --------
+        float or array
+            Probability density at x
+
+        """
+        return (1 / (std * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x - mean) / std) ** 2)
+
+    def f_s(self, E_rec, E_true, mode="optimistic"):
+        """Energy resolution function for dark photon signal.
+
+        Parameters:
+        -----------
+        E_rec : float or array-like
+            Reconstructed energy in meV
+        E_true : float
+            True energy in meV
+        mode : str
+            Resolution mode: 'optimistic' or 'conservative'
+
+        Returns:
+        --------
+        float or array
+            Probability density at E_rec
+
+        """
+        if mode == "optimistic":
+            sigma_sph = self.dx_resol_optimistic
+        elif mode == "conservative":
+            sigma_sph = self.dx_resol_conservative
+        else:
+            raise ValueError(f"Invalid mode: {mode}")
+
+        return self.gaussian(E_rec, E_true, self.sigma_E(E_true, sigma_deltax_sph=sigma_sph))
+
+    def sample_energy(self, E_true, mode):
+        """Sample energy from resolution function.
+
+        Parameters:
+        -----------
+        E_true : float
+            True energy in meV
+        mode : str
+            Resolution mode: 'optimistic', 'conservative', or 'none'
+
+        Returns:
+        --------
+        float
+            Sampled energy in meV
+
+        """
+        if mode == "none":
+            return E_true
+
+        if mode == "optimistic":
+            sigma_sph = self.dx_resol_optimistic
+        elif mode == "conservative":
+            sigma_sph = self.dx_resol_conservative
+        else:
+            raise ValueError(
+                f"Invalid mode: {mode}. " "Must be 'optimistic', 'conservative', or 'none'."
+            )
+
+        sigma = self.sigma_E(E_true, sigma_deltax_sph=sigma_sph)
+        return self.rng.normal(E_true, sigma)
+
     def compute(self, raw_records):
         """Generate truth events based on raw_records time range.
 
@@ -107,10 +221,12 @@ class Truth(strax.Plugin):
         results = np.zeros(n_events, dtype=self.infer_dtype())
 
         # Generate events at constant time intervals
+        mode = self.config["energy_resolution_mode"]
         for i in range(n_events):
             results["time"][i] = time_start + i * self.dt_salt
             results["endtime"][i] = results["time"][i] + self.dt_salt
-            results["energy_true"][i] = self.config["energy_meV"]
+            # Sample energy from resolution function
+            results["energy_true"][i] = self.sample_energy(self.config["energy_meV"], mode)
             # Randomly select a channel
             results["channel"][i] = self.rng.choice(available_channels)
 
