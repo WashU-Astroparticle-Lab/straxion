@@ -496,8 +496,8 @@ class DxRecords(strax.Plugin):
         matching_truth = truth[(truth["channel"] == record["channel"])]
 
         for t in matching_truth:
-            # Calculate the pulse amplitude
-            pulse_amplitude = t["dx_true"] * t["energy_true"] / PHOTON_25um_meV
+            # Calculate the pulse amplitude scaled by the photon energy
+            pulse_amplitude = t["energy_true"] / PHOTON_25um_meV
 
             # Calculate the starting sample index in the record
             time_offset = t["time"] - record["time"]
