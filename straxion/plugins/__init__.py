@@ -15,3 +15,6 @@ from .baseline_monitor import *
 
 from . import noise_bank
 from .noise_bank import *
+
+from . import truth
+from .truth import *
