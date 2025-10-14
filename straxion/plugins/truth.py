@@ -77,6 +77,7 @@ class Truth(strax.Plugin):
             (("Start time since unix epoch [ns]", "time"), TIME_DTYPE),
             (("Exclusive end time since unix epoch [ns]", "endtime"), TIME_DTYPE),
             (("True energy of the photon in meV", "energy_true"), DATA_DTYPE),
+            (("True dx value in dx units", "dx_true"), DATA_DTYPE),
             (("Channel number where event occurred", "channel"), CHANNEL_DTYPE),
         ]
         return dtype
@@ -225,6 +226,8 @@ class Truth(strax.Plugin):
             results["endtime"][i] = results["time"][i] + self.dt_salt
             # Sample energy from resolution function
             results["energy_true"][i] = self.sample_energy(self.config["energy_meV"], mode)
+            # Convert energy to dx units
+            results["dx_true"][i] = self.meV_to_dx(results["energy_true"][i])
             # Randomly select a channel
             results["channel"][i] = self.rng.choice(available_channels)
 

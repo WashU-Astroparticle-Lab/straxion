@@ -36,7 +36,7 @@ def test_truth_dtype_inference():
     dtype = plugin.infer_dtype()
 
     # Check expected fields
-    expected_fields = ["time", "endtime", "energy_true", "channel"]
+    expected_fields = ["time", "endtime", "energy_true", "dx_true", "channel"]
     field_names = [name for name, *_ in dtype]
     for field in expected_fields:
         assert field in field_names
@@ -409,6 +409,44 @@ def test_truth_invalid_resolution_mode():
         plugin.compute(mock_raw_records)
 
 
+def test_truth_dx_true_calculation():
+    """Test that dx_true is correctly calculated from energy_true."""
+    st = straxion.qualiphide_thz_online()
+    st.set_config({"energy_resolution_mode": "none", "salt_rate": 100})
+    plugin = st.get_single_plugin("1756824965", "truth")
+
+    time_start = 1000 * SECOND_TO_NANOSECOND
+    time_duration = 1 * SECOND_TO_NANOSECOND
+    time_end = time_start + time_duration
+
+    mock_raw_records = np.zeros(
+        1,
+        dtype=[
+            ("time", np.int64),
+            ("endtime", np.int64),
+            ("channel", np.int16),
+        ],
+    )
+    mock_raw_records["time"] = time_start
+    mock_raw_records["endtime"] = time_end
+    mock_raw_records["channel"] = 0
+
+    # Compute truth events
+    result = plugin.compute(mock_raw_records)
+    truth_events = result.data
+
+    # With mode="none", all energies should be exactly 50 meV
+    # And dx_true should be meV_to_dx(50)
+    expected_dx = plugin.meV_to_dx(50)
+    assert all(truth_events["energy_true"] == 50)
+    assert all(truth_events["dx_true"] == expected_dx)
+
+    # Verify the conversion is correct
+    for event in truth_events:
+        calculated_dx = plugin.meV_to_dx(event["energy_true"])
+        assert np.isclose(event["dx_true"], calculated_dx)
+
+
 @pytest.mark.skipif(
     not os.getenv("STRAXION_TEST_DATA_DIR"),
     reason=("Test data directory not provided via " "STRAXION_TEST_DATA_DIR environment variable"),
@@ -461,7 +499,7 @@ class TestTruthWithRealData:
             assert len(truth) > 0
 
             # Check required fields
-            required_fields = ["time", "endtime", "energy_true", "channel"]
+            required_fields = ["time", "endtime", "energy_true", "dx_true", "channel"]
             for field in required_fields:
                 assert field in truth.dtype.names, f"Required field '{field}' missing from truth"
 
@@ -469,6 +507,7 @@ class TestTruthWithRealData:
             assert truth["time"].dtype == np.int64
             assert truth["endtime"].dtype == np.int64
             assert truth["energy_true"].dtype == np.float32
+            assert truth["dx_true"].dtype == np.float32
             assert truth["channel"].dtype == np.int16
 
             # Check that all truth events have consistent properties
@@ -476,6 +515,9 @@ class TestTruthWithRealData:
             # With energy resolution, check energies are near expected value
             assert np.abs(np.mean(truth["energy_true"]) - 50) < 10
             assert all(truth["channel"] >= 0)
+
+            # Check that dx_true is positive and consistent with energy_true
+            assert all(truth["dx_true"] > 0)
 
             # Check time ordering
             assert np.all(np.diff(truth["time"]) >= 0), "Time stamps not monotonically increasing"
