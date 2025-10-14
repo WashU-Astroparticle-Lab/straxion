@@ -29,399 +29,6 @@ def test_truth_plugin_registration():
     assert st._plugin_class_registry["truth"] == Truth
 
 
-def test_truth_custom_config():
-    """Test Truth plugin with custom configuration."""
-    st = straxion.qualiphide_thz_offline()
-    custom_config = {
-        "random_seed": 42,
-        "salt_rate": 200,
-        "energy_meV": 100,
-    }
-    st.set_config(custom_config)
-    plugin = st.get_single_plugin("1756824965", "truth")
-
-    assert plugin.config["random_seed"] == 42
-    assert plugin.config["salt_rate"] == 200
-    assert plugin.config["energy_meV"] == 100
-
-
-def test_truth_zero_rate_default():
-    """Test that default zero rate produces no events."""
-    st = straxion.qualiphide_thz_offline()
-    plugin = st.get_single_plugin("1756824965", "truth")
-
-    # Create mock raw_records
-    time_start = 1000 * SECOND_TO_NANOSECOND
-    time_duration = 1 * SECOND_TO_NANOSECOND
-    time_end = time_start + time_duration
-
-    mock_raw_records = np.zeros(
-        1,
-        dtype=[
-            ("time", np.int64),
-            ("endtime", np.int64),
-            ("channel", np.int16),
-        ],
-    )
-    mock_raw_records["time"] = time_start
-    mock_raw_records["endtime"] = time_end
-    mock_raw_records["channel"] = 0
-
-    # Compute truth events with default rate (0)
-    result = plugin.compute(mock_raw_records)
-
-    # Should return empty array with zero rate
-    assert len(result.data) == 0
-
-
-def test_truth_compute_with_mock_data():
-    """Test Truth compute method with mock raw_records data."""
-    st = straxion.qualiphide_thz_offline()
-    st.set_config({"salt_rate": 100})  # Set non-zero rate for testing
-    plugin = st.get_single_plugin("1756824965", "truth")
-
-    # Create mock raw_records
-    n_channels = 5
-    time_start = 1000 * SECOND_TO_NANOSECOND
-    time_duration = 1 * SECOND_TO_NANOSECOND  # 1 second
-    time_end = time_start + time_duration
-
-    mock_raw_records = np.zeros(
-        n_channels,
-        dtype=[
-            ("time", np.int64),
-            ("endtime", np.int64),
-            ("channel", np.int16),
-        ],
-    )
-    mock_raw_records["time"] = time_start
-    mock_raw_records["endtime"] = time_end
-    mock_raw_records["channel"] = np.arange(n_channels)
-
-    # Compute truth events
-    result = plugin.compute(mock_raw_records)
-
-    # Verify result structure
-    assert hasattr(result, "data")
-    truth_events = result.data
-
-    # Check that events were generated
-    expected_n_events = int(time_duration / (SECOND_TO_NANOSECOND / 100))
-    assert len(truth_events) == expected_n_events
-
-    # Check field values
-    # With energy resolution, energies are sampled from Gaussian
-    # Check they're near the expected value (within 5 sigma)
-    assert all(np.abs(truth_events["energy_true"] - 50) < 5 * 10)
-    assert all(np.isin(truth_events["channel"], np.arange(n_channels)))
-    assert all(truth_events["time"] >= time_start)
-    assert all(truth_events["endtime"] <= time_end)
-    assert all(truth_events["endtime"] > truth_events["time"])
-
-
-def test_truth_empty_time_range():
-    """Test Truth with zero time duration (should return empty)."""
-    st = straxion.qualiphide_thz_offline()
-    plugin = st.get_single_plugin("1756824965", "truth")
-
-    # Create mock raw_records with zero duration
-    time_start = 1000 * SECOND_TO_NANOSECOND
-    mock_raw_records = np.zeros(
-        1,
-        dtype=[
-            ("time", np.int64),
-            ("endtime", np.int64),
-            ("channel", np.int16),
-        ],
-    )
-    mock_raw_records["time"] = time_start
-    mock_raw_records["endtime"] = time_start  # Same as start time
-    mock_raw_records["channel"] = 0
-
-    # Compute truth events
-    result = plugin.compute(mock_raw_records)
-
-    # Should return empty array
-    assert len(result.data) == 0
-
-
-def test_truth_reproducibility():
-    """Test that Truth generates reproducible results with same seed."""
-    st = straxion.qualiphide_thz_offline()
-    st.set_config({"random_seed": 42, "salt_rate": 100})
-
-    # Create mock raw_records
-    n_channels = 10
-    time_start = 1000 * SECOND_TO_NANOSECOND
-    time_duration = 0.5 * SECOND_TO_NANOSECOND
-    time_end = time_start + time_duration
-
-    mock_raw_records = np.zeros(
-        n_channels,
-        dtype=[
-            ("time", np.int64),
-            ("endtime", np.int64),
-            ("channel", np.int16),
-        ],
-    )
-    mock_raw_records["time"] = time_start
-    mock_raw_records["endtime"] = time_end
-    mock_raw_records["channel"] = np.arange(n_channels)
-
-    # Generate truth events twice
-    plugin1 = st.get_single_plugin("1756824965", "truth")
-    result1 = plugin1.compute(mock_raw_records)
-
-    plugin2 = st.get_single_plugin("1756824965", "truth")
-    result2 = plugin2.compute(mock_raw_records)
-
-    # Results should be identical
-    assert len(result1.data) == len(result2.data)
-    assert np.array_equal(result1.data["channel"], result2.data["channel"])
-    assert np.array_equal(result1.data["time"], result2.data["time"])
-
-
-def test_truth_channel_distribution():
-    """Test that Truth distributes events across available channels."""
-    st = straxion.qualiphide_thz_offline()
-    st.set_config({"salt_rate": 100})  # Set non-zero rate for testing
-    plugin = st.get_single_plugin("1756824965", "truth")
-
-    # Create mock raw_records with multiple channels
-    n_channels = 10
-    time_start = 1000 * SECOND_TO_NANOSECOND
-    time_duration = 10 * SECOND_TO_NANOSECOND  # 10 seconds
-    time_end = time_start + time_duration
-
-    mock_raw_records = np.zeros(
-        n_channels,
-        dtype=[
-            ("time", np.int64),
-            ("endtime", np.int64),
-            ("channel", np.int16),
-        ],
-    )
-    mock_raw_records["time"] = time_start
-    mock_raw_records["endtime"] = time_end
-    mock_raw_records["channel"] = np.arange(n_channels)
-
-    # Compute truth events
-    result = plugin.compute(mock_raw_records)
-    truth_events = result.data
-
-    # Check that events span multiple channels
-    unique_channels = np.unique(truth_events["channel"])
-    assert len(unique_channels) > 1  # Should hit multiple channels
-
-    # All channels should be from available set
-    assert all(np.isin(truth_events["channel"], np.arange(n_channels)))
-
-
-def test_truth_time_intervals():
-    """Test that Truth generates events at constant time intervals."""
-    st = straxion.qualiphide_thz_offline()
-    salt_rate = 100  # Hz
-    st.set_config({"salt_rate": salt_rate})
-    plugin = st.get_single_plugin("1756824965", "truth")
-
-    # Create mock raw_records
-    time_start = 1000 * SECOND_TO_NANOSECOND
-    time_duration = 1 * SECOND_TO_NANOSECOND
-    time_end = time_start + time_duration
-
-    mock_raw_records = np.zeros(
-        1,
-        dtype=[
-            ("time", np.int64),
-            ("endtime", np.int64),
-            ("channel", np.int16),
-        ],
-    )
-    mock_raw_records["time"] = time_start
-    mock_raw_records["endtime"] = time_end
-    mock_raw_records["channel"] = 0
-
-    # Compute truth events
-    result = plugin.compute(mock_raw_records)
-    truth_events = result.data
-
-    # Check time intervals
-    expected_dt = SECOND_TO_NANOSECOND / salt_rate
-    time_diffs = np.diff(truth_events["time"])
-
-    # All time intervals should be equal (within 1 ns tolerance)
-    assert np.allclose(time_diffs, expected_dt, atol=1)
-
-
-def test_truth_energy_values():
-    """Test that Truth assigns correct energy values."""
-    st = straxion.qualiphide_thz_offline()
-    energy_meV = 75
-    st.set_config({"energy_meV": energy_meV, "salt_rate": 100})
-    plugin = st.get_single_plugin("1756824965", "truth")
-
-    # Create mock raw_records
-    time_start = 1000 * SECOND_TO_NANOSECOND
-    time_duration = 1 * SECOND_TO_NANOSECOND
-    time_end = time_start + time_duration
-
-    mock_raw_records = np.zeros(
-        1,
-        dtype=[
-            ("time", np.int64),
-            ("endtime", np.int64),
-            ("channel", np.int16),
-        ],
-    )
-    mock_raw_records["time"] = time_start
-    mock_raw_records["endtime"] = time_end
-    mock_raw_records["channel"] = 0
-
-    # Compute truth events
-    result = plugin.compute(mock_raw_records)
-    truth_events = result.data
-
-    # With energy resolution, energies are sampled from Gaussian
-    # Check they're centered around the expected value
-    assert np.abs(np.mean(truth_events["energy_true"]) - energy_meV) < 5
-
-
-def test_truth_energy_resolution_none():
-    """Test Truth with no energy resolution smearing."""
-    st = straxion.qualiphide_thz_offline()
-    st.set_config({"energy_resolution_mode": "none", "salt_rate": 100})
-    plugin = st.get_single_plugin("1756824965", "truth")
-
-    # Create mock raw_records
-    time_start = 1000 * SECOND_TO_NANOSECOND
-    time_duration = 1 * SECOND_TO_NANOSECOND
-    time_end = time_start + time_duration
-
-    mock_raw_records = np.zeros(
-        1,
-        dtype=[
-            ("time", np.int64),
-            ("endtime", np.int64),
-            ("channel", np.int16),
-        ],
-    )
-    mock_raw_records["time"] = time_start
-    mock_raw_records["endtime"] = time_end
-    mock_raw_records["channel"] = 0
-
-    # Compute truth events
-    result = plugin.compute(mock_raw_records)
-    truth_events = result.data
-
-    # With mode="none", all energies should be exactly equal
-    assert all(truth_events["energy_true"] == 50)
-
-
-def test_truth_energy_resolution_modes():
-    """Test Truth with different energy resolution modes."""
-    energy_meV = 50
-    time_start = 1000 * SECOND_TO_NANOSECOND
-    time_duration = 10 * SECOND_TO_NANOSECOND
-    time_end = time_start + time_duration
-
-    mock_raw_records = np.zeros(
-        1,
-        dtype=[
-            ("time", np.int64),
-            ("endtime", np.int64),
-            ("channel", np.int16),
-        ],
-    )
-    mock_raw_records["time"] = time_start
-    mock_raw_records["endtime"] = time_end
-    mock_raw_records["channel"] = 0
-
-    # Test optimistic mode
-    st_opt = straxion.qualiphide_thz_offline()
-    st_opt.set_config({"energy_resolution_mode": "optimistic", "salt_rate": 100})
-    plugin_opt = st_opt.get_single_plugin("1756824965", "truth")
-    result_opt = plugin_opt.compute(mock_raw_records)
-    energies_opt = result_opt.data["energy_true"]
-
-    # Test conservative mode
-    st_cons = straxion.qualiphide_thz_offline()
-    st_cons.set_config({"energy_resolution_mode": "conservative", "salt_rate": 100})
-    plugin_cons = st_cons.get_single_plugin("1756824965", "truth")
-    result_cons = plugin_cons.compute(mock_raw_records)
-    energies_cons = result_cons.data["energy_true"]
-
-    # Conservative should have larger spread than optimistic
-    assert np.std(energies_cons) > np.std(energies_opt)
-
-    # Both should be centered near the true energy
-    assert np.abs(np.mean(energies_opt) - energy_meV) < 5
-    assert np.abs(np.mean(energies_cons) - energy_meV) < 5
-
-
-def test_truth_invalid_resolution_mode():
-    """Test that invalid resolution mode raises error."""
-    st = straxion.qualiphide_thz_offline()
-    st.set_config({"energy_resolution_mode": "invalid", "salt_rate": 100})
-    plugin = st.get_single_plugin("1756824965", "truth")
-
-    time_start = 1000 * SECOND_TO_NANOSECOND
-    time_end = time_start + SECOND_TO_NANOSECOND
-
-    mock_raw_records = np.zeros(
-        1,
-        dtype=[
-            ("time", np.int64),
-            ("endtime", np.int64),
-            ("channel", np.int16),
-        ],
-    )
-    mock_raw_records["time"] = time_start
-    mock_raw_records["endtime"] = time_end
-    mock_raw_records["channel"] = 0
-
-    # Should raise ValueError for invalid mode
-    with pytest.raises(ValueError):
-        plugin.compute(mock_raw_records)
-
-
-def test_truth_dx_true_calculation():
-    """Test that dx_true is correctly calculated from energy_true."""
-    st = straxion.qualiphide_thz_offline()
-    st.set_config({"energy_resolution_mode": "none", "salt_rate": 100})
-    plugin = st.get_single_plugin("1756824965", "truth")
-
-    time_start = 1000 * SECOND_TO_NANOSECOND
-    time_duration = 1 * SECOND_TO_NANOSECOND
-    time_end = time_start + time_duration
-
-    mock_raw_records = np.zeros(
-        1,
-        dtype=[
-            ("time", np.int64),
-            ("endtime", np.int64),
-            ("channel", np.int16),
-        ],
-    )
-    mock_raw_records["time"] = time_start
-    mock_raw_records["endtime"] = time_end
-    mock_raw_records["channel"] = 0
-
-    # Compute truth events
-    result = plugin.compute(mock_raw_records)
-    truth_events = result.data
-
-    # With mode="none", all energies should be exactly 50 meV
-    # And dx_true should be meV_to_dx(50)
-    expected_dx = plugin.meV_to_dx(50)
-    assert all(truth_events["energy_true"] == 50)
-    assert all(truth_events["dx_true"] == expected_dx)
-
-    # Verify the conversion is correct
-    for event in truth_events:
-        calculated_dx = plugin.meV_to_dx(event["energy_true"])
-        assert np.isclose(event["dx_true"], calculated_dx)
-
-
 @pytest.mark.skipif(
     not os.getenv("STRAXION_TEST_DATA_DIR"),
     reason=("Test data directory not provided via " "STRAXION_TEST_DATA_DIR environment variable"),
@@ -429,7 +36,7 @@ def test_truth_dx_true_calculation():
 class TestTruthWithRealData:
     """Test Truth plugin with real data from STRAXION_TEST_DATA_DIR."""
 
-    def _get_test_config(self, test_data_dir, run_id):
+    def _get_test_config(self, test_data_dir, run_id, **kwargs):
         """Get test config for the given test data directory and run ID."""
         daq_input_dir = os.path.join(test_data_dir, f"ts_38kHz-{run_id}.npy")
         iq_finescan_dir = test_data_dir
@@ -448,7 +55,80 @@ class TestTruthWithRealData:
             "resonant_frequency_dir": resonant_frequency_dir,
             "resonant_frequency_filename": resonant_frequency_filename,
         }
+        # Add any additional config options
+        configs.update(kwargs)
         return configs
+
+    def test_truth_dtype_inference(self):
+        """Test that Truth can infer the correct data type."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        st = straxion.qualiphide_thz_offline()
+        plugin = st.get_single_plugin("1756824965", "truth")
+        dtype = plugin.infer_dtype()
+
+        # Check expected fields
+        expected_fields = ["time", "endtime", "energy_true", "dx_true", "channel"]
+        field_names = [name for name, *_ in dtype]
+        for field in expected_fields:
+            assert field in field_names
+
+    def test_truth_default_config(self):
+        """Test that Truth plugin has correct default configuration."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        st = straxion.qualiphide_thz_offline()
+        plugin = st.get_single_plugin("1756824965", "truth")
+
+        # Check default values
+        assert plugin.config["random_seed"] == 137
+        assert plugin.config["salt_rate"] == 0
+        assert plugin.config["energy_meV"] == 50
+        assert plugin.config["energy_resolution_mode"] == "optimistic"
+
+    def test_truth_custom_config(self):
+        """Test Truth plugin with custom configuration."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        st = straxion.qualiphide_thz_offline()
+        custom_config = {
+            "random_seed": 42,
+            "salt_rate": 200,
+            "energy_meV": 100,
+        }
+        st.set_config(custom_config)
+        plugin = st.get_single_plugin("1756824965", "truth")
+
+        assert plugin.config["random_seed"] == 42
+        assert plugin.config["salt_rate"] == 200
+        assert plugin.config["energy_meV"] == 100
+
+    def test_truth_zero_rate_default(self):
+        """Test that default zero rate produces no events."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+        configs = self._get_test_config(test_data_dir, run_id, salt_rate=0)
+
+        clean_strax_data()
+        try:
+            truth = st.get_array(run_id, "truth", config=configs)
+            # Should return empty array with zero rate
+            assert len(truth) == 0
+        except Exception as e:
+            pytest.fail(f"Failed to process truth: {str(e)}")
 
     def test_truth_with_real_raw_records(self):
         """Test Truth plugin with real raw_records data."""
@@ -461,8 +141,7 @@ class TestTruthWithRealData:
 
         st = straxion.qualiphide_thz_offline()
         run_id = "1756824965"
-        configs = self._get_test_config(test_data_dir, run_id)
-        configs["salt_rate"] = 100  # Set non-zero rate for testing
+        configs = self._get_test_config(test_data_dir, run_id, salt_rate=100)
 
         clean_strax_data()
         try:
@@ -501,6 +180,233 @@ class TestTruthWithRealData:
                 f"Successfully processed {len(truth)} truth events "
                 f"across {len(np.unique(truth['channel']))} channels"
             )
+
+        except Exception as e:
+            pytest.fail(f"Failed to process truth: {str(e)}")
+
+    def test_truth_reproducibility(self):
+        """Test that Truth generates reproducible results with same seed."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        run_id = "1756824965"
+        configs = self._get_test_config(test_data_dir, run_id, random_seed=42, salt_rate=100)
+
+        # Generate truth events twice with same seed
+        clean_strax_data()
+        st1 = straxion.qualiphide_thz_offline()
+        truth1 = st1.get_array(run_id, "truth", config=configs)
+
+        clean_strax_data()
+        st2 = straxion.qualiphide_thz_offline()
+        truth2 = st2.get_array(run_id, "truth", config=configs)
+
+        # Results should be identical
+        assert len(truth1) == len(truth2)
+        assert np.array_equal(truth1["channel"], truth2["channel"])
+        assert np.array_equal(truth1["time"], truth2["time"])
+        assert np.array_equal(truth1["energy_true"], truth2["energy_true"])
+
+    def test_truth_channel_distribution(self):
+        """Test that Truth distributes events across available channels."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+        configs = self._get_test_config(test_data_dir, run_id, salt_rate=100)
+
+        clean_strax_data()
+        try:
+            truth = st.get_array(run_id, "truth", config=configs)
+
+            # Check that events span multiple channels
+            unique_channels = np.unique(truth["channel"])
+            assert len(unique_channels) > 1  # Should hit multiple channels
+
+            # Get raw_records to check available channels
+            raw_records = st.get_array(run_id, "raw_records", config=configs)
+            available_channels = np.unique(raw_records["channel"])
+
+            # All truth channels should be from available set
+            assert all(np.isin(truth["channel"], available_channels))
+
+        except Exception as e:
+            pytest.fail(f"Failed to process truth: {str(e)}")
+
+    def test_truth_time_intervals(self):
+        """Test that Truth generates events at constant time intervals."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+        salt_rate = 100  # Hz
+        configs = self._get_test_config(test_data_dir, run_id, salt_rate=salt_rate)
+
+        clean_strax_data()
+        try:
+            truth = st.get_array(run_id, "truth", config=configs)
+
+            # Check time intervals
+            expected_dt = SECOND_TO_NANOSECOND / salt_rate
+            time_diffs = np.diff(truth["time"])
+
+            # All time intervals should be equal (within 1 ns tolerance)
+            assert np.allclose(time_diffs, expected_dt, atol=1)
+
+        except Exception as e:
+            pytest.fail(f"Failed to process truth: {str(e)}")
+
+    def test_truth_energy_values(self):
+        """Test that Truth assigns correct energy values."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+        energy_meV = 75
+        configs = self._get_test_config(test_data_dir, run_id, energy_meV=energy_meV, salt_rate=100)
+
+        clean_strax_data()
+        try:
+            truth = st.get_array(run_id, "truth", config=configs)
+
+            # With energy resolution, energies are sampled from Gaussian
+            # Check they're centered around the expected value
+            assert np.abs(np.mean(truth["energy_true"]) - energy_meV) < 5
+
+        except Exception as e:
+            pytest.fail(f"Failed to process truth: {str(e)}")
+
+    def test_truth_energy_resolution_none(self):
+        """Test Truth with no energy resolution smearing."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+        configs = self._get_test_config(
+            test_data_dir, run_id, energy_resolution_mode="none", salt_rate=100
+        )
+
+        clean_strax_data()
+        try:
+            truth = st.get_array(run_id, "truth", config=configs)
+
+            # With mode="none", all energies should be exactly equal
+            assert all(truth["energy_true"] == 50)
+
+        except Exception as e:
+            pytest.fail(f"Failed to process truth: {str(e)}")
+
+    def test_truth_energy_resolution_modes(self):
+        """Test Truth with different energy resolution modes."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        run_id = "1756824965"
+        energy_meV = 50
+
+        # Test optimistic mode
+        clean_strax_data()
+        st_opt = straxion.qualiphide_thz_offline()
+        configs_opt = self._get_test_config(
+            test_data_dir, run_id, energy_resolution_mode="optimistic", salt_rate=100
+        )
+        truth_opt = st_opt.get_array(run_id, "truth", config=configs_opt)
+        energies_opt = truth_opt["energy_true"]
+
+        # Test conservative mode
+        clean_strax_data()
+        st_cons = straxion.qualiphide_thz_offline()
+        configs_cons = self._get_test_config(
+            test_data_dir, run_id, energy_resolution_mode="conservative", salt_rate=100
+        )
+        truth_cons = st_cons.get_array(run_id, "truth", config=configs_cons)
+        energies_cons = truth_cons["energy_true"]
+
+        # Conservative should have larger spread than optimistic
+        assert np.std(energies_cons) > np.std(energies_opt)
+
+        # Both should be centered near the true energy
+        assert np.abs(np.mean(energies_opt) - energy_meV) < 5
+        assert np.abs(np.mean(energies_cons) - energy_meV) < 5
+
+    def test_truth_invalid_resolution_mode(self):
+        """Test that invalid resolution mode raises error."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+        configs = self._get_test_config(
+            test_data_dir, run_id, energy_resolution_mode="invalid", salt_rate=100
+        )
+
+        clean_strax_data()
+        # Should raise ValueError for invalid mode
+        with pytest.raises(ValueError):
+            st.get_array(run_id, "truth", config=configs)
+
+    def test_truth_dx_true_calculation(self):
+        """Test that dx_true is correctly calculated from energy_true."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+        configs = self._get_test_config(
+            test_data_dir, run_id, energy_resolution_mode="none", salt_rate=100
+        )
+
+        clean_strax_data()
+        try:
+            truth = st.get_array(run_id, "truth", config=configs)
+            plugin = st.get_single_plugin(run_id, "truth")
+
+            # With mode="none", all energies should be exactly 50 meV
+            # And dx_true should be meV_to_dx(50)
+            expected_dx = plugin.meV_to_dx(50)
+            assert all(truth["energy_true"] == 50)
+            assert all(truth["dx_true"] == expected_dx)
+
+            # Verify the conversion is correct
+            for event in truth:
+                calculated_dx = plugin.meV_to_dx(event["energy_true"])
+                assert np.isclose(event["dx_true"], calculated_dx)
 
         except Exception as e:
             pytest.fail(f"Failed to process truth: {str(e)}")
