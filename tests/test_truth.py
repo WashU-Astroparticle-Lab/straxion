@@ -49,7 +49,7 @@ def test_truth_default_config():
 
     # Check default values
     assert plugin.config["random_seed"] == 137
-    assert plugin.config["salt_rate"] == 100
+    assert plugin.config["salt_rate"] == 0
     assert plugin.config["energy_meV"] == 50
 
 
@@ -69,9 +69,39 @@ def test_truth_custom_config():
     assert plugin.config["energy_meV"] == 100
 
 
+def test_truth_zero_rate_default():
+    """Test that default zero rate produces no events."""
+    st = straxion.qualiphide_thz_online()
+    plugin = st.get_single_plugin("1756824965", "truth")
+
+    # Create mock raw_records
+    time_start = 1000 * SECOND_TO_NANOSECOND
+    time_duration = 1 * SECOND_TO_NANOSECOND
+    time_end = time_start + time_duration
+
+    mock_raw_records = np.zeros(
+        1,
+        dtype=[
+            ("time", np.int64),
+            ("endtime", np.int64),
+            ("channel", np.int16),
+        ],
+    )
+    mock_raw_records["time"] = time_start
+    mock_raw_records["endtime"] = time_end
+    mock_raw_records["channel"] = 0
+
+    # Compute truth events with default rate (0)
+    result = plugin.compute(mock_raw_records)
+
+    # Should return empty array with zero rate
+    assert len(result.data) == 0
+
+
 def test_truth_compute_with_mock_data():
     """Test Truth compute method with mock raw_records data."""
     st = straxion.qualiphide_thz_online()
+    st.set_config({"salt_rate": 100})  # Set non-zero rate for testing
     plugin = st.get_single_plugin("1756824965", "truth")
 
     # Create mock raw_records
@@ -140,7 +170,7 @@ def test_truth_empty_time_range():
 def test_truth_reproducibility():
     """Test that Truth generates reproducible results with same seed."""
     st = straxion.qualiphide_thz_online()
-    st.set_config({"random_seed": 42})
+    st.set_config({"random_seed": 42, "salt_rate": 100})
 
     # Create mock raw_records
     n_channels = 10
@@ -176,6 +206,7 @@ def test_truth_reproducibility():
 def test_truth_channel_distribution():
     """Test that Truth distributes events across available channels."""
     st = straxion.qualiphide_thz_online()
+    st.set_config({"salt_rate": 100})  # Set non-zero rate for testing
     plugin = st.get_single_plugin("1756824965", "truth")
 
     # Create mock raw_records with multiple channels
@@ -316,6 +347,7 @@ class TestTruthWithRealData:
         st = straxion.qualiphide_thz_online()
         run_id = "1756824965"
         configs = self._get_test_config(test_data_dir, run_id)
+        configs["salt_rate"] = 100  # Set non-zero rate for testing
 
         clean_strax_data()
         try:

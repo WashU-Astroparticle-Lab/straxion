@@ -21,7 +21,7 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "salt_rate",
-        default=100,
+        default=0,
         track=True,
         type=(int, float),
         help="Rate of SALT events in unit of Hz.",
