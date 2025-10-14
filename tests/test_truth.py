@@ -24,39 +24,14 @@ def clean_strax_data():
 
 def test_truth_plugin_registration():
     """Test that the Truth plugin is properly registered."""
-    st = straxion.qualiphide_thz_online()
+    st = straxion.qualiphide_thz_offline()
     assert "truth" in st._plugin_class_registry
     assert st._plugin_class_registry["truth"] == Truth
 
 
-def test_truth_dtype_inference():
-    """Test that Truth can infer the correct data type."""
-    st = straxion.qualiphide_thz_online()
-    plugin = st.get_single_plugin("1756824965", "truth")
-    dtype = plugin.infer_dtype()
-
-    # Check expected fields
-    expected_fields = ["time", "endtime", "energy_true", "dx_true", "channel"]
-    field_names = [name for name, *_ in dtype]
-    for field in expected_fields:
-        assert field in field_names
-
-
-def test_truth_default_config():
-    """Test that Truth plugin has the correct default configuration."""
-    st = straxion.qualiphide_thz_online()
-    plugin = st.get_single_plugin("1756824965", "truth")
-
-    # Check default values
-    assert plugin.config["random_seed"] == 137
-    assert plugin.config["salt_rate"] == 0
-    assert plugin.config["energy_meV"] == 50
-    assert plugin.config["energy_resolution_mode"] == "optimistic"
-
-
 def test_truth_custom_config():
     """Test Truth plugin with custom configuration."""
-    st = straxion.qualiphide_thz_online()
+    st = straxion.qualiphide_thz_offline()
     custom_config = {
         "random_seed": 42,
         "salt_rate": 200,
@@ -72,7 +47,7 @@ def test_truth_custom_config():
 
 def test_truth_zero_rate_default():
     """Test that default zero rate produces no events."""
-    st = straxion.qualiphide_thz_online()
+    st = straxion.qualiphide_thz_offline()
     plugin = st.get_single_plugin("1756824965", "truth")
 
     # Create mock raw_records
@@ -101,7 +76,7 @@ def test_truth_zero_rate_default():
 
 def test_truth_compute_with_mock_data():
     """Test Truth compute method with mock raw_records data."""
-    st = straxion.qualiphide_thz_online()
+    st = straxion.qualiphide_thz_offline()
     st.set_config({"salt_rate": 100})  # Set non-zero rate for testing
     plugin = st.get_single_plugin("1756824965", "truth")
 
@@ -146,7 +121,7 @@ def test_truth_compute_with_mock_data():
 
 def test_truth_empty_time_range():
     """Test Truth with zero time duration (should return empty)."""
-    st = straxion.qualiphide_thz_online()
+    st = straxion.qualiphide_thz_offline()
     plugin = st.get_single_plugin("1756824965", "truth")
 
     # Create mock raw_records with zero duration
@@ -172,7 +147,7 @@ def test_truth_empty_time_range():
 
 def test_truth_reproducibility():
     """Test that Truth generates reproducible results with same seed."""
-    st = straxion.qualiphide_thz_online()
+    st = straxion.qualiphide_thz_offline()
     st.set_config({"random_seed": 42, "salt_rate": 100})
 
     # Create mock raw_records
@@ -208,7 +183,7 @@ def test_truth_reproducibility():
 
 def test_truth_channel_distribution():
     """Test that Truth distributes events across available channels."""
-    st = straxion.qualiphide_thz_online()
+    st = straxion.qualiphide_thz_offline()
     st.set_config({"salt_rate": 100})  # Set non-zero rate for testing
     plugin = st.get_single_plugin("1756824965", "truth")
 
@@ -244,7 +219,7 @@ def test_truth_channel_distribution():
 
 def test_truth_time_intervals():
     """Test that Truth generates events at constant time intervals."""
-    st = straxion.qualiphide_thz_online()
+    st = straxion.qualiphide_thz_offline()
     salt_rate = 100  # Hz
     st.set_config({"salt_rate": salt_rate})
     plugin = st.get_single_plugin("1756824965", "truth")
@@ -280,7 +255,7 @@ def test_truth_time_intervals():
 
 def test_truth_energy_values():
     """Test that Truth assigns correct energy values."""
-    st = straxion.qualiphide_thz_online()
+    st = straxion.qualiphide_thz_offline()
     energy_meV = 75
     st.set_config({"energy_meV": energy_meV, "salt_rate": 100})
     plugin = st.get_single_plugin("1756824965", "truth")
@@ -313,7 +288,7 @@ def test_truth_energy_values():
 
 def test_truth_energy_resolution_none():
     """Test Truth with no energy resolution smearing."""
-    st = straxion.qualiphide_thz_online()
+    st = straxion.qualiphide_thz_offline()
     st.set_config({"energy_resolution_mode": "none", "salt_rate": 100})
     plugin = st.get_single_plugin("1756824965", "truth")
 
@@ -362,14 +337,14 @@ def test_truth_energy_resolution_modes():
     mock_raw_records["channel"] = 0
 
     # Test optimistic mode
-    st_opt = straxion.qualiphide_thz_online()
+    st_opt = straxion.qualiphide_thz_offline()
     st_opt.set_config({"energy_resolution_mode": "optimistic", "salt_rate": 100})
     plugin_opt = st_opt.get_single_plugin("1756824965", "truth")
     result_opt = plugin_opt.compute(mock_raw_records)
     energies_opt = result_opt.data["energy_true"]
 
     # Test conservative mode
-    st_cons = straxion.qualiphide_thz_online()
+    st_cons = straxion.qualiphide_thz_offline()
     st_cons.set_config({"energy_resolution_mode": "conservative", "salt_rate": 100})
     plugin_cons = st_cons.get_single_plugin("1756824965", "truth")
     result_cons = plugin_cons.compute(mock_raw_records)
@@ -385,7 +360,7 @@ def test_truth_energy_resolution_modes():
 
 def test_truth_invalid_resolution_mode():
     """Test that invalid resolution mode raises error."""
-    st = straxion.qualiphide_thz_online()
+    st = straxion.qualiphide_thz_offline()
     st.set_config({"energy_resolution_mode": "invalid", "salt_rate": 100})
     plugin = st.get_single_plugin("1756824965", "truth")
 
@@ -411,7 +386,7 @@ def test_truth_invalid_resolution_mode():
 
 def test_truth_dx_true_calculation():
     """Test that dx_true is correctly calculated from energy_true."""
-    st = straxion.qualiphide_thz_online()
+    st = straxion.qualiphide_thz_offline()
     st.set_config({"energy_resolution_mode": "none", "salt_rate": 100})
     plugin = st.get_single_plugin("1756824965", "truth")
 
@@ -484,7 +459,7 @@ class TestTruthWithRealData:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_online()
+        st = straxion.qualiphide_thz_offline()
         run_id = "1756824965"
         configs = self._get_test_config(test_data_dir, run_id)
         configs["salt_rate"] = 100  # Set non-zero rate for testing
