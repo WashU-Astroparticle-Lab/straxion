@@ -9,6 +9,7 @@ from straxion.utils import (
     PHOTON_25um_DX,
     DX_RESOL_OPTIMISTIC,
     DX_RESOL_CONSERVATIVE,
+    PULSE_TEMPLATE_LENGTH,
 )
 
 export, __all__ = strax.exporter()
@@ -87,6 +88,7 @@ class Truth(strax.Plugin):
         self.rng = np.random.default_rng(self.config["random_seed"])
         # Time interval between events in nanoseconds
         self.dt_salt = int(SECOND_TO_NANOSECOND / self.config["salt_rate"])
+        self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
 
     @staticmethod
     def sigma_deltax(photon_energy_meV, sigma_deltax_sph):
@@ -223,7 +225,7 @@ class Truth(strax.Plugin):
         mode = self.config["energy_resolution_mode"]
         for i in range(n_events):
             results["time"][i] = time_start + i * self.dt_salt
-            results["endtime"][i] = results["time"][i] + self.dt_salt
+            results["endtime"][i] = results["time"][i] + self.dt_exact * PULSE_TEMPLATE_LENGTH
             # Sample energy from resolution function
             results["energy_true"][i] = self.sample_energy(self.config["energy_meV"], mode)
             # Convert energy to dx units

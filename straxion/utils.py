@@ -14,6 +14,9 @@ INDEX_DTYPE = np.int32
 # Baseline monitor interval.
 N_BASELINE_MONITOR_INTERVAL = 100
 
+# Pulse template length.
+PULSE_TEMPLATE_LENGTH = 700
+
 # Hit waveform recording window length.
 HIT_WINDOW_LENGTH_LEFT = 200
 HIT_WINDOW_LENGTH_RIGHT = 600
