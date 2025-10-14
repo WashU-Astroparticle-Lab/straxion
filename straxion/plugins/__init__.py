@@ -18,3 +18,6 @@ from .noise_bank import *
 
 from . import truth
 from .truth import *
+
+from . import match
+from .match import *

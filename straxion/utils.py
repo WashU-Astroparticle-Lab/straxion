@@ -11,6 +11,9 @@ CHANNEL_DTYPE = np.int16
 DATA_DTYPE = np.dtype("f4")
 INDEX_DTYPE = np.int32
 
+# Placeholder index for not found items (will raise IndexError if used).
+NOT_FOUND_INDEX = 999_999_999
+
 # Baseline monitor interval.
 N_BASELINE_MONITOR_INTERVAL = 100
 
