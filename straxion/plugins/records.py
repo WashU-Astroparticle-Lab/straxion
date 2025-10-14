@@ -493,11 +493,7 @@ class DxRecords(strax.Plugin):
             truth: Array of truth events
         """
         # Find truth events that match this record's channel and time range
-        matching_truth = truth[
-            (truth["channel"] == record["channel"])
-            & (truth["time"] >= record["time"])
-            & (truth["time"] < record["endtime"])
-        ]
+        matching_truth = truth[(truth["channel"] == record["channel"])]
 
         for t in matching_truth:
             # Calculate the pulse amplitude

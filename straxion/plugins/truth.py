@@ -243,6 +243,10 @@ class Truth(strax.Plugin):
             # Randomly select a channel
             results["channel"][i] = self.rng.choice(available_channels)
 
+        # Truncate results to the time range of raw_records
+        results = results[results["time"] >= time_start]
+        results = results[results["endtime"] <= time_end]
+
         # Return as a chunk
         return self.chunk(
             start=time_start,
