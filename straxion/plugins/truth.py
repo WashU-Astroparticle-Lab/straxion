@@ -42,7 +42,7 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "energy_resolution_mode",
-        default="optimistic",
+        default="conservative",
         track=True,
         type=str,
         help=(
