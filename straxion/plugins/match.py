@@ -26,7 +26,8 @@ class Match(strax.Plugin):
        - "found": Exactly one hit overlaps with the truth event.
        - "lost": No hit overlaps with the truth event.
        - "split": Multiple hits overlap with the truth event. In this
-         case, the hit with the maximum amplitude_convolved is selected.
+         case, the hit with minimal distance in amplitude_max_record_i
+         compared to the truth's is selected.
     3. For "found" and "split" cases, record hit properties and
        classification results.
     4. For "lost" cases, set hit-related fields to zero/default values.
@@ -36,7 +37,7 @@ class Match(strax.Plugin):
 
     """
 
-    __version__ = "0.0.0"
+    __version__ = "0.0.1"
 
     depends_on = ("truth", "hits", "hit_classification")
     provides = "match"
@@ -205,16 +206,18 @@ class Match(strax.Plugin):
                     hit_idx = ind_hits_ch[touching_windows_ch[i, 0]]
                     self._fill_hit_info(results[truth_idx], hits[hit_idx], hit_idx)
                 else:
-                    # Split: multiple hits, choose max amplitude_convolved
+                    # Split: multiple hits, choose closest in amplitude_max_record_i
                     results["destiny"][truth_idx] = "split"
                     overlapping_hit_indices = ind_hits_ch[
                         touching_windows_ch[i, 0] : touching_windows_ch[i, 1]
                     ]
                     overlapping_hits = hits[overlapping_hit_indices]
 
-                    # Find hit with maximum amplitude_convolved
-                    max_amp_idx = np.argmax(overlapping_hits["amplitude_convolved"])
-                    hit_idx = overlapping_hit_indices[max_amp_idx]
+                    # Find hit with minimal distance in amplitude_max_record_i
+                    truth_amp_max_i = truth[truth_idx]["amplitude_max_record_i"]
+                    distances = np.abs(overlapping_hits["amplitude_max_record_i"] - truth_amp_max_i)
+                    min_dist_idx = np.argmin(distances)
+                    hit_idx = overlapping_hit_indices[min_dist_idx]
 
                     self._fill_hit_info(results[truth_idx], hits[hit_idx], hit_idx)
 

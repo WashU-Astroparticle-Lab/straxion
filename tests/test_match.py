@@ -288,7 +288,7 @@ class TestMatchWithRealData:
             pytest.fail(f"Failed to process match: {str(e)}")
 
     def test_match_split_case(self):
-        """Test that 'split' matches select hit with max amplitude."""
+        """Test that 'split' matches select closest hit by amplitude_max_record_i."""
         test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
         if not test_data_dir:
             pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
@@ -316,14 +316,15 @@ class TestMatchWithRealData:
             assert np.all(split_matches["hit_index"] < len(hits))
 
             # Verify that the selected hit has amplitude_convolved populated
-            for match_evt in split_matches:
+            for i, match_evt in enumerate(split_matches):
                 hit_idx = match_evt["hit_index"]
                 assert (
                     match_evt["amplitude_convolved"] == hits[hit_idx]["amplitude_convolved"]
                 ), "Amplitude mismatch for split match"
 
             print(
-                f"Validated {len(split_matches)} 'split' matches " f"with max amplitude selection"
+                f"Validated {len(split_matches)} 'split' matches "
+                f"with closest amplitude_max_record_i selection"
             )
 
         except Exception as e:

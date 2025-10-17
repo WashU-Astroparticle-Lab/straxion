@@ -4,12 +4,14 @@ from straxion.utils import (
     TIME_DTYPE,
     CHANNEL_DTYPE,
     DATA_DTYPE,
+    INDEX_DTYPE,
     SECOND_TO_NANOSECOND,
     PHOTON_25um_meV,
     PHOTON_25um_DX,
     DX_RESOL_OPTIMISTIC,
     DX_RESOL_CONSERVATIVE,
     PULSE_TEMPLATE_LENGTH,
+    PULSE_TEMPLATE_ARGMAX,
 )
 
 export, __all__ = strax.exporter()
@@ -69,7 +71,7 @@ class Truth(strax.Plugin):
 
     """
 
-    __version__ = "0.0.0"
+    __version__ = "0.0.1"
 
     depends_on = ("raw_records",)
     provides = "truth"
@@ -87,6 +89,13 @@ class Truth(strax.Plugin):
             (("True energy of the photon in meV", "energy_true"), DATA_DTYPE),
             (("True dx value in dx units", "dx_true"), DATA_DTYPE),
             (("Channel number where event occurred", "channel"), CHANNEL_DTYPE),
+            (
+                (
+                    "Record index of the maximum amplitude of the pulse template",
+                    "amplitude_max_record_i",
+                ),
+                INDEX_DTYPE,
+            ),
         ]
         return dtype
 
@@ -245,6 +254,10 @@ class Truth(strax.Plugin):
             results["dx_true"][i] = self.meV_to_dx(results["energy_true"][i])
             # Randomly select a channel
             results["channel"][i] = self.rng.choice(available_channels)
+            # Calculate the record index of the maximum amplitude
+            # This is the sample offset from time_start to the pulse maximum
+            event_start_sample = int((results["time"][i] - time_start) / self.dt_exact)
+            results["amplitude_max_record_i"][i] = event_start_sample + PULSE_TEMPLATE_ARGMAX
 
         # Truncate results to the time range of raw_records
         results = results[results["time"] >= time_start]
