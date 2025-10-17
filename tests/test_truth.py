@@ -95,7 +95,7 @@ class TestTruthWithRealData:
         assert plugin.config["random_seed"] == 137
         assert plugin.config["salt_rate"] == 0
         assert plugin.config["energy_meV"] == 50
-        assert plugin.config["energy_resolution_mode"] == "optimistic"
+        assert plugin.config["energy_resolution_mode"] == "conservative"
 
     def test_truth_custom_config(self):
         """Test Truth plugin with custom configuration."""
