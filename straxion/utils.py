@@ -523,6 +523,7 @@ PULSE_TEMPLATE_38kHz = np.array(
     ]
 )
 PULSE_TEMPLATE_LENGTH = len(PULSE_TEMPLATE_38kHz)
+PULSE_TEMPLATE_ARGMAX = np.argmax(PULSE_TEMPLATE_38kHz)
 
 # Hit waveform recording window length.
 HIT_WINDOW_LENGTH_LEFT = 200

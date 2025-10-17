@@ -56,7 +56,7 @@ class DxHits(strax.Plugin):
     The hit-finding algorithm is based on the kernel convolved signal.
     """
 
-    __version__ = "0.0.1"
+    __version__ = "0.0.2"
 
     # Inherited from straxen. Not optimized outside XENONnT.
     rechunk_on_save = False
@@ -147,6 +147,15 @@ class DxHits(strax.Plugin):
                         "further smoothed by moving average."
                     ),
                     "amplitude_moving_average_max_record_i",
+                ),
+                INDEX_DTYPE,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    ("Record index of the maximum amplitude of " "the dx hit waveform."),
+                    "amplitude_max_record_i",
                 ),
                 INDEX_DTYPE,
             )
@@ -427,6 +436,7 @@ class DxHits(strax.Plugin):
         hit["amplitude_moving_average_max_record_i"] = np.int32(
             np.argmax(signal_ma[left_i:right_i]) + left_i
         )
+        hit["amplitude_max_record_i"] = np.int32(np.argmax(signal_raw[left_i:right_i]) + left_i)
 
         # Calculate time and endtime
         hit["time"] = np.int64(start_time + np.int64(left_i * self.dt_exact))

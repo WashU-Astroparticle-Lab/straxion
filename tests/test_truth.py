@@ -70,7 +70,14 @@ class TestTruthWithRealData:
         dtype = plugin.infer_dtype()
 
         # Check expected fields
-        expected_fields = ["time", "endtime", "energy_true", "dx_true", "channel"]
+        expected_fields = [
+            "time",
+            "endtime",
+            "energy_true",
+            "dx_true",
+            "channel",
+            "amplitude_max_record_i",
+        ]
         field_names = [name[1] for name, *_ in dtype]
         for field in expected_fields:
             assert field in field_names
@@ -153,7 +160,14 @@ class TestTruthWithRealData:
             assert len(truth) > 0
 
             # Check required fields
-            required_fields = ["time", "endtime", "energy_true", "dx_true", "channel"]
+            required_fields = [
+                "time",
+                "endtime",
+                "energy_true",
+                "dx_true",
+                "channel",
+                "amplitude_max_record_i",
+            ]
             for field in required_fields:
                 assert field in truth.dtype.names, f"Required field '{field}' missing from truth"
 
@@ -163,6 +177,7 @@ class TestTruthWithRealData:
             assert truth["energy_true"].dtype == np.float32
             assert truth["dx_true"].dtype == np.float32
             assert truth["channel"].dtype == np.int16
+            assert truth["amplitude_max_record_i"].dtype == np.int32
 
             # Check that all truth events have consistent properties
             assert all(truth["endtime"] > truth["time"])
@@ -172,6 +187,15 @@ class TestTruthWithRealData:
 
             # Check that dx_true is positive and consistent with energy_true
             assert all(truth["dx_true"] > 0)
+
+            # Check amplitude_max_record_i is set correctly
+            # It should be monotonically increasing for consecutive events
+            assert all(
+                truth["amplitude_max_record_i"] >= 0
+            ), "amplitude_max_record_i should be non-negative"
+            assert np.all(
+                np.diff(truth["amplitude_max_record_i"]) > 0
+            ), "amplitude_max_record_i should be monotonically increasing"
 
             # Check time ordering
             assert np.all(np.diff(truth["time"]) >= 0), "Time stamps not monotonically increasing"
