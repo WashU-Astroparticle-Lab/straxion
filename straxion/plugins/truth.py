@@ -71,7 +71,7 @@ class Truth(strax.Plugin):
 
     """
 
-    __version__ = "0.0.0"
+    __version__ = "0.0.1"
 
     depends_on = ("raw_records",)
     provides = "truth"

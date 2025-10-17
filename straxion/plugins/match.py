@@ -37,7 +37,7 @@ class Match(strax.Plugin):
 
     """
 
-    __version__ = "0.0.0"
+    __version__ = "0.0.1"
 
     depends_on = ("truth", "hits", "hit_classification")
     provides = "match"
