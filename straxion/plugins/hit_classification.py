@@ -7,6 +7,7 @@ from straxion.utils import (
     CHANNEL_DTYPE,
     SECOND_TO_NANOSECOND,
     HIT_WINDOW_LENGTH_LEFT,
+    HIT_WINDOW_LENGTH_RIGHT,
     DATA_DTYPE,
     NOISE_PSD_38kHz,
     DEFAULT_TEMPLATE_INTERP_PATH,
@@ -136,7 +137,7 @@ export, __all__ = strax.exporter()
 class SpikeCoincidence(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.2.1"
+    __version__ = "0.2.2"
 
     depends_on = ("hits", "records")
     provides = "hit_classification"
@@ -153,6 +154,7 @@ class SpikeCoincidence(strax.Plugin):
         hit_id_dtype = [
             (("Is in coincidence with spikes", "is_coincident_with_spikes"), bool),
             (("Is symmetric spike hit", "is_symmetric_spike"), bool),
+            (("Is truncated hit", "is_truncated_hit"), bool),
             (("Photon candidate hit", "is_photon_candidate"), bool),
         ]
 
@@ -513,6 +515,15 @@ class SpikeCoincidence(strax.Plugin):
             hit_classification["rise_edge_slope"] < self.ss_min_slope[hits["channel"]]
         )
 
+    def is_truncated_hit(self, hits, hit_classification):
+        """Identify truncated hits.
+
+        A hit is considered truncated if its length does not equal
+        the expected full window length.
+        """
+        expected_length = HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
+        hit_classification["is_truncated_hit"] = hits["length"] != expected_length
+
     def find_spike_coincidence(self, hit_classification, hits, records):
         """Find the spike coincidence of the hit in the convolved signal."""
         spike_coincidence = np.zeros(len(hits))
@@ -579,6 +590,7 @@ class SpikeCoincidence(strax.Plugin):
         self.compute_rise_edge_slope(hits, hit_classification)
         self.find_spike_coincidence(hit_classification, hits, records)
         self.is_symmetric_spike_hit(hits, hit_classification)
+        self.is_truncated_hit(hits, hit_classification)
 
         # Compute optimal filter parameters
         self.compute_optimal_filter_parameters(hit_classification, hits)
@@ -589,6 +601,7 @@ class SpikeCoincidence(strax.Plugin):
         hit_classification["is_photon_candidate"] = ~(
             hit_classification["is_coincident_with_spikes"]
             | hit_classification["is_symmetric_spike"]
+            | hit_classification["is_truncated_hit"]
         )
 
         return hit_classification
