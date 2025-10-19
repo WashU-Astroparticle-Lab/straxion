@@ -9,6 +9,7 @@ from straxion.utils import (
     HIT_WINDOW_LENGTH_LEFT,
     DATA_DTYPE,
     NOISE_PSD_38kHz,
+    DEFAULT_TEMPLATE_INTERP_PATH,
 )
 
 export, __all__ = strax.exporter()
@@ -77,7 +78,7 @@ export, __all__ = strax.exporter()
     strax.Option(
         "template_interp_path",
         type=str,
-        default="straxion/msc/template_interp.pkl",
+        default=DEFAULT_TEMPLATE_INTERP_PATH,
         track=True,
         help="Path to the saved template interpolation file.",
     ),
@@ -117,7 +118,7 @@ export, __all__ = strax.exporter()
 class SpikeCoincidence(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.1.0"
+    __version__ = "0.2.0"
 
     depends_on = ("hits", "records")
     provides = "hit_classification"

@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.colors as mcolors
+from pathlib import Path
 
 # Common senses.
 SECOND_TO_NANOSECOND = 1_000_000_000
@@ -1340,6 +1341,10 @@ NOISE_PSD_38kHz = [
     4.09441619e-10,
     5.46656831e-10,
 ]
+
+# Default path to template interpolation file
+# This constructs path relative to this module's location
+DEFAULT_TEMPLATE_INTERP_PATH = str(Path(__file__).parent / "msc" / "template_interp.pkl")
 
 
 def base_waveform_dtype():
