@@ -412,13 +412,12 @@ class SpikeCoincidence(strax.Plugin):
                 "must be provided. You cannot provide both."
             )
 
-    def _get_ss_window(self, hits, window_start_offset, window_end_offset):
+    def _get_ss_window(self, hits, window_start_offset):
         """Extract windows from all hits using vectorized operations.
 
         Args:
             hits: Array of hits containing the data
-            window_start_offset: Offset from climax_shift for window start
-            window_end_offset: Offset from climax_shift for window end
+            window_start_offset: Offset from climax_shift for window starts in samples.
 
         Returns:
             Array of extracted windows with shape (n_hits, window_length)
@@ -483,7 +482,7 @@ class SpikeCoincidence(strax.Plugin):
             )
         hit_classification["n_spikes_coinciding"] = spike_coincidence
 
-    def compute_optimal_filter_parameters(self, hit_classification, hits, records):
+    def compute_optimal_filter_parameters(self, hit_classification, hits):
         """Compute optimal filter parameters for all hits.
 
         Uses hits["data_dx"] as the signal timestream and
