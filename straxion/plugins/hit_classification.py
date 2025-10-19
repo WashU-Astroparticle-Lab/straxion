@@ -112,11 +112,31 @@ export, __all__ = strax.exporter()
             "Noise power spectral density (PSD) array. " "The same PSD is used for all channels."
         ),
     ),
+    strax.Option(
+        "of_window_left",
+        type=int,
+        default=100,
+        track=True,
+        help=(
+            "Left window size for optimal filter in samples. "
+            "Window starts at HIT_WINDOW_LENGTH_LEFT - of_window_left."
+        ),
+    ),
+    strax.Option(
+        "of_window_right",
+        type=int,
+        default=300,
+        track=True,
+        help=(
+            "Right window size for optimal filter in samples. "
+            "Window ends at HIT_WINDOW_LENGTH_LEFT + of_window_right."
+        ),
+    ),
 )
 class SpikeCoincidence(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.2.0"
+    __version__ = "0.2.1"
 
     depends_on = ("hits", "records")
     provides = "hit_classification"
@@ -175,6 +195,18 @@ class SpikeCoincidence(strax.Plugin):
         self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
         self.template_interp_path = self.config["template_interp_path"]
         self.noise_psd = self.config["noise_psd"]
+        self.of_window_left = self.config["of_window_left"]
+        self.of_window_right = self.config["of_window_right"]
+
+        # Validate noise PSD length matches window size
+        expected_length = self.of_window_left + self.of_window_right
+        if len(self.noise_psd) != expected_length:
+            raise ValueError(
+                f"Noise PSD length ({len(self.noise_psd)}) does not match "
+                f"optimal filter window size ({expected_length}). "
+                f"Expected length: of_window_left ({self.of_window_left}) + "
+                f"of_window_right ({self.of_window_right}) = {expected_length}"
+            )
 
         # Load interpolation function
         self.At_interp, self.t_max = self.load_interpolation(self.template_interp_path)
@@ -236,6 +268,7 @@ class SpikeCoincidence(strax.Plugin):
         t_max_seconds=None,
         amplitude=1.0,
         interp_path="template_interp.pkl",
+        apply_window=False,
     ):
         """
         Modify template using pre-built interpolation function.
@@ -257,11 +290,15 @@ class SpikeCoincidence(strax.Plugin):
             Amplitude multiplier to scale the template. Default is 1.0.
         interp_path : str
             Path to saved interpolation file
+        apply_window : bool, optional
+            If True, apply windowing using of_window_left and of_window_right.
+            Default is False for backward compatibility.
 
         Returns:
         --------
         At_modified : array
-            Extended template array with padding, scaled by amplitude
+            Extended template array with padding, scaled by amplitude.
+            If apply_window is True, returns only the windowed portion.
         """
         # Load interpolation function if not provided
         if At_interp is None or t_max_seconds is None:
@@ -274,6 +311,12 @@ class SpikeCoincidence(strax.Plugin):
         time_shift_seconds = time_new_seconds[final_max_index] - t_max_seconds
         timeshifted_seconds = time_new_seconds - time_shift_seconds
         At_modified = At_interp(timeshifted_seconds) * amplitude
+
+        # Apply windowing if requested
+        if apply_window:
+            window_start = HIT_WINDOW_LENGTH_LEFT - self.of_window_left
+            window_end = HIT_WINDOW_LENGTH_LEFT + self.of_window_right
+            At_modified = At_modified[window_start:window_end]
 
         return At_modified
 
@@ -346,6 +389,11 @@ class SpikeCoincidence(strax.Plugin):
         if t_max_seconds is None:
             t_max_seconds = self.t_max
 
+        # Apply windowing to signal
+        window_start = HIT_WINDOW_LENGTH_LEFT - self.of_window_left
+        window_end = HIT_WINDOW_LENGTH_LEFT + self.of_window_right
+        St_windowed = St[window_start:window_end]
+
         # Coarse scan for optimal time shift
         N_shiftOF_arr = np.arange(
             self.config["of_shift_range_min"],
@@ -359,9 +407,14 @@ class SpikeCoincidence(strax.Plugin):
         for nn in range(len(N_shiftOF_arr)):
             N_shiftOF = N_shiftOF_arr[nn]
             At_shifted = self.modify_template(
-                St, dt_seconds, N_shiftOF, At_interp=At_interp, t_max_seconds=t_max_seconds
+                St,
+                dt_seconds,
+                N_shiftOF,
+                At_interp=At_interp,
+                t_max_seconds=t_max_seconds,
+                apply_window=True,
             )
-            ahatOF_arr[nn], chi2_arr[nn] = self._optimal_filter(St, Jf=Jf, At=At_shifted)
+            ahatOF_arr[nn], chi2_arr[nn] = self._optimal_filter(St_windowed, Jf=Jf, At=At_shifted)
 
         # Find best shift
         best_idx = np.argmin(chi2_arr)
@@ -377,6 +430,7 @@ class SpikeCoincidence(strax.Plugin):
             At_interp=At_interp,
             t_max_seconds=t_max_seconds,
             amplitude=best_aOF,
+            apply_window=True,
         )
 
         return best_aOF, best_chi2, best_OF_shift, best_At_shifted
@@ -449,9 +503,7 @@ class SpikeCoincidence(strax.Plugin):
         dt_nanoseconds = self.dt_exact
         times_seconds = np.arange(self.ss_window) * dt_nanoseconds / SECOND_TO_NANOSECOND
 
-        inspected_wfs = self._get_ss_window(
-            hits, HIT_WINDOW_LENGTH_LEFT - self.ss_window, HIT_WINDOW_LENGTH_LEFT
-        )
+        inspected_wfs = self._get_ss_window(hits, HIT_WINDOW_LENGTH_LEFT - self.ss_window)
         # Fit a linear model to the inspected window.
         hit_classification["rise_edge_slope"] = np.polyfit(times_seconds, inspected_wfs.T, 1)[0]
 
@@ -529,7 +581,7 @@ class SpikeCoincidence(strax.Plugin):
         self.is_symmetric_spike_hit(hits, hit_classification)
 
         # Compute optimal filter parameters
-        self.compute_optimal_filter_parameters(hit_classification, hits, records)
+        self.compute_optimal_filter_parameters(hit_classification, hits)
 
         hit_classification["is_coincident_with_spikes"] = (
             hit_classification["n_spikes_coinciding"] > self.max_spike_coincidence
