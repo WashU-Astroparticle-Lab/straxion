@@ -177,7 +177,7 @@ class SpikeCoincidence(strax.Plugin):
         self.noise_psd = self.config["noise_psd"]
 
         # Load interpolation function
-        self.At_interp, self.x_max = self.load_interpolation(self.template_interp_path)
+        self.At_interp, self.t_max = self.load_interpolation(self.template_interp_path)
 
     @staticmethod
     def calculate_spike_threshold(signal, spike_threshold_sigma):
@@ -213,7 +213,7 @@ class SpikeCoincidence(strax.Plugin):
         --------
         At_interp : interp1d
             Interpolation function
-        x_max : float
+        t_max : float
             Time of maximum value in template (in seconds)
         """
         if not os.path.exists(load_path):
@@ -225,7 +225,7 @@ class SpikeCoincidence(strax.Plugin):
         with open(load_path, "rb") as f:
             data = pickle.load(f)
 
-        return data["interp"], data["x_max"]
+        return data["interp"], data["t_max"]
 
     def modify_template(
         self,
@@ -233,7 +233,7 @@ class SpikeCoincidence(strax.Plugin):
         dt_seconds,
         tau,
         At_interp=None,
-        x_max_seconds=None,
+        t_max_seconds=None,
         interp_path="template_interp.pkl",
     ):
         """
@@ -250,7 +250,7 @@ class SpikeCoincidence(strax.Plugin):
         At_interp : interp1d, optional
             Pre-built interpolation function.
             If None, loads from file.
-        x_max_seconds : float, optional
+        t_max_seconds : float, optional
             Time of maximum value in seconds. If None, loads from file.
         interp_path : str
             Path to saved interpolation file
@@ -261,14 +261,14 @@ class SpikeCoincidence(strax.Plugin):
             Extended template array with padding
         """
         # Load interpolation function if not provided
-        if At_interp is None or x_max_seconds is None:
-            At_interp, x_max_seconds = self.load_interpolation(interp_path)
+        if At_interp is None or t_max_seconds is None:
+            At_interp, t_max_seconds = self.load_interpolation(interp_path)
 
         target_length = len(St)
         max_index = HIT_WINDOW_LENGTH_LEFT
         final_max_index = max_index + tau
         time_new_seconds = np.arange(target_length) * dt_seconds
-        time_shift_seconds = time_new_seconds[final_max_index] - x_max_seconds
+        time_shift_seconds = time_new_seconds[final_max_index] - t_max_seconds
         timeshifted_seconds = time_new_seconds - time_shift_seconds
         At_modified = At_interp(timeshifted_seconds)
 
@@ -308,7 +308,7 @@ class SpikeCoincidence(strax.Plugin):
 
         return ahatOF, chisq
 
-    def optimal_filter(self, St, dt_seconds, Jf, At_interp=None, x_max_seconds=None):
+    def optimal_filter(self, St, dt_seconds, Jf, At_interp=None, t_max_seconds=None):
         """
         Calculate optimal filter with coarse time shift optimization.
 
@@ -323,8 +323,8 @@ class SpikeCoincidence(strax.Plugin):
             of many noise banks)
         At_interp : interp1d, optional
             Pre-built interpolation function. Uses self.At_interp if None.
-        x_max_seconds : float, optional
-            Time of maximum value in seconds. Uses self.x_max if None.
+        t_max_seconds : float, optional
+            Time of maximum value in seconds. Uses self.t_max if None.
 
         Returns:
         --------
@@ -340,8 +340,8 @@ class SpikeCoincidence(strax.Plugin):
         # Use pre-loaded interpolation function if not provided
         if At_interp is None:
             At_interp = self.At_interp
-        if x_max_seconds is None:
-            x_max_seconds = self.x_max
+        if t_max_seconds is None:
+            t_max_seconds = self.t_max
 
         # Coarse scan for optimal time shift
         N_shiftOF_arr = np.arange(
@@ -356,7 +356,7 @@ class SpikeCoincidence(strax.Plugin):
         for nn in range(len(N_shiftOF_arr)):
             N_shiftOF = N_shiftOF_arr[nn]
             At_shifted = self.modify_template(
-                St, dt_seconds, N_shiftOF, At_interp=At_interp, x_max_seconds=x_max_seconds
+                St, dt_seconds, N_shiftOF, At_interp=At_interp, t_max_seconds=t_max_seconds
             )
             ahatOF_arr[nn], chi2_arr[nn] = self._optimal_filter(St, Jf=Jf, At=At_shifted)
 
@@ -368,7 +368,7 @@ class SpikeCoincidence(strax.Plugin):
 
         # Generate final shifted template
         best_At_shifted = self.modify_template(
-            St, dt_seconds, best_OF_shift, At_interp=At_interp, x_max_seconds=x_max_seconds
+            St, dt_seconds, best_OF_shift, At_interp=At_interp, t_max_seconds=t_max_seconds
         )
 
         return best_aOF, best_chi2, best_OF_shift, best_At_shifted
