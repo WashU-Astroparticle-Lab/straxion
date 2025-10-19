@@ -234,6 +234,7 @@ class SpikeCoincidence(strax.Plugin):
         tau,
         At_interp=None,
         t_max_seconds=None,
+        amplitude=1.0,
         interp_path="template_interp.pkl",
     ):
         """
@@ -252,13 +253,15 @@ class SpikeCoincidence(strax.Plugin):
             If None, loads from file.
         t_max_seconds : float, optional
             Time of maximum value in seconds. If None, loads from file.
+        amplitude : float, optional
+            Amplitude multiplier to scale the template. Default is 1.0.
         interp_path : str
             Path to saved interpolation file
 
         Returns:
         --------
         At_modified : array
-            Extended template array with padding
+            Extended template array with padding, scaled by amplitude
         """
         # Load interpolation function if not provided
         if At_interp is None or t_max_seconds is None:
@@ -270,7 +273,7 @@ class SpikeCoincidence(strax.Plugin):
         time_new_seconds = np.arange(target_length) * dt_seconds
         time_shift_seconds = time_new_seconds[final_max_index] - t_max_seconds
         timeshifted_seconds = time_new_seconds - time_shift_seconds
-        At_modified = At_interp(timeshifted_seconds)
+        At_modified = At_interp(timeshifted_seconds) * amplitude
 
         return At_modified
 
@@ -334,8 +337,8 @@ class SpikeCoincidence(strax.Plugin):
             Best chi-squared value
         best_OF_shift : int
             Best time shift in samples
-        best_OF_shifted_template : array
-            Template shifted to best position
+        best_At_shifted : array
+            Template shifted to best position and scaled by best_aOF
         """
         # Use pre-loaded interpolation function if not provided
         if At_interp is None:
@@ -366,9 +369,14 @@ class SpikeCoincidence(strax.Plugin):
         best_aOF = ahatOF_arr[best_idx]
         best_OF_shift = N_shiftOF_arr[best_idx]
 
-        # Generate final shifted template
+        # Generate final shifted template scaled by best amplitude
         best_At_shifted = self.modify_template(
-            St, dt_seconds, best_OF_shift, At_interp=At_interp, t_max_seconds=t_max_seconds
+            St,
+            dt_seconds,
+            best_OF_shift,
+            At_interp=At_interp,
+            t_max_seconds=t_max_seconds,
+            amplitude=best_aOF,
         )
 
         return best_aOF, best_chi2, best_OF_shift, best_At_shifted
