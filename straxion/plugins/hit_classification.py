@@ -265,7 +265,7 @@ class SpikeCoincidence(strax.Plugin):
             At_interp, x_max_seconds = self.load_interpolation(interp_path)
 
         target_length = len(St)
-        max_index = 200
+        max_index = HIT_WINDOW_LENGTH_LEFT
         final_max_index = max_index + tau
         time_new_seconds = np.arange(target_length) * dt_seconds
         time_shift_seconds = time_new_seconds[final_max_index] - x_max_seconds
