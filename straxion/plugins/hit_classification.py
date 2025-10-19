@@ -109,9 +109,7 @@ export, __all__ = strax.exporter()
         default=NOISE_PSD_38kHz,
         track=True,
         help=(
-            "Noise power spectral density (PSD) for each channel. "
-            "Should be a list of arrays, one for each channel. "
-            "If None, optimal filter computation will be skipped."
+            "Noise power spectral density (PSD) array. " "The same PSD is used for all channels."
         ),
     ),
 )
@@ -277,7 +275,7 @@ class SpikeCoincidence(strax.Plugin):
         return At_modified
 
     @staticmethod
-    def aOF(St, Jf, At):
+    def _optimal_filter(St, Jf, At):
         """
         Calculate optimal filter amplitude and chi-squared score.
 
@@ -310,7 +308,7 @@ class SpikeCoincidence(strax.Plugin):
 
         return ahatOF, chisq
 
-    def aOF_withshift_coarse(self, St, dt_seconds, Jf, At_interp=None, x_max_seconds=None):
+    def optimal_filter(self, St, dt_seconds, Jf, At_interp=None, x_max_seconds=None):
         """
         Calculate optimal filter with coarse time shift optimization.
 
@@ -360,7 +358,7 @@ class SpikeCoincidence(strax.Plugin):
             At_shifted = self.modify_template(
                 St, dt_seconds, N_shiftOF, At_interp=At_interp, x_max_seconds=x_max_seconds
             )
-            ahatOF_arr[nn], chi2_arr[nn] = self.aOF(St, Jf=Jf, At=At_shifted)
+            ahatOF_arr[nn], chi2_arr[nn] = self._optimal_filter(St, Jf=Jf, At=At_shifted)
 
         # Find best shift
         best_idx = np.argmin(chi2_arr)
@@ -481,39 +479,30 @@ class SpikeCoincidence(strax.Plugin):
         """Compute optimal filter parameters for all hits.
 
         Uses hits["data_dx"] as the signal timestream and
-        self.noise_psd for the noise PSD.
+        self.noise_psd for the noise PSD (same for all channels).
 
         Note: All optimal filter calculations require dt in seconds.
         """
-        # Skip if noise PSD is not provided
-        if self.noise_psd is None:
-            hit_classification["best_aOF"][:] = 0.0
-            hit_classification["best_chi2"][:] = 0.0
-            hit_classification["best_OF_shift"][:] = 0
-            return
-
         # Convert dt from nanoseconds to seconds for optimal filter
         # self.dt_exact is in nanoseconds (= 1/fs * SECOND_TO_NANOSECOND)
         # Optimal filter functions require dt in seconds
         dt_seconds = self.dt_exact / SECOND_TO_NANOSECOND
 
         # Convert noise_psd to numpy array if it's a list
+        # The same PSD is used for all channels
         if isinstance(self.noise_psd, list):
-            noise_psd_array = np.array(self.noise_psd)
+            Jf = np.array(self.noise_psd)
         else:
-            noise_psd_array = self.noise_psd
+            Jf = self.noise_psd
 
         for i, hit in enumerate(hits):
             # Extract signal timestream from hit
             St = hit["data_dx"]
 
-            # Get noise PSD for this channel
-            channel = hit["channel"]
-            Jf = noise_psd_array[channel]
-
             # Compute optimal filter with shift optimization
             # dt_seconds is explicitly in seconds
-            best_aOF, best_chi2, best_OF_shift, _ = self.aOF_withshift_coarse(St, dt_seconds, Jf)
+            # Same Jf (noise PSD) is used for all channels
+            best_aOF, best_chi2, best_OF_shift, _ = self.optimal_filter(St, dt_seconds, Jf)
 
             # Store results
             hit_classification["best_aOF"][i] = best_aOF
