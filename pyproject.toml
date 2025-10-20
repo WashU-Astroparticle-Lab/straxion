@@ -24,6 +24,7 @@ numpy = "*"
 numba = "*"
 pandas = "*"
 scipy = "*"
+matplotlib = "*"
 
 [build-system]
 requires = ["poetry-core>=1.0.8", "setuptools>=61.0"]
