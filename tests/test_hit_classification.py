@@ -329,6 +329,9 @@ def test_spike_coincidence_dtype_inference():
         "is_photon_candidate",
         "rise_edge_slope",
         "n_spikes_coinciding",
+        "best_aOF",
+        "best_chi2",
+        "best_OF_shift",
     ]
     field_names = [name[1] for name, *_ in dtype]
     for field in expected_fields:
@@ -450,6 +453,9 @@ class TestSpikeCoincidenceWithRealDataOffline:
                 "is_photon_candidate",
                 "rise_edge_slope",
                 "n_spikes_coinciding",
+                "best_aOF",
+                "best_chi2",
+                "best_OF_shift",
             ]
             for field in required_fields:
                 assert (
@@ -465,6 +471,9 @@ class TestSpikeCoincidenceWithRealDataOffline:
             assert hit_classification["is_photon_candidate"].dtype == bool
             assert hit_classification["rise_edge_slope"].dtype == np.float32
             assert hit_classification["n_spikes_coinciding"].dtype == np.int64
+            assert hit_classification["best_aOF"].dtype == np.float32
+            assert hit_classification["best_chi2"].dtype == np.float32
+            assert hit_classification["best_OF_shift"].dtype == np.int64
 
             # Check that channels are within expected range (0-40 based on context config)
             if len(hit_classification) > 0:
@@ -567,6 +576,17 @@ class TestSpikeCoincidenceWithRealDataOffline:
                 assert np.all(
                     np.isfinite(hit_classification["rise_edge_slope"])
                 ), "Non-finite values found in rise_edge_slope"
+
+                # Check optimal filter fields
+                assert np.all(
+                    np.isfinite(hit_classification["best_aOF"])
+                ), "Non-finite values found in best_aOF"
+                assert np.all(
+                    np.isfinite(hit_classification["best_chi2"])
+                ), "Non-finite values found in best_chi2"
+                assert np.all(
+                    np.isfinite(hit_classification["best_OF_shift"])
+                ), "Non-finite values found in best_OF_shift"
 
                 # Check that n_spikes_coinciding is an integer and non-negative
                 assert np.all(
