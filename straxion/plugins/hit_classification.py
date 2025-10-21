@@ -137,9 +137,9 @@ export, __all__ = strax.exporter()
 class DxHitClassification(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.2.2"
+    __version__ = "0.2.3"
 
-    depends_on = ("hits", "records")
+    depends_on = ("hits", "records", "noises")
     provides = "hit_classification"
     data_kind = "hits"
     save_when = strax.SaveWhen.ALWAYS
@@ -579,7 +579,7 @@ class DxHitClassification(strax.Plugin):
             hit_classification["best_chi2"][i] = best_chi2
             hit_classification["best_OF_shift"][i] = best_OF_shift
 
-    def compute(self, hits, records):
+    def compute(self, hits, records, noises):
         self.determine_spike_threshold(records)
 
         hit_classification = np.zeros(len(hits), dtype=self.infer_dtype())
