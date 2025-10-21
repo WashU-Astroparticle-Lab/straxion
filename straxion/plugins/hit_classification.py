@@ -213,6 +213,42 @@ class DxHitClassification(strax.Plugin):
         # Load interpolation function
         self.At_interp, self.t_max = self.load_interpolation(self.template_interp_path)
 
+    def compute_per_channel_noise_psd(self, noises, n_channels):
+        """Compute per-channel noise PSDs from noise windows.
+
+        Args:
+            noises (np.ndarray): Array of noise windows.
+            n_channels (int): Number of channels.
+
+        Returns:
+            dict: Dictionary mapping channel number to PSD array.
+                  Returns None for channels with no noise windows.
+
+        """
+        channel_noise_psds = {}
+        window_size = self.of_window_left + self.of_window_right
+
+        for ch in range(n_channels):
+            # Filter noise windows for this channel
+            ch_noises = noises[noises["channel"] == ch]
+
+            if len(ch_noises) == 0:
+                # No noise windows for this channel
+                channel_noise_psds[ch] = None
+            else:
+                # Extract first window_size samples and compute PSDs
+                psds = []
+                for noise in ch_noises:
+                    noise_window = noise["data_dx"][:window_size]
+                    # Compute PSD: |FFT|^2
+                    psd = np.abs(np.fft.fft(noise_window)) ** 2
+                    psds.append(psd)
+
+                # Average PSDs across all noise windows
+                channel_noise_psds[ch] = np.mean(psds, axis=0)
+
+        return channel_noise_psds
+
     @staticmethod
     def calculate_spike_threshold(signal, spike_threshold_sigma):
         """Calculate spike threshold based on signal statistics.
@@ -545,11 +581,17 @@ class DxHitClassification(strax.Plugin):
             )
         hit_classification["n_spikes_coinciding"] = spike_coincidence
 
-    def compute_optimal_filter_parameters(self, hit_classification, hits):
+    def compute_optimal_filter_parameters(self, hit_classification, hits, channel_noise_psds):
         """Compute optimal filter parameters for all hits.
 
         Uses hits["data_dx"] as the signal timestream and
-        self.noise_psd for the noise PSD (same for all channels).
+        per-channel noise PSDs from channel_noise_psds.
+        Falls back to self.noise_psd placeholder if no PSD available for a channel.
+
+        Args:
+            hit_classification (np.ndarray): Array to store classification results.
+            hits (np.ndarray): Array of hits.
+            channel_noise_psds (dict): Dictionary mapping channel to PSD array.
 
         Note: All optimal filter calculations require dt in seconds.
         """
@@ -558,20 +600,29 @@ class DxHitClassification(strax.Plugin):
         # Optimal filter functions require dt in seconds
         dt_seconds = self.dt_exact / SECOND_TO_NANOSECOND
 
-        # Convert noise_psd to numpy array if it's a list
-        # The same PSD is used for all channels
+        # Convert placeholder noise_psd to numpy array if it's a list
         if isinstance(self.noise_psd, list):
-            Jf = np.array(self.noise_psd)
+            placeholder_psd = np.array(self.noise_psd)
         else:
-            Jf = self.noise_psd
+            placeholder_psd = self.noise_psd
 
         for i, hit in enumerate(hits):
             # Extract signal timestream from hit
             St = hit["data_dx"]
+            ch = hit["channel"]
+
+            # Get channel-specific PSD or use placeholder
+            if channel_noise_psds[ch] is None:
+                # No noise windows for this channel, use placeholder
+                self.log.warning(
+                    f"No noise windows found for channel {ch}, " f"using placeholder PSD"
+                )
+                Jf = placeholder_psd
+            else:
+                Jf = channel_noise_psds[ch]
 
             # Compute optimal filter with shift optimization
             # dt_seconds is explicitly in seconds
-            # Same Jf (noise PSD) is used for all channels
             best_aOF, best_chi2, best_OF_shift, _ = self.optimal_filter(St, dt_seconds, Jf)
 
             # Store results
@@ -581,6 +632,10 @@ class DxHitClassification(strax.Plugin):
 
     def compute(self, hits, records, noises):
         self.determine_spike_threshold(records)
+
+        # Compute per-channel noise PSDs from noise windows
+        n_channels = len(records)
+        channel_noise_psds = self.compute_per_channel_noise_psd(noises, n_channels)
 
         hit_classification = np.zeros(len(hits), dtype=self.infer_dtype())
         hit_classification["time"] = hits["time"]
@@ -592,8 +647,8 @@ class DxHitClassification(strax.Plugin):
         self.is_symmetric_spike_hit(hits, hit_classification)
         self.is_truncated_hit(hits, hit_classification)
 
-        # Compute optimal filter parameters
-        self.compute_optimal_filter_parameters(hit_classification, hits)
+        # Compute optimal filter parameters with per-channel PSDs
+        self.compute_optimal_filter_parameters(hit_classification, hits, channel_noise_psds)
 
         hit_classification["is_coincident_with_spikes"] = (
             hit_classification["n_spikes_coinciding"] > self.max_spike_coincidence
