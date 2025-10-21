@@ -567,13 +567,20 @@ class DxHitClassification(strax.Plugin):
             # Get the index of the hit maximum in the record
             hit_climax_i = hit["amplitude_convolved_max_record_i"]
 
+            # Calculate slice boundaries
+            start_i = hit_climax_i - self.spike_coincidence_window
+            end_i = hit_climax_i + self.spike_coincidence_window
+
+            # Skip if window is invalid or empty
+            if start_i >= end_i or end_i <= 0 or start_i >= records.shape[1]:
+                continue
+
             # Extract windows from all records at once
-            inspected_wfs = records["data_dx_convolved"][
-                :,
-                hit_climax_i
-                - self.spike_coincidence_window : hit_climax_i
-                + self.spike_coincidence_window,
-            ]
+            inspected_wfs = records["data_dx_convolved"][:, start_i:end_i]
+
+            # Skip if inspected_wfs is empty (shape[1] == 0)
+            if inspected_wfs.shape[1] == 0:
+                continue
 
             # Count records with spikes above threshold
             spike_coincidence[i] = np.sum(
