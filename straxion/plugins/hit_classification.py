@@ -584,7 +584,7 @@ class DxHitClassification(strax.Plugin):
             end_i = hit_climax_i + self.spike_coincidence_window
 
             # Skip if window is invalid or empty
-            if start_i >= end_i or end_i <= 0 or start_i >= records.shape[1]:
+            if start_i >= end_i or end_i <= 0 or start_i >= records["data_dx"].shape[1]:
                 continue
 
             # Extract windows from all records at once
