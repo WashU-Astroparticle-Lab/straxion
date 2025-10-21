@@ -37,7 +37,7 @@ class Match(strax.Plugin):
 
     """
 
-    __version__ = "0.0.1"
+    __version__ = "0.0.2"
 
     depends_on = ("truth", "hits", "hit_classification")
     provides = "match"
@@ -139,6 +139,27 @@ class Match(strax.Plugin):
                     "is_coincident_with_spikes",
                 ),
                 bool,
+            ),
+            (
+                (
+                    "Best optimal filter amplitude for matched hit",
+                    "best_aOF",
+                ),
+                DATA_DTYPE,
+            ),
+            (
+                (
+                    "Best chi-squared value from optimal filter for matched hit",
+                    "best_chi2",
+                ),
+                DATA_DTYPE,
+            ),
+            (
+                (
+                    "Best time shift in samples for optimal filter of matched hit",
+                    "best_OF_shift",
+                ),
+                INDEX_DTYPE,
             ),
         ]
         return dtype
@@ -244,3 +265,6 @@ class Match(strax.Plugin):
         result["is_photon_candidate"] = hit["is_photon_candidate"]
         result["is_symmetric_spike"] = hit["is_symmetric_spike"]
         result["is_coincident_with_spikes"] = hit["is_coincident_with_spikes"]
+        result["best_aOF"] = hit["best_aOF"]
+        result["best_chi2"] = hit["best_chi2"]
+        result["best_OF_shift"] = hit["best_OF_shift"]
