@@ -2,7 +2,7 @@ import os
 import pytest
 import numpy as np
 import straxion
-from straxion.plugins.hit_classification import HitClassification, SpikeCoincidence
+from straxion.plugins.hit_classification import HitClassification, DxHitClassification
 import shutil
 
 
@@ -308,19 +308,19 @@ class TestHitClassificationWithRealDataOnline:
 
 
 def test_spike_coincidence_plugin_registration():
-    """Test that the SpikeCoincidence plugin is properly registered in the offline context."""
+    """Test that the DxHitClassification plugin is properly registered in the offline context."""
     st = straxion.qualiphide_thz_offline()
     assert "hit_classification" in st._plugin_class_registry
-    # In offline context, hit_classification maps to SpikeCoincidence
-    assert st._plugin_class_registry["hit_classification"] == SpikeCoincidence
+    # In offline context, hit_classification maps to DxHitClassification
+    assert st._plugin_class_registry["hit_classification"] == DxHitClassification
 
 
 def test_spike_coincidence_dtype_inference():
-    """Test that SpikeCoincidence can infer the correct data type."""
+    """Test that DxHitClassification can infer the correct data type."""
     st = straxion.qualiphide_thz_offline()
     plugin = st.get_single_plugin("1756824965", "hit_classification")
     dtype = plugin.infer_dtype()
-    # List of expected fields for SpikeCoincidence
+    # List of expected fields for DxHitClassification
     expected_fields = [
         "time",
         "endtime",
@@ -342,9 +342,9 @@ def test_spike_coincidence_dtype_inference():
     not os.getenv("STRAXION_TEST_DATA_DIR"),
     reason="Test data directory not provided via STRAXION_TEST_DATA_DIR environment variable",
 )
-class TestSpikeCoincidenceWithRealDataOffline:
+class TestDxHitClassificationWithRealDataOffline:
     """Test spike coincidence processing with real qualiphide_fir_test_data
-    using SpikeCoincidence plugin."""
+    using DxHitClassification plugin."""
 
     def test_qualiphide_thz_offline_context_creation(self):
         """Test that the qualiphide_thz_offline context can be created without errors."""
@@ -418,7 +418,7 @@ class TestSpikeCoincidenceWithRealDataOffline:
 
     def test_spike_coincidence_processing(self):
         """Test the complete spike coincidence processing pipeline with real data using
-        SpikeCoincidence plugin.
+        DxHitClassification plugin.
 
         This test requires the STRAXION_TEST_DATA_DIR environment variable to be set to the path
         containing the qualiphide_fir_test_data directory with example data.
@@ -443,7 +443,7 @@ class TestSpikeCoincidenceWithRealDataOffline:
             assert hit_classification is not None
             assert len(hit_classification) >= 0  # Can be empty if no hits found
 
-            # Check that all required fields are present for SpikeCoincidence
+            # Check that all required fields are present for DxHitClassification
             required_fields = [
                 "time",
                 "endtime",

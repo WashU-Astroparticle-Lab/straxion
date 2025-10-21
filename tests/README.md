@@ -9,7 +9,7 @@ Unless you are a developer for `straxion`, please feel free to skip reading. Thi
 - `test_records.py`: Tests for the records plugin with both online and offline contexts
 - `test_baseline_monitor.py`: Tests for the baseline_monitor plugin with qualiphide_thz_online context
 - `test_hits.py`: Tests for the hits plugin with both online and offline contexts
-- `test_hit_classification.py`: Tests for hit classification plugins (HitClassification and SpikeCoincidence)
+- `test_hit_classification.py`: Tests for hit classification plugins (HitClassification and DxHitClassification)
 
 ## Running Tests Locally
 
@@ -93,7 +93,7 @@ The tests are integrated into the existing `.github/workflows/pytest.yml` workfl
    - records processing with both online and offline contexts
    - baseline_monitor processing with `qualiphide_thz_online` context
    - hits processing with both online and offline contexts
-   - hit classification processing with both `HitClassification` and `SpikeCoincidence` plugins
+   - hit classification processing with both `HitClassification` and `DxHitClassification` plugins
 4. Generate coverage reports for both basic and data-dependent tests
 
 
@@ -107,7 +107,7 @@ The tests provide comprehensive coverage for all major straxion components:
 - **records**: Both online (phase angle processing) and offline (frequency shift processing) contexts
 - **baseline_monitor**: Baseline monitoring with qualiphide_thz_online context
 - **hits**: Hit finding with both online and offline contexts
-- **hit_classification**: Both HitClassification and SpikeCoincidence plugins
+- **hit_classification**: Both HitClassification and DxHitClassification plugins
 
 ### Test Categories
 - **Unit Tests**: Plugin registration, dtype inference, configuration validation
