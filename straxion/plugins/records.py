@@ -375,7 +375,7 @@ class DxRecords(strax.Plugin):
         3. Validates the interpolation models for self-consistency
         """
         # Initialize interpolation data arrays
-        self.thetas_at_fres = np.zeros(len(self.fres), dtype=np.complex128)
+        self.thetas_at_fres = np.zeros(len(self.fres))
         self.interpolated_freqs = np.zeros_like(self.fres)
         self.f_interpolation_models = []
 
