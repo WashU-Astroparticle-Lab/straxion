@@ -37,6 +37,8 @@ DX_RESOL_CONSERVATIVE = 267423.0098878706e-12
 
 # Noise PSD
 # Assumed (of_window_left, of_window_right) = (100, 300) samples
+# This is a placeholder for the noise PSD,
+# and only used when we cannot compute the noise PSD from the noise bank in a data-driven way.
 NOISE_PSD_38kHz = np.load(Path(__file__).parent / "msc" / "noise_psd_38kHz.npy").tolist()
 
 # Default path to template interpolation file

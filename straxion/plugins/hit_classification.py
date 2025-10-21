@@ -105,7 +105,7 @@ export, __all__ = strax.exporter()
         help="Step size for optimal filter coarse scan (in samples).",
     ),
     strax.Option(
-        "noise_psd",
+        "noise_psd_placeholder",
         type=list,
         default=NOISE_PSD_38kHz,
         track=True,
@@ -196,7 +196,7 @@ class DxHitClassification(strax.Plugin):
         self.max_spike_coincidence = self.config["max_spike_coincidence"]
         self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
         self.template_interp_path = self.config["template_interp_path"]
-        self.noise_psd = self.config["noise_psd"]
+        self.noise_psd = self.config["noise_psd_placeholder"]
         self.of_window_left = self.config["of_window_left"]
         self.of_window_right = self.config["of_window_right"]
 
