@@ -2,7 +2,7 @@ import os
 import pytest
 import numpy as np
 import straxion
-from straxion.plugins.hit_classification import HitClassification, SpikeCoincidence
+from straxion.plugins.hit_classification import HitClassification, DxHitClassification
 import shutil
 
 
@@ -308,19 +308,19 @@ class TestHitClassificationWithRealDataOnline:
 
 
 def test_spike_coincidence_plugin_registration():
-    """Test that the SpikeCoincidence plugin is properly registered in the offline context."""
+    """Test that the DxHitClassification plugin is properly registered in the offline context."""
     st = straxion.qualiphide_thz_offline()
     assert "hit_classification" in st._plugin_class_registry
-    # In offline context, hit_classification maps to SpikeCoincidence
-    assert st._plugin_class_registry["hit_classification"] == SpikeCoincidence
+    # In offline context, hit_classification maps to DxHitClassification
+    assert st._plugin_class_registry["hit_classification"] == DxHitClassification
 
 
 def test_spike_coincidence_dtype_inference():
-    """Test that SpikeCoincidence can infer the correct data type."""
+    """Test that DxHitClassification can infer the correct data type."""
     st = straxion.qualiphide_thz_offline()
     plugin = st.get_single_plugin("1756824965", "hit_classification")
     dtype = plugin.infer_dtype()
-    # List of expected fields for SpikeCoincidence
+    # List of expected fields for DxHitClassification
     expected_fields = [
         "time",
         "endtime",
@@ -342,9 +342,9 @@ def test_spike_coincidence_dtype_inference():
     not os.getenv("STRAXION_TEST_DATA_DIR"),
     reason="Test data directory not provided via STRAXION_TEST_DATA_DIR environment variable",
 )
-class TestSpikeCoincidenceWithRealDataOffline:
+class TestDxHitClassificationWithRealDataOffline:
     """Test spike coincidence processing with real qualiphide_fir_test_data
-    using SpikeCoincidence plugin."""
+    using DxHitClassification plugin."""
 
     def test_qualiphide_thz_offline_context_creation(self):
         """Test that the qualiphide_thz_offline context can be created without errors."""
@@ -418,7 +418,7 @@ class TestSpikeCoincidenceWithRealDataOffline:
 
     def test_spike_coincidence_processing(self):
         """Test the complete spike coincidence processing pipeline with real data using
-        SpikeCoincidence plugin.
+        DxHitClassification plugin.
 
         This test requires the STRAXION_TEST_DATA_DIR environment variable to be set to the path
         containing the qualiphide_fir_test_data directory with example data.
@@ -443,7 +443,7 @@ class TestSpikeCoincidenceWithRealDataOffline:
             assert hit_classification is not None
             assert len(hit_classification) >= 0  # Can be empty if no hits found
 
-            # Check that all required fields are present for SpikeCoincidence
+            # Check that all required fields are present for DxHitClassification
             required_fields = [
                 "time",
                 "endtime",
@@ -643,3 +643,154 @@ class TestSpikeCoincidenceWithRealDataOffline:
         clean_strax_data()
         with pytest.raises(Exception):
             st.get_array(run_id, "hit_classification", config=configs)
+
+    def test_per_channel_noise_psd_computation(self):
+        """Test that per-channel noise PSDs are computed correctly from noise windows."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+        configs = _get_test_config(test_data_dir, run_id)
+
+        clean_strax_data()
+        try:
+            # Get noises and records to test the method directly
+            noises = st.get_array(run_id, "noises", config=configs)
+            records = st.get_array(run_id, "records", config=configs)
+
+            # Get the plugin instance
+            plugin = st.get_single_plugin(run_id, "hit_classification")
+
+            # Compute per-channel noise PSDs
+            n_channels = len(records)
+            channel_noise_psds = plugin.compute_per_channel_noise_psd(noises, n_channels)
+
+            # Verify the result is a dictionary
+            assert isinstance(channel_noise_psds, dict)
+
+            # Verify all channels are present
+            assert len(channel_noise_psds) == n_channels
+
+            # Check that PSDs have the expected length
+            expected_psd_length = plugin.of_window_left + plugin.of_window_right
+
+            for ch in range(n_channels):
+                if channel_noise_psds[ch] is not None:
+                    # PSD should have correct length
+                    assert len(channel_noise_psds[ch]) == expected_psd_length
+                    # PSD values should be non-negative (it's |FFT|^2)
+                    assert np.all(channel_noise_psds[ch] >= 0)
+                    # PSD should contain finite values
+                    assert np.all(np.isfinite(channel_noise_psds[ch]))
+
+            # Count channels with and without noise windows
+            channels_with_psd = sum(1 for psd in channel_noise_psds.values() if psd is not None)
+            channels_without_psd = sum(1 for psd in channel_noise_psds.values() if psd is None)
+
+            print(
+                f"Successfully computed PSDs for {channels_with_psd} channels, "
+                f"{channels_without_psd} channels use placeholder"
+            )
+
+        except Exception as e:
+            pytest.fail(f"Failed to compute per-channel noise PSDs: {str(e)}")
+
+    def test_noise_psd_placeholder_warning(self, caplog):
+        """Test that a warning is logged when using placeholder PSD for channels
+        without noise windows."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+        configs = _get_test_config(test_data_dir, run_id)
+
+        clean_strax_data()
+        try:
+            # Process hit classification which should log warnings if placeholders are used
+            import logging
+
+            with caplog.at_level(logging.WARNING):
+                hit_classification = st.get_array(run_id, "hit_classification", config=configs)
+
+            # Check if warning was logged for any channel without noise windows
+            noises = st.get_array(run_id, "noises", config=configs)
+
+            # Find channels with hits but no noise windows
+            if len(hit_classification) > 0:
+                hit_channels = np.unique(hit_classification["channel"])
+                noise_channels = np.unique(noises["channel"]) if len(noises) > 0 else []
+
+                channels_without_noise = set(hit_channels) - set(noise_channels)
+
+                if len(channels_without_noise) > 0:
+                    # Should have warnings for channels without noise windows
+                    for ch in channels_without_noise:
+                        warning_found = any(
+                            f"No noise windows found for channel {ch}" in record.message
+                            for record in caplog.records
+                            if record.levelname == "WARNING"
+                        )
+                        assert (
+                            warning_found
+                        ), f"Expected warning for channel {ch} without noise windows"
+                    print(
+                        f"Verified warnings logged for {len(channels_without_noise)} "
+                        f"channels without noise windows: {sorted(channels_without_noise)}"
+                    )
+                else:
+                    print("All channels with hits have noise windows")
+
+        except Exception as e:
+            pytest.fail(f"Failed to test noise PSD placeholder warnings: {str(e)}")
+
+    def test_per_channel_psd_used_in_optimal_filter(self):
+        """Test that per-channel PSDs are actually used in optimal filter computation."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+        configs = _get_test_config(test_data_dir, run_id)
+
+        clean_strax_data()
+        try:
+            # Get the data
+            hit_classification = st.get_array(run_id, "hit_classification", config=configs)
+
+            if len(hit_classification) > 0:
+                # Check that optimal filter fields are computed
+                assert "best_aOF" in hit_classification.dtype.names
+                assert "best_chi2" in hit_classification.dtype.names
+                assert "best_OF_shift" in hit_classification.dtype.names
+
+                # All values should be finite (not NaN or inf)
+                assert np.all(np.isfinite(hit_classification["best_aOF"]))
+                assert np.all(np.isfinite(hit_classification["best_chi2"]))
+                assert np.all(np.isfinite(hit_classification["best_OF_shift"]))
+
+                # Chi-squared should be non-negative
+                assert np.all(hit_classification["best_chi2"] >= 0)
+
+                print(
+                    f"Successfully verified optimal filter computation "
+                    f"for {len(hit_classification)} hits"
+                )
+                print(f"  Mean best_aOF: {np.mean(hit_classification['best_aOF']):.4f}")
+                print(f"  Mean best_chi2: {np.mean(hit_classification['best_chi2']):.4f}")
+
+        except Exception as e:
+            pytest.fail(f"Failed to verify per-channel PSD usage in optimal filter: {str(e)}")

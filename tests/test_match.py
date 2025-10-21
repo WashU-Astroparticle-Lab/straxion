@@ -89,6 +89,9 @@ class TestMatchWithRealData:
             "is_photon_candidate",
             "is_symmetric_spike",
             "is_coincident_with_spikes",
+            "best_aOF",
+            "best_chi2",
+            "best_OF_shift",
         ]
         field_names = [name[1] for name, *_ in dtype]
         for field in expected_fields:
@@ -136,6 +139,9 @@ class TestMatchWithRealData:
                 "is_photon_candidate",
                 "is_symmetric_spike",
                 "is_coincident_with_spikes",
+                "best_aOF",
+                "best_chi2",
+                "best_OF_shift",
             ]
             for field in required_fields:
                 assert field in match.dtype.names, f"Required field '{field}' missing from match"
@@ -151,6 +157,9 @@ class TestMatchWithRealData:
             assert match["is_photon_candidate"].dtype == bool
             assert match["is_symmetric_spike"].dtype == bool
             assert match["is_coincident_with_spikes"].dtype == bool
+            assert match["best_aOF"].dtype == np.float32
+            assert match["best_chi2"].dtype == np.float32
+            assert match["best_OF_shift"].dtype == np.int32
 
             # Check that destiny values are valid
             valid_destinies = {"found", "lost", "split"}
@@ -394,3 +403,48 @@ class TestMatchWithRealData:
 
         except Exception as e:
             pytest.fail(f"Failed to process match: {str(e)}")
+
+    def test_match_optimal_filter_fields(self):
+        """Test that optimal filter fields are properly populated in found matches."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+        configs = self._get_test_config(test_data_dir, run_id, salt_rate=100)
+
+        clean_strax_data()
+        try:
+            match = st.get_array(run_id, "match", config=configs)
+
+            # Filter for 'found' matches
+            found_matches = match[match["destiny"] == "found"]
+
+            if len(found_matches) == 0:
+                pytest.skip("No 'found' matches in test data")
+
+            # Check that optimal filter fields are finite
+            assert np.all(
+                np.isfinite(found_matches["best_aOF"])
+            ), "Non-finite values found in best_aOF"
+            assert np.all(
+                np.isfinite(found_matches["best_chi2"])
+            ), "Non-finite values found in best_chi2"
+            assert np.all(
+                np.isfinite(found_matches["best_OF_shift"])
+            ), "Non-finite values found in best_OF_shift"
+
+            # Chi-squared should be non-negative
+            assert np.all(found_matches["best_chi2"] >= 0), "Negative chi-squared values found"
+
+            print(f"Validated optimal filter fields for {len(found_matches)} found matches")
+            print(f"  Mean best_aOF: {np.mean(found_matches['best_aOF']):.4f}")
+            print(f"  Mean best_chi2: {np.mean(found_matches['best_chi2']):.4f}")
+            print(f"  Mean best_OF_shift: {np.mean(found_matches['best_OF_shift']):.2f}")
+
+        except Exception as e:
+            pytest.fail(f"Failed to validate optimal filter fields: {str(e)}")

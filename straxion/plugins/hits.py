@@ -231,32 +231,35 @@ class DxHits(strax.Plugin):
         """Determine the hit threshold based on the provided configuration.
         You can either provide hit_threshold_dx or hit_thresholds_sigma.
         You cannot provide both.
+
+        Returns:
+            np.ndarray: Hit threshold for each record.
         """
         if self.hit_threshold_dx is None and self.hit_thresholds_sigma is not None:
             # If hit_thresholds_sigma are single values,
             # we need to convert them to arrays.
             if isinstance(self.hit_thresholds_sigma, float):
-                self.hit_thresholds_sigma = np.full(
-                    len(records["channel"]), self.hit_thresholds_sigma
-                )
+                hit_thresholds_sigma = np.full(len(records["channel"]), self.hit_thresholds_sigma)
             else:
-                self.hit_thresholds_sigma = np.array(self.hit_thresholds_sigma)
+                hit_thresholds_sigma = np.array(self.hit_thresholds_sigma)
             # Calculate hit threshold and find hit candidates
-            self.hit_threshold_dx = self.calculate_hit_threshold(
+            hit_threshold_dx = self.calculate_hit_threshold(
                 records["data_dx_convolved"],
-                self.hit_thresholds_sigma[records["channel"]],
+                hit_thresholds_sigma[records["channel"]],
             )
         elif self.hit_threshold_dx is not None and self.hit_thresholds_sigma is None:
             # If hit_threshold_dx is a single value, we need to convert it to an array.
             if isinstance(self.hit_threshold_dx, float):
-                self.hit_threshold_dx = np.full(len(records["channel"]), self.hit_threshold_dx)
+                hit_threshold_dx = np.full(len(records["channel"]), self.hit_threshold_dx)
             else:
-                self.hit_threshold_dx = np.array(self.hit_threshold_dx)
+                hit_threshold_dx = np.array(self.hit_threshold_dx)
         else:
             raise ValueError(
                 "Either hit_threshold_dx or hit_thresholds_sigma "
                 "must be provided. You cannot provide both."
             )
+
+        return hit_threshold_dx
 
     @staticmethod
     def find_hit_candidates(signal, hit_threshold, min_pulse_width):
@@ -306,12 +309,12 @@ class DxHits(strax.Plugin):
         Returns:
             np.ndarray: Array of hits with waveform data and characteristics.
         """
-        self.determine_hit_threshold(records)
+        hit_threshold_dx = self.determine_hit_threshold(records)
 
         results = []
 
         for record in records:
-            hits = self._process_single_record(record)
+            hits = self._process_single_record(record, hit_threshold_dx)
             if hits is not None and len(hits) > 0:
                 results.append(hits)
 
@@ -328,18 +331,19 @@ class DxHits(strax.Plugin):
 
         return results
 
-    def _process_single_record(self, record):
+    def _process_single_record(self, record, hit_threshold_dx):
         """Process a single record to find hits.
 
         Args:
             record: Single record containing signal data.
+            hit_threshold_dx: Hit threshold array for each channel.
 
         Returns:
             np.ndarray or None: Array of hits found in the record, or None if no hits.
         """
         ch = int(record["channel"])
         hit_start_i, hit_widths = self.find_hit_candidates(
-            record["data_dx_convolved"], self.hit_threshold_dx[ch], self.hit_min_width_samples
+            record["data_dx_convolved"], hit_threshold_dx[ch], self.hit_min_width_samples
         )
 
         if len(hit_start_i) == 0:
@@ -349,7 +353,7 @@ class DxHits(strax.Plugin):
         hits["width"] = hit_widths
         hits["channel"] = record["channel"]
         hits["dt"] = self.dt_exact  # Will be converted to int when saving
-        hits["hit_threshold"] = self.hit_threshold_dx[hits["channel"]]
+        hits["hit_threshold"] = hit_threshold_dx[hits["channel"]]
 
         for i, start_i in enumerate(hit_start_i):
             self._process_hit(

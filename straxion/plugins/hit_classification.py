@@ -105,7 +105,7 @@ export, __all__ = strax.exporter()
         help="Step size for optimal filter coarse scan (in samples).",
     ),
     strax.Option(
-        "noise_psd",
+        "noise_psd_placeholder",
         type=list,
         default=NOISE_PSD_38kHz,
         track=True,
@@ -134,12 +134,12 @@ export, __all__ = strax.exporter()
         ),
     ),
 )
-class SpikeCoincidence(strax.Plugin):
+class DxHitClassification(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.2.2"
+    __version__ = "0.2.3"
 
-    depends_on = ("hits", "records")
+    depends_on = ("hits", "records", "noises")
     provides = "hit_classification"
     data_kind = "hits"
     save_when = strax.SaveWhen.ALWAYS
@@ -196,7 +196,7 @@ class SpikeCoincidence(strax.Plugin):
         self.max_spike_coincidence = self.config["max_spike_coincidence"]
         self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
         self.template_interp_path = self.config["template_interp_path"]
-        self.noise_psd = self.config["noise_psd"]
+        self.noise_psd = self.config["noise_psd_placeholder"]
         self.of_window_left = self.config["of_window_left"]
         self.of_window_right = self.config["of_window_right"]
 
@@ -212,6 +212,42 @@ class SpikeCoincidence(strax.Plugin):
 
         # Load interpolation function
         self.At_interp, self.t_max = self.load_interpolation(self.template_interp_path)
+
+    def compute_per_channel_noise_psd(self, noises, n_channels):
+        """Compute per-channel noise PSDs from noise windows.
+
+        Args:
+            noises (np.ndarray): Array of noise windows.
+            n_channels (int): Number of channels.
+
+        Returns:
+            dict: Dictionary mapping channel number to PSD array.
+                  Returns None for channels with no noise windows.
+
+        """
+        channel_noise_psds = {}
+        window_size = self.of_window_left + self.of_window_right
+
+        for ch in range(n_channels):
+            # Filter noise windows for this channel
+            ch_noises = noises[noises["channel"] == ch]
+
+            if len(ch_noises) == 0:
+                # No noise windows for this channel
+                channel_noise_psds[ch] = None
+            else:
+                # Extract first window_size samples and compute PSDs
+                psds = []
+                for noise in ch_noises:
+                    noise_window = noise["data_dx"][:window_size]
+                    # Compute PSD: |FFT|^2
+                    psd = np.abs(np.fft.fft(noise_window)) ** 2
+                    psds.append(psd)
+
+                # Average PSDs across all noise windows
+                channel_noise_psds[ch] = np.mean(psds, axis=0)
+
+        return channel_noise_psds
 
     @staticmethod
     def calculate_spike_threshold(signal, spike_threshold_sigma):
@@ -441,32 +477,37 @@ class SpikeCoincidence(strax.Plugin):
         """Determine the spike threshold based on the provided configuration.
         You can either provide hit_threshold_dx or hit_thresholds_sigma.
         You cannot provide both.
+
+        Returns:
+            np.ndarray: Spike threshold for each record.
         """
         if self.spike_threshold_dx is None and self.spike_thresholds_sigma is not None:
             # If spike_thresholds_sigma are single values,
             # we need to convert them to arrays.
             if isinstance(self.spike_thresholds_sigma, float):
-                self.spike_thresholds_sigma = np.full(
+                spike_thresholds_sigma = np.full(
                     len(records["channel"]), self.spike_thresholds_sigma
                 )
             else:
-                self.spike_thresholds_sigma = np.array(self.spike_thresholds_sigma)
+                spike_thresholds_sigma = np.array(self.spike_thresholds_sigma)
             # Calculate spike threshold and find spike candidates
-            self.spike_threshold_dx = self.calculate_spike_threshold(
+            spike_threshold_dx = self.calculate_spike_threshold(
                 records["data_dx_convolved"],
-                self.spike_thresholds_sigma[records["channel"]],
+                spike_thresholds_sigma[records["channel"]],
             )
         elif self.spike_threshold_dx is not None and self.spike_thresholds_sigma is None:
             # If spike_threshold_dx is a single value, we need to convert it to an array.
             if isinstance(self.spike_threshold_dx, float):
-                self.spike_threshold_dx = np.full(len(records["channel"]), self.spike_threshold_dx)
+                spike_threshold_dx = np.full(len(records["channel"]), self.spike_threshold_dx)
             else:
-                self.spike_threshold_dx = np.array(self.spike_threshold_dx)
+                spike_threshold_dx = np.array(self.spike_threshold_dx)
         else:
             raise ValueError(
                 "Either spike_threshold_dx or spike_thresholds_sigma "
                 "must be provided. You cannot provide both."
             )
+
+        return spike_threshold_dx
 
     def _get_ss_window(self, hits, window_start_offset):
         """Extract windows from all hits using vectorized operations.
@@ -524,32 +565,52 @@ class SpikeCoincidence(strax.Plugin):
         expected_length = HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
         hit_classification["is_truncated_hit"] = hits["length"] != expected_length
 
-    def find_spike_coincidence(self, hit_classification, hits, records):
-        """Find the spike coincidence of the hit in the convolved signal."""
+    def find_spike_coincidence(self, hit_classification, hits, records, spike_threshold_dx):
+        """Find the spike coincidence of the hit in the convolved signal.
+
+        Args:
+            hit_classification (np.ndarray): Array to store classification results.
+            hits (np.ndarray): Array of hits.
+            records (np.ndarray): Array of records.
+            spike_threshold_dx (np.ndarray): Spike threshold for each record.
+        """
         spike_coincidence = np.zeros(len(hits))
         for i, hit in enumerate(hits):
             # Get the index of the hit maximum in the record
             hit_climax_i = hit["amplitude_convolved_max_record_i"]
 
+            # Calculate slice boundaries
+            start_i = hit_climax_i - self.spike_coincidence_window
+            end_i = hit_climax_i + self.spike_coincidence_window
+
+            # Skip if window is invalid or empty
+            if start_i >= end_i or end_i <= 0 or start_i >= records.shape[1]:
+                continue
+
             # Extract windows from all records at once
-            inspected_wfs = records["data_dx_convolved"][
-                :,
-                hit_climax_i
-                - self.spike_coincidence_window : hit_climax_i
-                + self.spike_coincidence_window,
-            ]
+            inspected_wfs = records["data_dx_convolved"][:, start_i:end_i]
+
+            # Skip if inspected_wfs is empty (shape[1] == 0)
+            if inspected_wfs.shape[1] == 0:
+                continue
 
             # Count records with spikes above threshold
             spike_coincidence[i] = np.sum(
-                np.max(inspected_wfs, axis=1) > self.spike_threshold_dx[records["channel"]]
+                np.max(inspected_wfs, axis=1) > spike_threshold_dx[records["channel"]]
             )
         hit_classification["n_spikes_coinciding"] = spike_coincidence
 
-    def compute_optimal_filter_parameters(self, hit_classification, hits):
+    def compute_optimal_filter_parameters(self, hit_classification, hits, channel_noise_psds):
         """Compute optimal filter parameters for all hits.
 
         Uses hits["data_dx"] as the signal timestream and
-        self.noise_psd for the noise PSD (same for all channels).
+        per-channel noise PSDs from channel_noise_psds.
+        Falls back to self.noise_psd placeholder if no PSD available for a channel.
+
+        Args:
+            hit_classification (np.ndarray): Array to store classification results.
+            hits (np.ndarray): Array of hits.
+            channel_noise_psds (dict): Dictionary mapping channel to PSD array.
 
         Note: All optimal filter calculations require dt in seconds.
         """
@@ -558,20 +619,29 @@ class SpikeCoincidence(strax.Plugin):
         # Optimal filter functions require dt in seconds
         dt_seconds = self.dt_exact / SECOND_TO_NANOSECOND
 
-        # Convert noise_psd to numpy array if it's a list
-        # The same PSD is used for all channels
+        # Convert placeholder noise_psd to numpy array if it's a list
         if isinstance(self.noise_psd, list):
-            Jf = np.array(self.noise_psd)
+            placeholder_psd = np.array(self.noise_psd)
         else:
-            Jf = self.noise_psd
+            placeholder_psd = self.noise_psd
 
         for i, hit in enumerate(hits):
             # Extract signal timestream from hit
             St = hit["data_dx"]
+            ch = hit["channel"]
+
+            # Get channel-specific PSD or use placeholder
+            if channel_noise_psds[ch] is None:
+                # No noise windows for this channel, use placeholder
+                self.log.warning(
+                    f"No noise windows found for channel {ch}, " f"using placeholder PSD"
+                )
+                Jf = placeholder_psd
+            else:
+                Jf = channel_noise_psds[ch]
 
             # Compute optimal filter with shift optimization
             # dt_seconds is explicitly in seconds
-            # Same Jf (noise PSD) is used for all channels
             best_aOF, best_chi2, best_OF_shift, _ = self.optimal_filter(St, dt_seconds, Jf)
 
             # Store results
@@ -579,8 +649,12 @@ class SpikeCoincidence(strax.Plugin):
             hit_classification["best_chi2"][i] = best_chi2
             hit_classification["best_OF_shift"][i] = best_OF_shift
 
-    def compute(self, hits, records):
-        self.determine_spike_threshold(records)
+    def compute(self, hits, records, noises):
+        spike_threshold_dx = self.determine_spike_threshold(records)
+
+        # Compute per-channel noise PSDs from noise windows
+        n_channels = len(records)
+        channel_noise_psds = self.compute_per_channel_noise_psd(noises, n_channels)
 
         hit_classification = np.zeros(len(hits), dtype=self.infer_dtype())
         hit_classification["time"] = hits["time"]
@@ -588,12 +662,12 @@ class SpikeCoincidence(strax.Plugin):
         hit_classification["channel"] = hits["channel"]
 
         self.compute_rise_edge_slope(hits, hit_classification)
-        self.find_spike_coincidence(hit_classification, hits, records)
+        self.find_spike_coincidence(hit_classification, hits, records, spike_threshold_dx)
         self.is_symmetric_spike_hit(hits, hit_classification)
         self.is_truncated_hit(hits, hit_classification)
 
-        # Compute optimal filter parameters
-        self.compute_optimal_filter_parameters(hit_classification, hits)
+        # Compute optimal filter parameters with per-channel PSDs
+        self.compute_optimal_filter_parameters(hit_classification, hits, channel_noise_psds)
 
         hit_classification["is_coincident_with_spikes"] = (
             hit_classification["n_spikes_coinciding"] > self.max_spike_coincidence
