@@ -477,32 +477,37 @@ class DxHitClassification(strax.Plugin):
         """Determine the spike threshold based on the provided configuration.
         You can either provide hit_threshold_dx or hit_thresholds_sigma.
         You cannot provide both.
+
+        Returns:
+            np.ndarray: Spike threshold for each record.
         """
         if self.spike_threshold_dx is None and self.spike_thresholds_sigma is not None:
             # If spike_thresholds_sigma are single values,
             # we need to convert them to arrays.
             if isinstance(self.spike_thresholds_sigma, float):
-                self.spike_thresholds_sigma = np.full(
+                spike_thresholds_sigma = np.full(
                     len(records["channel"]), self.spike_thresholds_sigma
                 )
             else:
-                self.spike_thresholds_sigma = np.array(self.spike_thresholds_sigma)
+                spike_thresholds_sigma = np.array(self.spike_thresholds_sigma)
             # Calculate spike threshold and find spike candidates
-            self.spike_threshold_dx = self.calculate_spike_threshold(
+            spike_threshold_dx = self.calculate_spike_threshold(
                 records["data_dx_convolved"],
-                self.spike_thresholds_sigma[records["channel"]],
+                spike_thresholds_sigma[records["channel"]],
             )
         elif self.spike_threshold_dx is not None and self.spike_thresholds_sigma is None:
             # If spike_threshold_dx is a single value, we need to convert it to an array.
             if isinstance(self.spike_threshold_dx, float):
-                self.spike_threshold_dx = np.full(len(records["channel"]), self.spike_threshold_dx)
+                spike_threshold_dx = np.full(len(records["channel"]), self.spike_threshold_dx)
             else:
-                self.spike_threshold_dx = np.array(self.spike_threshold_dx)
+                spike_threshold_dx = np.array(self.spike_threshold_dx)
         else:
             raise ValueError(
                 "Either spike_threshold_dx or spike_thresholds_sigma "
                 "must be provided. You cannot provide both."
             )
+
+        return spike_threshold_dx
 
     def _get_ss_window(self, hits, window_start_offset):
         """Extract windows from all hits using vectorized operations.
@@ -560,8 +565,15 @@ class DxHitClassification(strax.Plugin):
         expected_length = HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
         hit_classification["is_truncated_hit"] = hits["length"] != expected_length
 
-    def find_spike_coincidence(self, hit_classification, hits, records):
-        """Find the spike coincidence of the hit in the convolved signal."""
+    def find_spike_coincidence(self, hit_classification, hits, records, spike_threshold_dx):
+        """Find the spike coincidence of the hit in the convolved signal.
+
+        Args:
+            hit_classification (np.ndarray): Array to store classification results.
+            hits (np.ndarray): Array of hits.
+            records (np.ndarray): Array of records.
+            spike_threshold_dx (np.ndarray): Spike threshold for each record.
+        """
         spike_coincidence = np.zeros(len(hits))
         for i, hit in enumerate(hits):
             # Get the index of the hit maximum in the record
@@ -584,7 +596,7 @@ class DxHitClassification(strax.Plugin):
 
             # Count records with spikes above threshold
             spike_coincidence[i] = np.sum(
-                np.max(inspected_wfs, axis=1) > self.spike_threshold_dx[records["channel"]]
+                np.max(inspected_wfs, axis=1) > spike_threshold_dx[records["channel"]]
             )
         hit_classification["n_spikes_coinciding"] = spike_coincidence
 
@@ -638,7 +650,7 @@ class DxHitClassification(strax.Plugin):
             hit_classification["best_OF_shift"][i] = best_OF_shift
 
     def compute(self, hits, records, noises):
-        self.determine_spike_threshold(records)
+        spike_threshold_dx = self.determine_spike_threshold(records)
 
         # Compute per-channel noise PSDs from noise windows
         n_channels = len(records)
@@ -650,7 +662,7 @@ class DxHitClassification(strax.Plugin):
         hit_classification["channel"] = hits["channel"]
 
         self.compute_rise_edge_slope(hits, hit_classification)
-        self.find_spike_coincidence(hit_classification, hits, records)
+        self.find_spike_coincidence(hit_classification, hits, records, spike_threshold_dx)
         self.is_symmetric_spike_hit(hits, hit_classification)
         self.is_truncated_hit(hits, hit_classification)
 
