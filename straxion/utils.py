@@ -429,14 +429,19 @@ def get_channel_position(channels):
 
     Returns
     -------
-    x, y : float or array
-        X and Y positions in mm. If input is scalar, returns
-        scalar positions. If input is array, returns arrays.
+    positions : np.ndarray
+        Array of positions in mm. Shape is (2,) for single
+        channel [x, y], or (N, 2) for N channels where each
+        row is [x, y] for that channel.
 
     Examples
     --------
-    >>> x, y = get_channel_position(0)  # Single channel
-    >>> x, y = get_channel_position([0, 1, 2])  # Multiple
+    >>> pos = get_channel_position(0)  # Shape (2,)
+    >>> pos
+    array([x, y])
+    >>> pos = get_channel_position([0, 1, 2])  # (3, 2)
+    >>> pos
+    array([[x0, y0], [x1, y1], [x2, y2]])
     """
     # Frequency to position mapping
     freq_to_position_mapping = {
@@ -495,21 +500,22 @@ def get_channel_position(channels):
     centers = centers[:, sorted_indices]
 
     # Handle scalar or array input
-    channels = np.atleast_1d(channels)
-    is_scalar = channels.shape == (1,)
+    channels_array = np.atleast_1d(channels)
+    is_scalar = np.isscalar(channels)
 
     # Validate channels
-    if np.any((channels < 0) | (channels > 40)):
+    if np.any((channels_array < 0) | (channels_array > 40)):
         raise ValueError("Channel indices must be in range 0-40")
 
     # Map frequency channels to positions
-    positions = np.array([freq_to_position_mapping[ch] for ch in channels])
+    positions = np.array([freq_to_position_mapping[ch] for ch in channels_array])
 
-    # Get x, y coordinates
+    # Get x, y coordinates and stack as (N, 2)
     x = centers[0, positions]
     y = centers[1, positions]
+    result = np.column_stack([x, y])
 
-    # Return scalar if input was scalar
+    # Return (2,) for scalar input, (N, 2) for array
     if is_scalar:
-        return x[0], y[0]
-    return x, y
+        return result[0]
+    return result
