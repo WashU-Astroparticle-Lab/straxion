@@ -416,3 +416,100 @@ def plot_channels(
         ax.set_title(title)
 
     fig.show()
+
+
+def get_channel_position(channels):
+    """
+    Get x and y positions in mm for given frequency channel(s).
+
+    Parameters
+    ----------
+    channels : int or array-like
+        Frequency channel index (0-40) or array of indices.
+
+    Returns
+    -------
+    x, y : float or array
+        X and Y positions in mm. If input is scalar, returns
+        scalar positions. If input is array, returns arrays.
+
+    Examples
+    --------
+    >>> x, y = get_channel_position(0)  # Single channel
+    >>> x, y = get_channel_position([0, 1, 2])  # Multiple
+    """
+    # Frequency to position mapping
+    freq_to_position_mapping = {
+        0: 0,
+        1: 22,
+        2: 13,
+        3: 35,
+        4: 5,
+        5: 27,
+        6: 8,
+        7: 30,
+        8: 4,
+        9: 26,
+        10: 21,
+        11: 43,
+        12: 12,
+        13: 34,
+        14: 38,
+        15: 3,
+        16: 25,
+        17: 20,
+        18: 42,
+        19: 39,
+        20: 31,
+        21: 9,
+        22: 15,
+        23: 37,
+        24: 29,
+        25: 36,
+        26: 14,
+        27: 23,
+        28: 1,
+        29: 6,
+        30: 28,
+        31: 10,
+        32: 32,
+        33: 19,
+        34: 41,
+        35: 2,
+        36: 24,
+        37: 11,
+        38: 33,
+        39: 18,
+        40: 40,
+    }
+
+    # Calculate all positions
+    centers = np.zeros((2, 2, 22))  # x/y, row, col
+    centers[1, 0, :] = 0.779  # top row y, bottom y = 0
+    for i in range(22):
+        centers[0, 0, i] = i * 0.9 + 0.45  # top row x
+        centers[0, 1, i] = i * 0.9  # bottom row x
+
+    centers = centers.reshape(2, 44)
+    sorted_indices = np.argsort(centers[0, :])
+    centers = centers[:, sorted_indices]
+
+    # Handle scalar or array input
+    channels = np.atleast_1d(channels)
+    is_scalar = channels.shape == (1,)
+
+    # Validate channels
+    if np.any((channels < 0) | (channels > 40)):
+        raise ValueError("Channel indices must be in range 0-40")
+
+    # Map frequency channels to positions
+    positions = np.array([freq_to_position_mapping[ch] for ch in channels])
+
+    # Get x, y coordinates
+    x = centers[0, positions]
+    y = centers[1, positions]
+
+    # Return scalar if input was scalar
+    if is_scalar:
+        return x[0], y[0]
+    return x, y
