@@ -605,7 +605,8 @@ class DxRecords(strax.Plugin):
             ) / self.interpolated_freqs[rr["channel"]]
 
             # Remove principal components from the data.
-            r["data_dx"] = self.pca(r["data_dx"])
+            if self.pca_n_components > 0:
+                r["data_dx"] = self.pca(r["data_dx"])
 
             # Inject truth pulses into data_dx
             self._inject_truth_pulses(r, truth)
