@@ -388,7 +388,10 @@ class DxHitClassification(strax.Plugin):
         denom = np.sum(np.real(np.multiply(Af, np.conjugate(Af))))
         ahatOF = numer / denom
 
-        chisq = np.sum(np.abs(Sf - ahatOF * Af) ** 2 / Jf) / (len(Sf) - 1)
+        # Protect against division by zero in chi-squared calculation
+        # Replace zero or very small values in Jf with a small positive value
+        Jf_safe = np.where(Jf > 1e-20, Jf, 1e-20)
+        chisq = np.sum(np.abs(Sf - ahatOF * Af) ** 2 / Jf_safe) / (len(Sf) - 1)
 
         return ahatOF, chisq
 
