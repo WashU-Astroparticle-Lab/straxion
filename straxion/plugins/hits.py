@@ -326,9 +326,6 @@ class DxHits(strax.Plugin):
         # Order hits first by time
         results = results[np.argsort(results["time"])]
 
-        # Truncate hits endtime to record endtime
-        results["endtime"] = np.minimum(results["endtime"], records["endtime"][0])
-
         return results
 
     def _process_single_record(self, record, hit_threshold_dx):
@@ -364,6 +361,7 @@ class DxHits(strax.Plugin):
                 start_i,
                 hit_widths[i],
                 record["time"],
+                record["endtime"],
                 previous_hit_end_i=hit_start_i[i - 1] + hit_widths[i - 1] if i > 0 else None,
                 next_hit_start_i=hit_start_i[i + 1] if i < len(hit_start_i) - 1 else None,
             )
@@ -379,6 +377,7 @@ class DxHits(strax.Plugin):
         start_i,
         width,
         start_time,
+        record_endtime,
         previous_hit_end_i=None,
         next_hit_start_i=None,
     ):
@@ -433,7 +432,6 @@ class DxHits(strax.Plugin):
         hit["amplitude_convolved"] = np.max(signal_convolved[left_i:right_i])
         hit["amplitude_moving_average"] = np.max(signal_ma[left_i:right_i])
         hit["amplitude"] = np.max(signal_raw[left_i:right_i])
-        hit["length"] = right_i - left_i
         hit["amplitude_convolved_max_record_i"] = np.int32(
             np.argmax(signal_convolved[left_i:right_i]) + left_i
         )
@@ -444,7 +442,12 @@ class DxHits(strax.Plugin):
 
         # Calculate time and endtime
         hit["time"] = np.int64(start_time + np.int64(left_i * self.dt_exact))
-        hit["endtime"] = np.int64(start_time + np.int64(right_i * self.dt_exact))
+        calculated_endtime = np.int64(start_time + np.int64(right_i * self.dt_exact))
+        hit["endtime"] = min(calculated_endtime, record_endtime)
+
+        # Ensure length is consistent with actual time and endtime
+        # This handles cases where endtime is clamped to record boundary
+        hit["length"] = np.int64((hit["endtime"] - hit["time"]) / self.dt_exact)
 
 
 @export

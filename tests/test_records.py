@@ -178,6 +178,72 @@ class TestConvertIQToTheta:
             self.pp.convert_iq_to_theta(data_i, data_q, channel)
 
 
+class TestDxRecordsPCA:
+    """Test the PCA method of DxRecords class."""
+
+    def setup_method(self):
+        """Set up test data and create a DxRecords instance."""
+        self.dx_records = DxRecords()
+        # Mock the pca_n_components attribute
+        self.dx_records.pca_n_components = 2
+
+    def test_pca_basic(self):
+        """Test basic PCA functionality with simple data."""
+        # Create a simple dataset with known structure
+        n_samples = 100
+        data = np.random.randn(n_samples)
+
+        # Apply PCA
+        result = self.dx_records.pca(data)
+
+        # Basic checks
+        assert isinstance(result, np.ndarray)
+        assert result.shape == data.shape
+        assert np.all(np.isfinite(result))
+
+    def test_pca_removes_components(self):
+        """Test that PCA actually removes principal components."""
+        # Create data with a strong principal component
+        n_samples = 1000
+        t = np.linspace(0, 10, n_samples)
+        # Add a strong sinusoidal component (will be first PC)
+        data = 10 * np.sin(t) + 0.1 * np.random.randn(n_samples)
+
+        # Apply PCA with 1 component removed
+        self.dx_records.pca_n_components = 1
+        result = self.dx_records.pca(data)
+
+        # Result should have lower variance than input
+        # since we removed the dominant component
+        assert np.var(result) < np.var(data)
+        assert np.all(np.isfinite(result))
+
+    def test_pca_different_n_components(self):
+        """Test PCA with different numbers of components."""
+        n_samples = 200
+        data = np.random.randn(n_samples)
+
+        results = {}
+        for n_comp in [1, 2, 4]:
+            self.dx_records.pca_n_components = n_comp
+            results[n_comp] = self.dx_records.pca(data)
+
+            # All results should be valid arrays
+            assert isinstance(results[n_comp], np.ndarray)
+            assert results[n_comp].shape == data.shape
+            assert np.all(np.isfinite(results[n_comp]))
+
+    def test_pca_preserves_mean(self):
+        """Test that PCA approximately preserves the mean of the data."""
+        n_samples = 500
+        data = np.random.randn(n_samples) + 5.0  # Add offset
+
+        result = self.dx_records.pca(data)
+
+        # Mean should be approximately preserved
+        np.testing.assert_allclose(np.mean(result), np.mean(data), rtol=0.1)
+
+
 class TestDxRecordsStaticMethods:
     """Test the static methods of DxRecords class."""
 
@@ -450,6 +516,7 @@ class TestDxRecordsSetupMethods:
             "pulse_kernel_gaussian_smearing_width": 28000,
             "pulse_kernel_truncation_factor": 10,
             "moving_average_width": 100000,
+            "pca_n_components": 4,
         }
 
         # Create test data files
@@ -562,6 +629,7 @@ class TestDxRecordsSetupMethods:
         assert hasattr(self.dx_records, "f_interpolation_models")
         assert hasattr(self.dx_records, "kernel")
         assert hasattr(self.dx_records, "moving_average_kernel")
+        assert hasattr(self.dx_records, "pca_n_components")
 
         # Verify record_length is set correctly
         assert self.dx_records.record_length == 1000
@@ -569,6 +637,9 @@ class TestDxRecordsSetupMethods:
         # Verify dt_exact is calculated correctly
         expected_dt = 1 / self.dx_records.config["fs"] * 1e9  # Convert to ns
         assert self.dx_records.dt_exact == expected_dt
+
+        # Verify pca_n_components is set from config
+        assert self.dx_records.pca_n_components == (self.dx_records.config["pca_n_components"])
 
 
 class TestDxRecordsCompute:
@@ -595,6 +666,7 @@ class TestDxRecordsCompute:
             "pulse_kernel_decay_time": 600000,
             "pulse_kernel_gaussian_smearing_width": 28000,
             "pulse_kernel_truncation_factor": 10,
+            "pca_n_components": 4,
         }
 
         # Create test data files
@@ -623,6 +695,7 @@ class TestDxRecordsCompute:
         # Mock the setup methods
         self.dx_records.record_length = self.record_length
         self.dx_records.dt_exact = 1 / self.dx_records.config["fs"] * 1e9  # Convert to ns
+        self.dx_records.pca_n_components = self.dx_records.config["pca_n_components"]
 
     def teardown_method(self):
         """Clean up temporary files."""
@@ -729,6 +802,145 @@ class TestDxRecordsCompute:
             assert np.all(np.isfinite(result["data_dx"]))
             assert np.all(np.isfinite(result["data_dx_moving_average"]))
             assert np.all(np.isfinite(result["data_dx_convolved"]))
+
+    def test_compute_with_pca_disabled(self):
+        """Test compute with PCA disabled (pca_n_components=0)."""
+        # Setup the plugin
+        self.dx_records._setup_iq_correction_and_calibration()
+        self.dx_records._setup_frequency_interpolation_models()
+
+        # Set PCA components to 0 (disabled)
+        self.dx_records.config["pca_n_components"] = 0
+        self.dx_records.pca_n_components = 0
+
+        # Pre-compute kernels
+        self.dx_records.kernel = DxRecords.pulse_kernel(
+            self.record_length,
+            self.dx_records.config["fs"],
+            self.dx_records.config["pulse_kernel_start_time"],
+            self.dx_records.config["pulse_kernel_decay_time"],
+            self.dx_records.config["pulse_kernel_gaussian_smearing_width"],
+            self.dx_records.config["pulse_kernel_truncation_factor"],
+        )
+
+        moving_average_kernel_width = int(
+            self.dx_records.config["moving_average_width"] / self.dx_records.dt_exact
+        )
+        self.dx_records.moving_average_kernel = (
+            np.ones(moving_average_kernel_width) / moving_average_kernel_width
+        )
+
+        # Create mock raw records
+        raw_records = np.zeros(
+            1,
+            dtype=[
+                ("time", np.int64),
+                ("endtime", np.int64),
+                ("length", np.int64),
+                ("dt", np.int64),
+                ("channel", np.int16),
+                ("data_i", np.float32, self.record_length),
+                ("data_q", np.float32, self.record_length),
+            ],
+        )
+
+        raw_records[0]["time"] = 0
+        raw_records[0]["length"] = self.record_length
+        raw_records[0]["dt"] = int(self.dx_records.dt_exact)
+        raw_records[0]["endtime"] = (
+            raw_records[0]["time"] + raw_records[0]["length"] * raw_records[0]["dt"]
+        )
+        raw_records[0]["channel"] = 0
+        raw_records[0]["data_i"] = np.random.randn(self.record_length)
+        raw_records[0]["data_q"] = np.random.randn(self.record_length)
+
+        # Create empty truth array
+        truth_dtype = [
+            ("time", np.int64),
+            ("endtime", np.int64),
+            ("energy_true", np.float32),
+            ("dx_true", np.float32),
+            ("channel", np.int16),
+        ]
+        truth = np.zeros(0, dtype=truth_dtype)
+
+        # Test compute - should work without errors
+        results = self.dx_records.compute(raw_records, truth)
+
+        assert len(results) == 1
+        assert np.all(np.isfinite(results[0]["data_dx"]))
+
+    def test_compute_pca_affects_output(self):
+        """Test that different PCA settings affect the output."""
+        # Setup the plugin
+        self.dx_records._setup_iq_correction_and_calibration()
+        self.dx_records._setup_frequency_interpolation_models()
+
+        # Pre-compute kernels
+        self.dx_records.kernel = DxRecords.pulse_kernel(
+            self.record_length,
+            self.dx_records.config["fs"],
+            self.dx_records.config["pulse_kernel_start_time"],
+            self.dx_records.config["pulse_kernel_decay_time"],
+            self.dx_records.config["pulse_kernel_gaussian_smearing_width"],
+            self.dx_records.config["pulse_kernel_truncation_factor"],
+        )
+
+        moving_average_kernel_width = int(
+            self.dx_records.config["moving_average_width"] / self.dx_records.dt_exact
+        )
+        self.dx_records.moving_average_kernel = (
+            np.ones(moving_average_kernel_width) / moving_average_kernel_width
+        )
+
+        # Create mock raw records
+        raw_records = np.zeros(
+            1,
+            dtype=[
+                ("time", np.int64),
+                ("endtime", np.int64),
+                ("length", np.int64),
+                ("dt", np.int64),
+                ("channel", np.int16),
+                ("data_i", np.float32, self.record_length),
+                ("data_q", np.float32, self.record_length),
+            ],
+        )
+
+        raw_records[0]["time"] = 0
+        raw_records[0]["length"] = self.record_length
+        raw_records[0]["dt"] = int(self.dx_records.dt_exact)
+        raw_records[0]["endtime"] = (
+            raw_records[0]["time"] + raw_records[0]["length"] * raw_records[0]["dt"]
+        )
+        raw_records[0]["channel"] = 0
+        # Use the same data for both tests
+        np.random.seed(42)
+        raw_records[0]["data_i"] = np.random.randn(self.record_length)
+        raw_records[0]["data_q"] = np.random.randn(self.record_length)
+
+        # Create empty truth array
+        truth_dtype = [
+            ("time", np.int64),
+            ("endtime", np.int64),
+            ("energy_true", np.float32),
+            ("dx_true", np.float32),
+            ("channel", np.int16),
+        ]
+        truth = np.zeros(0, dtype=truth_dtype)
+
+        # Test with PCA enabled (4 components)
+        self.dx_records.pca_n_components = 4
+        results_with_pca = self.dx_records.compute(raw_records.copy(), truth)
+
+        # Test with PCA disabled (0 components)
+        self.dx_records.pca_n_components = 0
+        results_no_pca = self.dx_records.compute(raw_records.copy(), truth)
+
+        # Results should be different when PCA is applied
+        # Note: They might be very similar for random data, but should
+        # not be identical
+        assert not np.allclose(results_with_pca[0]["data_dx"], results_no_pca[0]["data_dx"])
 
     def test_compute_empty_input(self):
         """Test compute with empty input."""
