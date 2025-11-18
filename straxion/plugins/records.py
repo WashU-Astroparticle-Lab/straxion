@@ -529,21 +529,28 @@ class DxRecords(strax.Plugin):
 
         Uses singular value decomposition to identify and remove the dominant
         principal components from the input data, which is useful for removing
-        correlated noise.
+        correlated noise across multiple timestreams.
 
         Adapted from:
         https://github.com/loganfoote/citkid/blob/main/citkid/noise/pca.py
 
         Args:
-            y (np.ndarray): Array of timestream data. Can be 1D (single
-                timestream) or 2D (multiple timestreams).
+            y (np.ndarray): Array of timestream data. Expected shape is
+                (n_timestreams, n_samples) for 2D or (n_samples,) for 1D.
+                For 1D input, it will be reshaped to (1, n_samples).
 
         Returns:
             z (np.ndarray): Array with the same shape as y, with the top
                 pca_n_components principal components removed.
         """
+        # Convert to array and handle 1D input
+        y = np.array(y)
+        is_1d = y.ndim == 1
+        if is_1d:
+            y = y.reshape(1, -1)
+
         # Normalize input data
-        y = np.array(y).T
+        y = y.T
         mean = np.mean(y, axis=0)
         y_normalized = y - mean
         std_dev = np.std(y_normalized, axis=0)
@@ -557,8 +564,11 @@ class DxRecords(strax.Plugin):
         z_normalized = (U * S_rmvd) @ Vh
         # Remove normalization
         z = ((z_normalized.T * std_dev) + mean).T
-        # un-normalize S
-        S = S * std_dev + mean
+
+        # Return to original shape
+        if is_1d:
+            z = z.flatten()
+
         return z
 
     def compute(self, raw_records, truth):
