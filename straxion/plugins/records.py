@@ -131,7 +131,7 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "pca_n_components",
-        default=4,
+        default=0,
         track=True,
         type=int,
         help="Number of principal components to remove from the data using PCA.",
