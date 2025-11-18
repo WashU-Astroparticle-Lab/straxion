@@ -326,9 +326,6 @@ class DxHits(strax.Plugin):
         # Order hits first by time
         results = results[np.argsort(results["time"])]
 
-        # Truncate hits endtime to record endtime
-        results["endtime"] = np.minimum(results["endtime"], records["endtime"][0])
-
         return results
 
     def _process_single_record(self, record, hit_threshold_dx):
@@ -364,6 +361,7 @@ class DxHits(strax.Plugin):
                 start_i,
                 hit_widths[i],
                 record["time"],
+                record["endtime"],
                 previous_hit_end_i=hit_start_i[i - 1] + hit_widths[i - 1] if i > 0 else None,
                 next_hit_start_i=hit_start_i[i + 1] if i < len(hit_start_i) - 1 else None,
             )
@@ -379,6 +377,7 @@ class DxHits(strax.Plugin):
         start_i,
         width,
         start_time,
+        record_endtime,
         previous_hit_end_i=None,
         next_hit_start_i=None,
     ):
@@ -444,7 +443,9 @@ class DxHits(strax.Plugin):
 
         # Calculate time and endtime
         hit["time"] = np.int64(start_time + np.int64(left_i * self.dt_exact))
-        hit["endtime"] = np.int64(start_time + np.int64(right_i * self.dt_exact))
+        hit["endtime"] = min(
+            np.int64(start_time + np.int64(right_i * self.dt_exact)), record_endtime
+        )
 
 
 @export
