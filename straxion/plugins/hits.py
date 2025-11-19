@@ -447,7 +447,7 @@ class DxHits(strax.Plugin):
 
         # Ensure length is consistent with actual time and endtime
         # This handles cases where endtime is clamped to record boundary
-        hit["length"] = np.int64((hit["endtime"] - hit["time"]) / self.dt_exact)
+        hit["length"] = target_end - target_start
 
 
 @export
