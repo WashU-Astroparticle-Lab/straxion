@@ -297,8 +297,8 @@ class DxHitClassification(strax.Plugin):
 
         return data["interp"], data["t_max"]
 
+    @staticmethod
     def modify_template(
-        self,
         St,
         dt_seconds,
         tau,
@@ -307,6 +307,8 @@ class DxHitClassification(strax.Plugin):
         amplitude=1.0,
         interp_path="template_interp.pkl",
         apply_window=False,
+        of_window_left=None,
+        of_window_right=None,
     ):
         """
         Modify template using pre-built interpolation function.
@@ -329,8 +331,15 @@ class DxHitClassification(strax.Plugin):
         interp_path : str
             Path to saved interpolation file
         apply_window : bool, optional
-            If True, apply windowing using of_window_left and of_window_right.
-            Default is False for backward compatibility.
+            If True, apply windowing using of_window_left and
+            of_window_right. Default is False for backward
+            compatibility.
+        of_window_left : int, optional
+            Left window size for optimal filter in samples.
+            Required if apply_window is True.
+        of_window_right : int, optional
+            Right window size for optimal filter in samples.
+            Required if apply_window is True.
 
         Returns:
         --------
@@ -340,7 +349,7 @@ class DxHitClassification(strax.Plugin):
         """
         # Load interpolation function if not provided
         if At_interp is None or t_max_seconds is None:
-            At_interp, t_max_seconds = self.load_interpolation(interp_path)
+            At_interp, t_max_seconds = DxHitClassification.load_interpolation(interp_path)
 
         target_length = len(St)
         max_index = HIT_WINDOW_LENGTH_LEFT
@@ -352,8 +361,13 @@ class DxHitClassification(strax.Plugin):
 
         # Apply windowing if requested
         if apply_window:
-            window_start = HIT_WINDOW_LENGTH_LEFT - self.of_window_left
-            window_end = HIT_WINDOW_LENGTH_LEFT + self.of_window_right
+            if of_window_left is None or of_window_right is None:
+                raise ValueError(
+                    "of_window_left and of_window_right must be "
+                    "provided when apply_window is True"
+                )
+            window_start = HIT_WINDOW_LENGTH_LEFT - of_window_left
+            window_end = HIT_WINDOW_LENGTH_LEFT + of_window_right
             At_modified = At_modified[window_start:window_end]
 
         return At_modified
@@ -395,7 +409,19 @@ class DxHitClassification(strax.Plugin):
 
         return ahatOF, chisq
 
-    def optimal_filter(self, St, dt_seconds, Jf, At_interp=None, t_max_seconds=None):
+    @staticmethod
+    def optimal_filter(
+        St,
+        dt_seconds,
+        Jf,
+        At_interp,
+        t_max_seconds,
+        of_window_left,
+        of_window_right,
+        of_shift_range_min,
+        of_shift_range_max,
+        of_shift_step,
+    ):
         """
         Calculate optimal filter with coarse time shift optimization.
 
@@ -406,12 +432,21 @@ class DxHitClassification(strax.Plugin):
         dt_seconds : float
             Time step in seconds
         Jf : array
-            Noise PSD (taken from averaged FFTs
-            of many noise banks)
-        At_interp : interp1d, optional
-            Pre-built interpolation function. Uses self.At_interp if None.
-        t_max_seconds : float, optional
-            Time of maximum value in seconds. Uses self.t_max if None.
+            Noise PSD (taken from averaged FFTs of many noise banks)
+        At_interp : interp1d
+            Pre-built interpolation function
+        t_max_seconds : float
+            Time of maximum value in seconds
+        of_window_left : int
+            Left window size for optimal filter in samples
+        of_window_right : int
+            Right window size for optimal filter in samples
+        of_shift_range_min : int
+            Minimum time shift for optimal filter coarse scan (samples)
+        of_shift_range_max : int
+            Maximum time shift for optimal filter coarse scan (samples)
+        of_shift_step : int
+            Step size for optimal filter coarse scan (in samples)
 
         Returns:
         --------
@@ -424,22 +459,16 @@ class DxHitClassification(strax.Plugin):
         best_At_shifted : array
             Template shifted to best position and scaled by best_aOF
         """
-        # Use pre-loaded interpolation function if not provided
-        if At_interp is None:
-            At_interp = self.At_interp
-        if t_max_seconds is None:
-            t_max_seconds = self.t_max
-
         # Apply windowing to signal
-        window_start = HIT_WINDOW_LENGTH_LEFT - self.of_window_left
-        window_end = HIT_WINDOW_LENGTH_LEFT + self.of_window_right
+        window_start = HIT_WINDOW_LENGTH_LEFT - of_window_left
+        window_end = HIT_WINDOW_LENGTH_LEFT + of_window_right
         St_windowed = St[window_start:window_end]
 
         # Coarse scan for optimal time shift
         N_shiftOF_arr = np.arange(
-            self.config["of_shift_range_min"],
-            self.config["of_shift_range_max"],
-            self.config["of_shift_step"],
+            of_shift_range_min,
+            of_shift_range_max,
+            of_shift_step,
         )
         ahatOF_arr = np.zeros(np.shape(N_shiftOF_arr))
         chi2_arr = np.zeros(np.shape(N_shiftOF_arr))
@@ -447,15 +476,19 @@ class DxHitClassification(strax.Plugin):
         # Test different time shifts
         for nn in range(len(N_shiftOF_arr)):
             N_shiftOF = N_shiftOF_arr[nn]
-            At_shifted = self.modify_template(
+            At_shifted = DxHitClassification.modify_template(
                 St,
                 dt_seconds,
                 N_shiftOF,
                 At_interp=At_interp,
                 t_max_seconds=t_max_seconds,
                 apply_window=True,
+                of_window_left=of_window_left,
+                of_window_right=of_window_right,
             )
-            ahatOF_arr[nn], chi2_arr[nn] = self._optimal_filter(St_windowed, Jf=Jf, At=At_shifted)
+            ahatOF_arr[nn], chi2_arr[nn] = DxHitClassification._optimal_filter(
+                St_windowed, Jf=Jf, At=At_shifted
+            )
 
         # Find best shift
         best_idx = np.argmin(chi2_arr)
@@ -464,7 +497,7 @@ class DxHitClassification(strax.Plugin):
         best_OF_shift = N_shiftOF_arr[best_idx]
 
         # Generate final shifted template scaled by best amplitude
-        best_At_shifted = self.modify_template(
+        best_At_shifted = DxHitClassification.modify_template(
             St,
             dt_seconds,
             best_OF_shift,
@@ -472,6 +505,8 @@ class DxHitClassification(strax.Plugin):
             t_max_seconds=t_max_seconds,
             amplitude=best_aOF,
             apply_window=True,
+            of_window_left=of_window_left,
+            of_window_right=of_window_right,
         )
 
         return best_aOF, best_chi2, best_OF_shift, best_At_shifted
@@ -645,7 +680,18 @@ class DxHitClassification(strax.Plugin):
 
             # Compute optimal filter with shift optimization
             # dt_seconds is explicitly in seconds
-            best_aOF, best_chi2, best_OF_shift, _ = self.optimal_filter(St, dt_seconds, Jf)
+            best_aOF, best_chi2, best_OF_shift, _ = self.optimal_filter(
+                St,
+                dt_seconds,
+                Jf,
+                self.At_interp,
+                self.t_max,
+                self.of_window_left,
+                self.of_window_right,
+                self.config["of_shift_range_min"],
+                self.config["of_shift_range_max"],
+                self.config["of_shift_step"],
+            )
 
             # Store results
             hit_classification["best_aOF"][i] = best_aOF
