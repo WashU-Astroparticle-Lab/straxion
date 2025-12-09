@@ -421,6 +421,7 @@ class DxHitClassification(strax.Plugin):
         of_shift_range_min,
         of_shift_range_max,
         of_shift_step,
+        debug=False,
     ):
         """
         Calculate optimal filter with coarse time shift optimization.
@@ -447,6 +448,9 @@ class DxHitClassification(strax.Plugin):
             Maximum time shift for optimal filter coarse scan (samples)
         of_shift_step : int
             Step size for optimal filter coarse scan (in samples)
+        debug : bool
+            Whether to return the chi-squared values for all time shifts
+            and the shifted templates. Default is False.
 
         Returns:
         --------
@@ -472,6 +476,8 @@ class DxHitClassification(strax.Plugin):
         )
         ahatOF_arr = np.zeros(np.shape(N_shiftOF_arr))
         chi2_arr = np.zeros(np.shape(N_shiftOF_arr))
+        if debug:
+            At_shifted_arr = np.zeros(np.shape(N_shiftOF_arr), dtype=object)
 
         # Test different time shifts
         for nn in range(len(N_shiftOF_arr)):
@@ -489,6 +495,8 @@ class DxHitClassification(strax.Plugin):
             ahatOF_arr[nn], chi2_arr[nn] = DxHitClassification._optimal_filter(
                 St_windowed, Jf=Jf, At=At_shifted
             )
+            if debug:
+                At_shifted_arr[nn] = At_shifted * ahatOF_arr[nn]
 
         # Find best shift
         best_idx = np.argmin(chi2_arr)
@@ -509,7 +517,18 @@ class DxHitClassification(strax.Plugin):
             of_window_right=of_window_right,
         )
 
-        return best_aOF, best_chi2, best_OF_shift, best_At_shifted
+        if debug:
+            return (
+                best_aOF,
+                best_chi2,
+                best_OF_shift,
+                best_At_shifted,
+                chi2_arr,
+                At_shifted_arr,
+                ahatOF_arr,
+            )
+        else:
+            return best_aOF, best_chi2, best_OF_shift, best_At_shifted
 
     def determine_spike_threshold(self, records):
         """Determine the spike threshold based on the provided configuration.
