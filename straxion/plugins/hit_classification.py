@@ -367,8 +367,8 @@ class DxHitClassification(strax.Plugin):
                     "of_window_left and of_window_right must be "
                     "provided when apply_window is True"
                 )
-            window_start = HIT_WINDOW_LENGTH_LEFT - of_window_left
-            window_end = HIT_WINDOW_LENGTH_LEFT + of_window_right
+            window_start = max_index - of_window_left
+            window_end = max_index + of_window_right
             At_modified = At_modified[window_start:window_end]
 
         return At_modified
@@ -465,8 +465,10 @@ class DxHitClassification(strax.Plugin):
             Template shifted to best position and scaled by best_aOF
         """
         # Apply windowing to signal
-        window_start = HIT_WINDOW_LENGTH_LEFT - of_window_left
-        window_end = HIT_WINDOW_LENGTH_LEFT + of_window_right
+        t_seconds = np.arange(len(St)) * dt_seconds
+        max_index = np.argmin((t_seconds - t_max_seconds) ** 2)
+        window_start = max_index - of_window_left
+        window_end = max_index + of_window_right
         St_windowed = St[window_start:window_end]
 
         # Coarse scan for optimal time shift
