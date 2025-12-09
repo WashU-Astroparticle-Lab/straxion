@@ -352,7 +352,8 @@ class DxHitClassification(strax.Plugin):
             At_interp, t_max_seconds = DxHitClassification.load_interpolation(interp_path)
 
         target_length = len(St)
-        max_index = HIT_WINDOW_LENGTH_LEFT
+        t_seconds = np.arange(target_length) * dt_seconds
+        max_index = np.argmin((t_seconds - t_max_seconds) ** 2)
         final_max_index = max_index + tau
         time_new_seconds = np.arange(target_length) * dt_seconds
         time_shift_seconds = time_new_seconds[final_max_index] - t_max_seconds
