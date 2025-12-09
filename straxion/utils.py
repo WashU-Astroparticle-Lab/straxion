@@ -23,7 +23,7 @@ PULSE_TEMPLATE_38kHz = np.load(Path(__file__).parent / "msc" / "pulse_template_3
 PULSE_TEMPLATE_LENGTH = len(PULSE_TEMPLATE_38kHz)
 PULSE_TEMPLATE_ARGMAX = np.argmax(PULSE_TEMPLATE_38kHz)
 
-# Hit waveform recording window length.
+# Hit waveform recording window length, from the maximum of the hit waveform.
 HIT_WINDOW_LENGTH_LEFT = 200
 HIT_WINDOW_LENGTH_RIGHT = 600
 
