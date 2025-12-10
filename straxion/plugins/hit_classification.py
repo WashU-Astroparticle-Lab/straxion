@@ -352,7 +352,8 @@ class DxHitClassification(strax.Plugin):
             At_interp, t_max_seconds = DxHitClassification.load_interpolation(interp_path)
 
         target_length = len(St)
-        max_index = HIT_WINDOW_LENGTH_LEFT
+        t_seconds = np.arange(target_length) * dt_seconds
+        max_index = np.argmin((t_seconds - t_max_seconds) ** 2)
         final_max_index = max_index + tau
         time_new_seconds = np.arange(target_length) * dt_seconds
         time_shift_seconds = time_new_seconds[final_max_index] - t_max_seconds
@@ -366,8 +367,8 @@ class DxHitClassification(strax.Plugin):
                     "of_window_left and of_window_right must be "
                     "provided when apply_window is True"
                 )
-            window_start = HIT_WINDOW_LENGTH_LEFT - of_window_left
-            window_end = HIT_WINDOW_LENGTH_LEFT + of_window_right
+            window_start = max_index - of_window_left
+            window_end = max_index + of_window_right
             At_modified = At_modified[window_start:window_end]
 
         return At_modified
@@ -421,6 +422,7 @@ class DxHitClassification(strax.Plugin):
         of_shift_range_min,
         of_shift_range_max,
         of_shift_step,
+        debug=False,
     ):
         """
         Calculate optimal filter with coarse time shift optimization.
@@ -447,6 +449,9 @@ class DxHitClassification(strax.Plugin):
             Maximum time shift for optimal filter coarse scan (samples)
         of_shift_step : int
             Step size for optimal filter coarse scan (in samples)
+        debug : bool
+            Whether to return the chi-squared values for all time shifts
+            and the shifted templates. Default is False.
 
         Returns:
         --------
@@ -460,8 +465,10 @@ class DxHitClassification(strax.Plugin):
             Template shifted to best position and scaled by best_aOF
         """
         # Apply windowing to signal
-        window_start = HIT_WINDOW_LENGTH_LEFT - of_window_left
-        window_end = HIT_WINDOW_LENGTH_LEFT + of_window_right
+        t_seconds = np.arange(len(St)) * dt_seconds
+        max_index = np.argmin((t_seconds - t_max_seconds) ** 2)
+        window_start = max_index - of_window_left
+        window_end = max_index + of_window_right
         St_windowed = St[window_start:window_end]
 
         # Coarse scan for optimal time shift
@@ -472,6 +479,8 @@ class DxHitClassification(strax.Plugin):
         )
         ahatOF_arr = np.zeros(np.shape(N_shiftOF_arr))
         chi2_arr = np.zeros(np.shape(N_shiftOF_arr))
+        if debug:
+            At_shifted_arr = np.zeros(np.shape(N_shiftOF_arr), dtype=object)
 
         # Test different time shifts
         for nn in range(len(N_shiftOF_arr)):
@@ -489,6 +498,8 @@ class DxHitClassification(strax.Plugin):
             ahatOF_arr[nn], chi2_arr[nn] = DxHitClassification._optimal_filter(
                 St_windowed, Jf=Jf, At=At_shifted
             )
+            if debug:
+                At_shifted_arr[nn] = At_shifted * ahatOF_arr[nn]
 
         # Find best shift
         best_idx = np.argmin(chi2_arr)
@@ -509,7 +520,18 @@ class DxHitClassification(strax.Plugin):
             of_window_right=of_window_right,
         )
 
-        return best_aOF, best_chi2, best_OF_shift, best_At_shifted
+        if debug:
+            return (
+                best_aOF,
+                best_chi2,
+                best_OF_shift,
+                best_At_shifted,
+                chi2_arr,
+                At_shifted_arr,
+                ahatOF_arr,
+            )
+        else:
+            return best_aOF, best_chi2, best_OF_shift, best_At_shifted
 
     def determine_spike_threshold(self, records):
         """Determine the spike threshold based on the provided configuration.
