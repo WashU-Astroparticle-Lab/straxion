@@ -273,23 +273,31 @@ class NX3LikeReader(strax.Plugin):
     def setup(self):
         self.dt = int(1 / self.config["fs"] * SECOND_TO_NANOSECOND)  # In unit of ns.
 
-    def load_one_channel(self, file_path):
-        """Reads and polynomially corrects raw binary DAQ data of a certain readout channel.
+    @staticmethod
+    def load_one_channel(file_path, dt, record_length=None):
+        """Reads and polynomially corrects raw binary DAQ data of a
+        certain readout channel.
 
         Workflow:
-        1. Reads the file header to determine the number of coefficients and IQ channels.
+        1. Reads the file header to determine the number of
+           coefficients and IQ channels.
         2. Checks that there are exactly two IQ channels (I and Q).
         3. Reads and reshapes the calibration coefficient matrix.
         4. Reads the raw int16 time-series data and checks its shape.
-        5. Applies polynomial calibration to convert raw ADC counts to physical units.
+        5. Applies polynomial calibration to convert raw ADC counts
+           to physical units.
         6. Constructs a time vector based on the sampling interval.
-        7. Returns a structured array with fields 'time', 'data_i', and 'data_q'.
+        7. Returns a structured array with fields 'time', 'data_i',
+           and 'data_q'.
 
         Args:
             file_path (str): Path to the binary DAQ file.
+            dt (float): Sampling time interval.
+            record_length (int, optional): Expected number of samples.
 
         Returns:
-            np.ndarray: Structured array with fields 'time', 'I', and 'Q'.
+            np.ndarray: Structured array with fields 'time', 'I',
+                        and 'Q'.
 
         """
 
@@ -299,8 +307,9 @@ class NX3LikeReader(strax.Plugin):
             n_iq_channels = int(header[1])
             if n_iq_channels != 2:
                 raise ValueError(
-                    f"Expected 2 channels (I and Q), but found {n_iq_channels}. "
-                    "There should be only two channels: I and Q."
+                    f"Expected 2 channels (I and Q), but found "
+                    f"{n_iq_channels}. There should be only two "
+                    f"channels: I and Q."
                 )
             return n_coeffs
 
@@ -315,13 +324,15 @@ class NX3LikeReader(strax.Plugin):
             if data_size % 2 != 0:
                 raise ValueError(
                     f"Data size ({data_size}) is not divisible by 2. "
-                    "Data of different channels may have different lengths!"
+                    "Data of different channels may have different "
+                    "lengths!"
                 )
             n_samples_found = data_size // 2
             if record_length is not None and n_samples_found != record_length:
                 raise ValueError(
-                    f"The data length is promised to be {record_length} "
-                    f"but found to be {n_samples_found}."
+                    f"The data length is promised to be "
+                    f"{record_length} but found to be "
+                    f"{n_samples_found}."
                 )
             return n_samples_found
 
@@ -340,16 +351,16 @@ class NX3LikeReader(strax.Plugin):
                 b += term
             return b
 
-        def _make_time_vector(n_samples):
-            return np.arange(n_samples) * self.dt
+        def _make_time_vector(n_samples, dt):
+            return np.arange(n_samples) * dt
 
         with open(file_path, "rb") as f:
             try:
                 n_coeffs = _read_header(f)
                 _, offsets, gains = _read_coefficients(f, n_coeffs)
-                data_int16, n_samples = _read_data(f, self.config["record_length"])
+                data_int16, n_samples = _read_data(f, record_length)
                 calibrated = _apply_poly_correction(data_int16, offsets, gains)
-                time_vector = _make_time_vector(n_samples)
+                time_vector = _make_time_vector(n_samples, dt)
                 dtype = [("time", np.float64), ("data_i", DATA_DTYPE), ("data_q", DATA_DTYPE)]
                 structured = np.zeros(n_samples, dtype=dtype)
                 structured["time"] = time_vector
@@ -519,7 +530,7 @@ class NX3LikeReader(strax.Plugin):
         for i, ch in enumerate(found_channels):
             # Load and process the channel data.
             file_path = self.get_channel_file(ch)
-            channel_data = self.load_one_channel(file_path)
+            channel_data = self.load_one_channel(file_path, self.dt, self.config["record_length"])
 
             # Fill in the record data
             r = results[i]
