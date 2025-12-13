@@ -293,7 +293,8 @@ class NX3LikeReader(strax.Plugin):
         Args:
             file_path (str): Path to the binary DAQ file.
             dt (float): Sampling time interval.
-            record_length (int, optional): Expected number of samples.
+            record_length (int, optional): Expected number of samples. If None, the number of
+            samples will be determined by the data size.
 
         Returns:
             np.ndarray: Structured array with fields 'time', 'I',
