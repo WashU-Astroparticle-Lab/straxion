@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: False
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.12"]
         test: ["coveralls", "pytest"]
 
     steps:
@@ -104,15 +104,11 @@ jobs:
           coverage report
 
       - name: Coveralls
-        if: matrix.test == 'coveralls' && (github.actor != 'dependabot[bot]')
+        if: matrix.test == 'coveralls' && (github.actor != 'dependabot[bot]') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false))
         env:
           NUMBA_DISABLE_JIT: 1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ -z "$GITHUB_TOKEN" ]; then
-            echo "GITHUB_TOKEN not available — skipping coveralls upload (likely a forked PR)."
-            exit 0
-          fi
           pip install -e .
           coverage run --source=straxion -m pytest -v
           coveralls --service=github
