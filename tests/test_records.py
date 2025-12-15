@@ -4,6 +4,7 @@ import os
 import tempfile
 import shutil
 from straxion.plugins.records import PulseProcessing, DxRecords
+from straxion.utils import PULSE_TEMPLATE_LENGTH, PULSE_TEMPLATE_ARGMAX
 
 
 # Note: circfit method tests removed as the method doesn't exist in PulseProcessing
@@ -630,6 +631,10 @@ class TestDxRecordsSetupMethods:
         assert hasattr(self.dx_records, "kernel")
         assert hasattr(self.dx_records, "moving_average_kernel")
         assert hasattr(self.dx_records, "pca_n_components")
+        # Verify interpolation-related attributes
+        assert hasattr(self.dx_records, "At_interp")
+        assert hasattr(self.dx_records, "t_max")
+        assert hasattr(self.dx_records, "interpolated_template")
 
         # Verify record_length is set correctly
         assert self.dx_records.record_length == 1000
@@ -640,6 +645,11 @@ class TestDxRecordsSetupMethods:
 
         # Verify pca_n_components is set from config
         assert self.dx_records.pca_n_components == (self.dx_records.config["pca_n_components"])
+
+        # Verify interpolated_template properties
+        assert len(self.dx_records.interpolated_template) == PULSE_TEMPLATE_LENGTH
+        assert np.argmax(self.dx_records.interpolated_template) == PULSE_TEMPLATE_ARGMAX
+        assert np.all(np.isfinite(self.dx_records.interpolated_template))
 
 
 class TestDxRecordsCompute:
