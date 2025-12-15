@@ -1,7 +1,5 @@
 import strax
 import numpy as np
-import pickle
-import os
 from straxion.utils import (
     TIME_DTYPE,
     CHANNEL_DTYPE,
@@ -11,6 +9,7 @@ from straxion.utils import (
     DATA_DTYPE,
     NOISE_PSD_38kHz,
     DEFAULT_TEMPLATE_INTERP_PATH,
+    load_interpolation,
 )
 
 export, __all__ = strax.exporter()
@@ -211,7 +210,7 @@ class DxHitClassification(strax.Plugin):
             )
 
         # Load interpolation function
-        self.At_interp, self.t_max = self.load_interpolation(self.template_interp_path)
+        self.At_interp, self.t_max = load_interpolation(self.template_interp_path)
 
     def compute_per_channel_noise_psd(self, noises, n_channels):
         """Compute per-channel noise PSDs from noise windows.
@@ -270,34 +269,6 @@ class DxHitClassification(strax.Plugin):
         return spike_threshold
 
     @staticmethod
-    def load_interpolation(load_path="template_interp.pkl"):
-        """
-        Load saved interpolation function.
-
-        Parameters:
-        -----------
-        load_path : str
-            Path to saved interpolation function
-
-        Returns:
-        --------
-        At_interp : interp1d
-            Interpolation function
-        t_max : float
-            Time of maximum value in template (in seconds)
-        """
-        if not os.path.exists(load_path):
-            raise FileNotFoundError(
-                f"Interpolation file not found: {load_path}. "
-                "Please run build_and_save_interpolation() first."
-            )
-
-        with open(load_path, "rb") as f:
-            data = pickle.load(f)
-
-        return data["interp"], data["t_max"]
-
-    @staticmethod
     def modify_template(
         St,
         dt_seconds,
@@ -349,7 +320,7 @@ class DxHitClassification(strax.Plugin):
         """
         # Load interpolation function if not provided
         if At_interp is None or t_max_seconds is None:
-            At_interp, t_max_seconds = DxHitClassification.load_interpolation(interp_path)
+            At_interp, t_max_seconds = load_interpolation(interp_path)
 
         target_length = len(St)
         t_seconds = np.arange(target_length) * dt_seconds

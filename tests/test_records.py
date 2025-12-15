@@ -4,6 +4,12 @@ import os
 import tempfile
 import shutil
 from straxion.plugins.records import PulseProcessing, DxRecords
+from straxion.utils import (
+    PULSE_TEMPLATE_LENGTH,
+    PULSE_TEMPLATE_ARGMAX,
+    DEFAULT_TEMPLATE_INTERP_PATH,
+    load_interpolation,
+)
 
 
 # Note: circfit method tests removed as the method doesn't exist in PulseProcessing
@@ -517,6 +523,7 @@ class TestDxRecordsSetupMethods:
             "pulse_kernel_truncation_factor": 10,
             "moving_average_width": 100000,
             "pca_n_components": 4,
+            "template_interp_path": DEFAULT_TEMPLATE_INTERP_PATH,
         }
 
         # Create test data files
@@ -630,6 +637,10 @@ class TestDxRecordsSetupMethods:
         assert hasattr(self.dx_records, "kernel")
         assert hasattr(self.dx_records, "moving_average_kernel")
         assert hasattr(self.dx_records, "pca_n_components")
+        # Verify interpolation-related attributes
+        assert hasattr(self.dx_records, "At_interp")
+        assert hasattr(self.dx_records, "t_max")
+        assert hasattr(self.dx_records, "interpolated_template")
 
         # Verify record_length is set correctly
         assert self.dx_records.record_length == 1000
@@ -640,6 +651,11 @@ class TestDxRecordsSetupMethods:
 
         # Verify pca_n_components is set from config
         assert self.dx_records.pca_n_components == (self.dx_records.config["pca_n_components"])
+
+        # Verify interpolated_template properties
+        assert len(self.dx_records.interpolated_template) == PULSE_TEMPLATE_LENGTH
+        assert np.argmax(self.dx_records.interpolated_template) == PULSE_TEMPLATE_ARGMAX
+        assert np.all(np.isfinite(self.dx_records.interpolated_template))
 
 
 class TestDxRecordsCompute:
@@ -667,6 +683,7 @@ class TestDxRecordsCompute:
             "pulse_kernel_gaussian_smearing_width": 28000,
             "pulse_kernel_truncation_factor": 10,
             "pca_n_components": 4,
+            "template_interp_path": DEFAULT_TEMPLATE_INTERP_PATH,
         }
 
         # Create test data files
@@ -723,6 +740,17 @@ class TestDxRecordsCompute:
         self.dx_records.moving_average_kernel = (
             np.ones(moving_average_kernel_width) / moving_average_kernel_width
         )
+
+        # Set up interpolated template for truth pulse injection
+        self.dx_records.At_interp, self.dx_records.t_max = load_interpolation(
+            self.dx_records.config["template_interp_path"]
+        )
+        dt_seconds = 1.0 / self.dx_records.config["fs"]
+        t_seconds = np.arange(PULSE_TEMPLATE_LENGTH) * dt_seconds
+        t_max_target = PULSE_TEMPLATE_ARGMAX * dt_seconds
+        time_shift = t_max_target - self.dx_records.t_max
+        timeshifted_seconds = t_seconds - time_shift
+        self.dx_records.interpolated_template = self.dx_records.At_interp(timeshifted_seconds)
 
         # Create mock raw records
         raw_records = np.zeros(
@@ -830,6 +858,17 @@ class TestDxRecordsCompute:
             np.ones(moving_average_kernel_width) / moving_average_kernel_width
         )
 
+        # Set up interpolated template for truth pulse injection
+        self.dx_records.At_interp, self.dx_records.t_max = load_interpolation(
+            self.dx_records.config["template_interp_path"]
+        )
+        dt_seconds = 1.0 / self.dx_records.config["fs"]
+        t_seconds = np.arange(PULSE_TEMPLATE_LENGTH) * dt_seconds
+        t_max_target = PULSE_TEMPLATE_ARGMAX * dt_seconds
+        time_shift = t_max_target - self.dx_records.t_max
+        timeshifted_seconds = t_seconds - time_shift
+        self.dx_records.interpolated_template = self.dx_records.At_interp(timeshifted_seconds)
+
         # Create mock raw records
         raw_records = np.zeros(
             1,
@@ -892,6 +931,17 @@ class TestDxRecordsCompute:
         self.dx_records.moving_average_kernel = (
             np.ones(moving_average_kernel_width) / moving_average_kernel_width
         )
+
+        # Set up interpolated template for truth pulse injection
+        self.dx_records.At_interp, self.dx_records.t_max = load_interpolation(
+            self.dx_records.config["template_interp_path"]
+        )
+        dt_seconds = 1.0 / self.dx_records.config["fs"]
+        t_seconds = np.arange(PULSE_TEMPLATE_LENGTH) * dt_seconds
+        t_max_target = PULSE_TEMPLATE_ARGMAX * dt_seconds
+        time_shift = t_max_target - self.dx_records.t_max
+        timeshifted_seconds = t_seconds - time_shift
+        self.dx_records.interpolated_template = self.dx_records.At_interp(timeshifted_seconds)
 
         # Create mock raw records
         raw_records = np.zeros(
@@ -964,6 +1014,17 @@ class TestDxRecordsCompute:
         self.dx_records.moving_average_kernel = (
             np.ones(moving_average_kernel_width) / moving_average_kernel_width
         )
+
+        # Set up interpolated template for truth pulse injection
+        self.dx_records.At_interp, self.dx_records.t_max = load_interpolation(
+            self.dx_records.config["template_interp_path"]
+        )
+        dt_seconds = 1.0 / self.dx_records.config["fs"]
+        t_seconds = np.arange(PULSE_TEMPLATE_LENGTH) * dt_seconds
+        t_max_target = PULSE_TEMPLATE_ARGMAX * dt_seconds
+        time_shift = t_max_target - self.dx_records.t_max
+        timeshifted_seconds = t_seconds - time_shift
+        self.dx_records.interpolated_template = self.dx_records.At_interp(timeshifted_seconds)
 
         # Empty input
         raw_records = np.zeros(

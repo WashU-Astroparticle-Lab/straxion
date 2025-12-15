@@ -5,8 +5,11 @@ from straxion.utils import (
     SECOND_TO_NANOSECOND,
     base_waveform_dtype,
     circfit,
-    PULSE_TEMPLATE_38kHz,
     PHOTON_25um_meV,
+    PULSE_TEMPLATE_LENGTH,
+    PULSE_TEMPLATE_ARGMAX,
+    DEFAULT_TEMPLATE_INTERP_PATH,
+    load_interpolation,
 )
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import fftconvolve
@@ -136,9 +139,16 @@ export, __all__ = strax.exporter()
         type=int,
         help="Number of principal components to remove from the data using PCA.",
     ),
+    strax.Option(
+        "template_interp_path",
+        type=str,
+        default=DEFAULT_TEMPLATE_INTERP_PATH,
+        track=True,
+        help="Path to the saved template interpolation file.",
+    ),
 )
 class DxRecords(strax.Plugin):
-    __version__ = "0.2.1"
+    __version__ = "0.2.2"
     rechunk_on_save = False
     compressor = "zstd"  # Inherited from straxen. Not optimized outside XENONnT.
 
@@ -489,6 +499,22 @@ class DxRecords(strax.Plugin):
         # Setup PCA for correlated noise removal.
         self.pca_n_components = self.config["pca_n_components"]
 
+        # Load interpolation function for pulse template
+        self.At_interp, self.t_max = load_interpolation(self.config["template_interp_path"])
+
+        # Generate interpolated pulse template at current sampling frequency
+        # Calculate time step in seconds
+        dt_seconds = 1.0 / self.config["fs"]
+        # Create time array of length PULSE_TEMPLATE_LENGTH
+        t_seconds = np.arange(PULSE_TEMPLATE_LENGTH) * dt_seconds
+        # Calculate target time for maximum (where it should be in the template)
+        t_max_target = PULSE_TEMPLATE_ARGMAX * dt_seconds
+        # Shift time array so interpolation maximum aligns with target
+        time_shift = t_max_target - self.t_max
+        timeshifted_seconds = t_seconds - time_shift
+        # Generate interpolated template
+        self.interpolated_template = self.At_interp(timeshifted_seconds)
+
         # Pre-compute moving average kernel.
         moving_average_kernel_width = int(self.config["moving_average_width"] / self.dt_exact)
         self.moving_average_kernel = (
@@ -514,14 +540,14 @@ class DxRecords(strax.Plugin):
             start_sample = int(time_offset / self.dt_exact)
 
             # Determine how many samples of the template to inject
-            template_length = len(PULSE_TEMPLATE_38kHz)
+            template_length = PULSE_TEMPLATE_LENGTH
             samples_to_end = record["length"] - start_sample
             inject_length = min(template_length, samples_to_end)
 
-            # Inject the pulse template if within bounds
+            # Inject the interpolated pulse template if within bounds
             if start_sample >= 0 and inject_length > 0:
                 record["data_dx"][start_sample : start_sample + inject_length] += (
-                    pulse_amplitude * PULSE_TEMPLATE_38kHz[:inject_length]
+                    pulse_amplitude * self.interpolated_template[:inject_length]
                 )
 
     def pca(self, y):
