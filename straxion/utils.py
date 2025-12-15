@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.colors as mcolors
 from pathlib import Path
+import pickle
+import os
 
 # Common senses.
 SECOND_TO_NANOSECOND = 1_000_000_000
@@ -44,6 +46,34 @@ NOISE_PSD_38kHz = np.load(Path(__file__).parent / "msc" / "noise_psd_38kHz.npy")
 # Default path to template interpolation file
 # This constructs path relative to this module's location
 DEFAULT_TEMPLATE_INTERP_PATH = str(Path(__file__).parent / "msc" / "template_interp.pkl")
+
+
+def load_interpolation(load_path="template_interp.pkl"):
+    """
+    Load saved interpolation function.
+
+    Parameters:
+    -----------
+    load_path : str
+        Path to saved interpolation function
+
+    Returns:
+    --------
+    At_interp : interp1d
+        Interpolation function
+    t_max : float
+        Time of maximum value in template (in seconds)
+    """
+    if not os.path.exists(load_path):
+        raise FileNotFoundError(
+            f"Interpolation file not found: {load_path}. "
+            "Please run build_and_save_interpolation() first."
+        )
+
+    with open(load_path, "rb") as f:
+        data = pickle.load(f)
+
+    return data["interp"], data["t_max"]
 
 
 def base_waveform_dtype():
