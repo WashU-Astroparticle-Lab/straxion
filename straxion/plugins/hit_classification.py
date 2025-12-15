@@ -596,6 +596,13 @@ class DxHitClassification(strax.Plugin):
         # Broadcast to get all indices for all hits
         all_indices = start_indices + window_indices  # Shape: (n_hits, ss_window)
 
+        # Get waveform length to validate bounds
+        waveform_length = hits["data_dx_moving_average"].shape[1]
+
+        # Clamp indices to valid range [0, waveform_length - 1] to prevent IndexError
+        # This handles cases where climax_shift is too large (e.g., >= 601)
+        all_indices = np.clip(all_indices, 0, waveform_length - 1)
+
         # Use advanced indexing to extract all windows at once
         return hits["data_dx_moving_average"][np.arange(n_hits)[:, None], all_indices]
 
