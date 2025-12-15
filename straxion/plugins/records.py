@@ -148,7 +148,7 @@ export, __all__ = strax.exporter()
     ),
 )
 class DxRecords(strax.Plugin):
-    __version__ = "0.2.1"
+    __version__ = "0.2.2"
     rechunk_on_save = False
     compressor = "zstd"  # Inherited from straxen. Not optimized outside XENONnT.
 
