@@ -31,7 +31,7 @@ HIT_WINDOW_LENGTH_RIGHT = 600
 
 # Energy resolution constants for truth generation.
 # Reference photon energy and dx values for 25um wavelength
-PHOTON_25um_meV = 50  # meV
+PHOTON_25um_meV = 49.62  # meV
 PHOTON_25um_DX = 1.54e-6  # dx units
 # Energy resolution in dx units (optimistic and conservative modes)
 DX_RESOL_OPTIMISTIC = 186835.48206306322e-12
