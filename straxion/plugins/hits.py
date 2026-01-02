@@ -449,9 +449,7 @@ class DxHits(strax.Plugin):
         calculated_endtime = np.int64(start_time + np.int64(right_i * self.dt_exact))
         hit["endtime"] = min(calculated_endtime, record_endtime)
 
-        # Ensure length is consistent with actual time and endtime
-        # Length should be the number of samples in the record (right_i - left_i),
-        # not the waveform array size (target_end - target_start)
+        # Calculate length in samples
         hit["length"] = right_i - left_i
 
 
