@@ -220,10 +220,14 @@ class DxHits(strax.Plugin):
 
         """
         signal_mean = np.mean(signal, axis=1)
-        signal_std = np.std(signal, axis=1)
+        # Use central 68% of distribution (16th-84th percentiles) as robust
+        # estimate of std, which is more resistant to extreme values.
+        p16 = np.percentile(signal, 16, axis=1)
+        p84 = np.percentile(signal, 84, axis=1)
+        signal_std_robust = (p84 - p16) / 2.0
 
-        # The naive hit threshold is a multiple of the standard deviation of the signal.
-        hit_threshold = signal_mean + hit_threshold_sigma * signal_std
+        # The hit threshold is a multiple of the robust std estimate.
+        hit_threshold = signal_mean + hit_threshold_sigma * signal_std_robust
 
         return hit_threshold
 
