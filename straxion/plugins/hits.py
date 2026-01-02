@@ -56,7 +56,7 @@ class DxHits(strax.Plugin):
     The hit-finding algorithm is based on the kernel convolved signal.
     """
 
-    __version__ = "0.0.2"
+    __version__ = "0.0.3"
 
     # Inherited from straxen. Not optimized outside XENONnT.
     rechunk_on_save = False
