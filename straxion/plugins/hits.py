@@ -450,8 +450,9 @@ class DxHits(strax.Plugin):
         hit["endtime"] = min(calculated_endtime, record_endtime)
 
         # Ensure length is consistent with actual time and endtime
-        # This handles cases where endtime is clamped to record boundary
-        hit["length"] = target_end - target_start
+        # Length should be the number of samples in the record (right_i - left_i),
+        # not the waveform array size (target_end - target_start)
+        hit["length"] = right_i - left_i
 
 
 @export
