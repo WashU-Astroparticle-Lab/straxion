@@ -3,6 +3,7 @@ import pytest
 import os
 import straxion
 import shutil
+from straxion.utils import SECOND_TO_NANOSECOND
 
 
 def clean_strax_data():
@@ -245,8 +246,11 @@ class TestBaselineMonitorOnline:
             bm = st.get_array(run_id, "baseline_monitor", config=configs)
 
             # Check endtime consistency
+            # Get fs from context config to calculate dt_exact
+            fs = st.config.get("fs", 38000)  # Default to 38000 if not found
+            dt_exact = 1 / fs * SECOND_TO_NANOSECOND
             for record in bm:
-                expected_endtime = record["time"] + record["length"] * record["dt"]
+                expected_endtime = np.int64(record["time"] + record["length"] * dt_exact)
                 assert record["endtime"] == expected_endtime
 
             # Check monotonic time within channels

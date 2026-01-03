@@ -9,6 +9,7 @@ from straxion.utils import (
     PULSE_TEMPLATE_ARGMAX,
     DEFAULT_TEMPLATE_INTERP_PATH,
     load_interpolation,
+    SECOND_TO_NANOSECOND,
 )
 
 
@@ -1270,8 +1271,11 @@ class TestRecordsWithRealDataOnline:
             records = st.get_array(run_id, "records", config=configs)
 
             # Check endtime consistency
+            # Get fs from context config to calculate dt_exact
+            fs = st.config.get("fs", 38000)  # Default to 38000 if not found
+            dt_exact = 1 / fs * SECOND_TO_NANOSECOND
             for record in records:
-                expected_endtime = record["time"] + record["length"] * record["dt"]
+                expected_endtime = np.int64(record["time"] + record["length"] * dt_exact)
                 assert record["endtime"] == expected_endtime
 
             # Check monotonic time within channels
@@ -1519,8 +1523,11 @@ class TestRecordsWithRealDataOffline:
             records = st.get_array(run_id, "records", config=configs)
 
             # Check endtime consistency
+            # Get fs from context config to calculate dt_exact
+            fs = st.config.get("fs", 38000)  # Default to 38000 if not found
+            dt_exact = 1 / fs * SECOND_TO_NANOSECOND
             for record in records:
-                expected_endtime = record["time"] + record["length"] * record["dt"]
+                expected_endtime = np.int64(record["time"] + record["length"] * dt_exact)
                 assert record["endtime"] == expected_endtime
 
             # Check monotonic time within channels
