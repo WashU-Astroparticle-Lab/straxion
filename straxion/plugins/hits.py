@@ -56,7 +56,7 @@ class DxHits(strax.Plugin):
     The hit-finding algorithm is based on the kernel convolved signal.
     """
 
-    __version__ = "0.0.2"
+    __version__ = "0.0.3"
 
     # Inherited from straxen. Not optimized outside XENONnT.
     rechunk_on_save = False
@@ -220,10 +220,14 @@ class DxHits(strax.Plugin):
 
         """
         signal_mean = np.mean(signal, axis=1)
-        signal_std = np.std(signal, axis=1)
+        # Use central 68% of distribution (16th-84th percentiles) as robust
+        # estimate of std, which is more resistant to extreme values.
+        p16 = np.percentile(signal, 16, axis=1)
+        p84 = np.percentile(signal, 84, axis=1)
+        signal_std_robust = (p84 - p16) / 2.0
 
-        # The naive hit threshold is a multiple of the standard deviation of the signal.
-        hit_threshold = signal_mean + hit_threshold_sigma * signal_std
+        # The hit threshold is a multiple of the robust std estimate.
+        hit_threshold = signal_mean + hit_threshold_sigma * signal_std_robust
 
         return hit_threshold
 
@@ -445,9 +449,8 @@ class DxHits(strax.Plugin):
         calculated_endtime = np.int64(start_time + np.int64(right_i * self.dt_exact))
         hit["endtime"] = min(calculated_endtime, record_endtime)
 
-        # Ensure length is consistent with actual time and endtime
-        # This handles cases where endtime is clamped to record boundary
-        hit["length"] = target_end - target_start
+        # Calculate length in samples
+        hit["length"] = right_i - left_i
 
 
 @export

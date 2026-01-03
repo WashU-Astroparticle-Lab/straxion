@@ -148,7 +148,7 @@ class QUALIPHIDETHzReader(strax.Plugin):
         results["time"] = self.run_start_time
         results["length"] = self.config["record_length"]
         results["dt"] = self.dt
-        results["endtime"] = results["time"] + results["length"] * results["dt"]
+        results["endtime"] = np.int64(results["time"] + results["length"] * self.dt_exact)
         results["channel"] = np.arange(found_channels)
 
         if len(time_stream[0]) > self.config["record_length"]:
@@ -165,7 +165,7 @@ class QUALIPHIDETHzReader(strax.Plugin):
         # We must build a chunk for the lowest data type, as required by strax.
         results = self.chunk(
             start=np.min(results["time"]),
-            end=np.max(results["time"]) + self.dt * self.config["record_length"],
+            end=np.max(results["time"]) + np.int64(self.dt_exact * self.config["record_length"]),
             data=results,
             data_type="raw_records",
         )
@@ -271,7 +271,9 @@ class NX3LikeReader(strax.Plugin):
         return dtype
 
     def setup(self):
+        # Note that this dt is not exact due to the int conversion.
         self.dt = int(1 / self.config["fs"] * SECOND_TO_NANOSECOND)  # In unit of ns.
+        self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
 
     @staticmethod
     def load_one_channel(file_path, dt, record_length=None):
@@ -538,7 +540,7 @@ class NX3LikeReader(strax.Plugin):
             r["time"] = channel_data["time"][0] * SECOND_TO_NANOSECOND
             r["length"] = len(channel_data)
             r["dt"] = self.dt
-            r["endtime"] = r["time"] + r["length"] * r["dt"]
+            r["endtime"] = np.int64(r["time"] + r["length"] * self.dt_exact)
             r["channel"] = ch
             r["data_i"] = channel_data["data_i"]
             r["data_q"] = channel_data["data_q"]
@@ -550,7 +552,7 @@ class NX3LikeReader(strax.Plugin):
         # We must build a chunk for the lowest data type, as required by strax.
         results = self.chunk(
             start=np.min(results["time"]),
-            end=np.max(results["time"]) + self.dt * self.config["record_length"],
+            end=np.max(results["time"]) + np.int64(self.dt * self.config["record_length"]),
             data=results,
             data_type="raw_records",
         )
