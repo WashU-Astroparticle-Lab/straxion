@@ -3,6 +3,7 @@ import pytest
 import numpy as np
 import straxion
 import shutil
+from straxion.utils import SECOND_TO_NANOSECOND
 
 
 def test_qualiphide_thz_offline_context_creation():
@@ -134,11 +135,38 @@ def test_records_processing():
         pytest.fail(f"Failed to process records: {str(e)}")
 
 
-def _check_endtime_consistency(records):
-    """Check that endtime is correctly calculated for each record."""
+def _check_endtime_consistency(records, fs=None):
+    """Check that endtime is correctly calculated for each record.
+
+    Args:
+        records: Array of records to check
+        fs: Sampling frequency (Hz). If None, will use dt with tolerance.
+    """
+    # Calculate dt_exact from fs if provided
+    if fs is not None:
+        dt_exact = 1 / fs * SECOND_TO_NANOSECOND
+    else:
+        dt_exact = None
+
     for record in records:
-        expected_endtime = record["time"] + record["length"] * record["dt"]
-        assert record["endtime"] == expected_endtime
+        if dt_exact is not None:
+            expected_endtime = np.int64(record["time"] + record["length"] * dt_exact)
+            assert record["endtime"] == expected_endtime, (
+                f"Endtime mismatch: got {record['endtime']}, "
+                f"expected {expected_endtime} (time={record['time']}, "
+                f"length={record['length']}, dt={record['dt']}, "
+                f"dt_exact={dt_exact})"
+            )
+        else:
+            # Fallback: use dt but allow small tolerance for rounding
+            expected_endtime = record["time"] + record["length"] * record["dt"]
+            # Allow tolerance of up to length nanoseconds (accounts for rounding)
+            tolerance = record["length"]
+            assert abs(record["endtime"] - expected_endtime) <= tolerance, (
+                f"Endtime mismatch: got {record['endtime']}, "
+                f"expected {expected_endtime}±{tolerance} (time={record['time']}, "
+                f"length={record['length']}, dt={record['dt']})"
+            )
 
 
 def _check_monotonic_time(records):
@@ -178,7 +206,9 @@ def test_records_data_consistency():
     clean_strax_data()
     try:
         records = st.get_array(run_id, "raw_records", config=configs)
-        _check_endtime_consistency(records)
+        # Get fs from context config to calculate dt_exact
+        fs = st.config.get("fs", 38000)  # Default to 38000 if not found
+        _check_endtime_consistency(records, fs=fs)
         _check_monotonic_time(records)
         _check_finite_data(records)
     except Exception as e:
