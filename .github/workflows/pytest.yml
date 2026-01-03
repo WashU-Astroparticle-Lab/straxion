@@ -21,6 +21,7 @@ jobs:
   test:
     name: "${{ matrix.test }}_py${{ matrix.python-version }}"
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: False
       matrix:
