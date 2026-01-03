@@ -6,12 +6,33 @@ from straxion.utils import (
     DATA_DTYPE,
     INDEX_DTYPE,
     NOT_FOUND_INDEX,
+    SECOND_TO_NANOSECOND,
+    PULSE_TEMPLATE_ARGMAX,
 )
 
 export, __all__ = strax.exporter()
 
 
 @export
+@strax.takes_config(
+    strax.Option(
+        "match_window_ms",
+        default=2,
+        track=True,
+        type=(int, float, type(None)),
+        help=(
+            "Time window around waveform maximum for matching, in "
+            "milliseconds. If None, uses full hit/truth time ranges."
+        ),
+    ),
+    strax.Option(
+        "fs",
+        default=38_000,
+        track=True,
+        type=int,
+        help="Sampling frequency (assumed the same for all channels) in unit of Hz",
+    ),
+)
 class Match(strax.Plugin):
     """Match ground truth SALT events with detected hits.
 
@@ -37,7 +58,7 @@ class Match(strax.Plugin):
 
     """
 
-    __version__ = "0.0.2"
+    __version__ = "0.0.3"
 
     depends_on = ("truth", "hits", "hit_classification")
     provides = "match"
@@ -46,6 +67,15 @@ class Match(strax.Plugin):
 
     rechunk_on_save = False
     compressor = "zstd"
+
+    def setup(self):
+        """Initialize time conversion factor."""
+        self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
+        match_window_ms = self.config["match_window_ms"]
+        if match_window_ms is not None:
+            self.match_window_ns = match_window_ms * 1_000_000
+        else:
+            self.match_window_ns = None
 
     def infer_dtype(self):
         """Define the data type for match results."""
@@ -208,6 +238,10 @@ class Match(strax.Plugin):
             hits_ch = hits[ind_hits_ch]
             truth_ch = truth[ind_truth_ch]
 
+            # Optionally restrict time ranges around waveform maxima
+            if self.match_window_ns is not None:
+                hits_ch, truth_ch = self._restrict_to_maximum_window(hits_ch, truth_ch)
+
             # Find temporal overlaps
             touching_windows_ch = strax.touching_windows(things=hits_ch, containers=truth_ch)
 
@@ -243,6 +277,56 @@ class Match(strax.Plugin):
                     self._fill_hit_info(results[truth_idx], hits[hit_idx], hit_idx)
 
         return results
+
+    def _restrict_to_maximum_window(self, hits_ch, truth_ch):
+        """Restrict time ranges to window around waveform maximum.
+
+        Creates views with modified time/endtime fields centered around
+        the waveform maximum.
+
+        Args:
+            hits_ch: Array of hits for a channel.
+            truth_ch: Array of truth events for a channel.
+
+        Returns:
+            Tuple of (hits_ch_restricted, truth_ch_restricted) with
+            modified time/endtime fields.
+        """
+        # Make copies to avoid modifying original data
+        hits_ch_restricted = hits_ch.copy()
+        truth_ch_restricted = truth_ch.copy()
+
+        half_window_ns = self.match_window_ns / 2
+
+        # For truth: The maximum occurs at PULSE_TEMPLATE_ARGMAX samples
+        # from the start of the pulse template. Since truth["time"] is the
+        # start of the pulse template, we can calculate the maximum time.
+        truth_max_times = truth_ch["time"] + PULSE_TEMPLATE_ARGMAX * self.dt_exact
+        truth_ch_restricted["time"] = np.maximum(
+            truth_ch["time"],
+            truth_max_times - half_window_ns,
+        ).astype(TIME_DTYPE)
+        truth_ch_restricted["endtime"] = np.minimum(
+            truth_ch["endtime"],
+            truth_max_times + half_window_ns,
+        ).astype(TIME_DTYPE)
+
+        # For hits: Use the center of the hit window as an approximation
+        # for the maximum location, since hit waveforms are aligned around
+        # their maximum.
+        hit_max_times = (hits_ch["time"] + (hits_ch["length"] / 2.0) * hits_ch["dt"]).astype(
+            TIME_DTYPE
+        )
+        hits_ch_restricted["time"] = np.maximum(
+            hits_ch["time"],
+            hit_max_times - half_window_ns,
+        ).astype(TIME_DTYPE)
+        hits_ch_restricted["endtime"] = np.minimum(
+            hits_ch["endtime"],
+            hit_max_times + half_window_ns,
+        ).astype(TIME_DTYPE)
+
+        return hits_ch_restricted, truth_ch_restricted
 
     def _fill_hit_info(self, result, hit, hit_idx):
         """Fill match result with hit information.

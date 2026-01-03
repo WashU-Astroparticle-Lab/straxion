@@ -448,3 +448,52 @@ class TestMatchWithRealData:
 
         except Exception as e:
             pytest.fail(f"Failed to validate optimal filter fields: {str(e)}")
+
+    def test_match_window_ms_configuration(self):
+        """Test that match_window_ms option works correctly."""
+        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
+        if not test_data_dir:
+            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
+
+        if not os.path.exists(test_data_dir):
+            pytest.fail(f"Test data directory {test_data_dir} does not exist")
+
+        st = straxion.qualiphide_thz_offline()
+        run_id = "1756824965"
+        configs = self._get_test_config(test_data_dir, run_id, salt_rate=100, match_window_ms=None)
+
+        clean_strax_data()
+        try:
+            # Test with match_window_ms=None (full time range)
+            match_no_window = st.get_array(run_id, "match", config=configs)
+
+            # Test with match_window_ms=2 (restricted window)
+            configs_with_window = self._get_test_config(
+                test_data_dir, run_id, salt_rate=100, match_window_ms=2
+            )
+            match_with_window = st.get_array(run_id, "match", config=configs_with_window)
+
+            # Both should produce results
+            assert match_no_window is not None
+            assert match_with_window is not None
+            assert len(match_no_window) > 0
+            assert len(match_with_window) > 0
+
+            # With restricted window, we might have fewer matches
+            # (some matches might be excluded due to window restriction)
+            # But the window should not produce more matches
+            assert len(match_with_window) <= len(match_no_window)
+
+            # Test that window restriction still produces valid results
+            valid_destinies = {"found", "lost", "split"}
+            for destiny in match_with_window["destiny"]:
+                assert destiny in valid_destinies, f"Invalid destiny value: {destiny}"
+
+            print(
+                f"match_window_ms test: "
+                f"no_window={len(match_no_window)}, "
+                f"with_window={len(match_with_window)}"
+            )
+
+        except Exception as e:
+            pytest.fail(f"Failed to test match_window_ms: {str(e)}")
