@@ -552,7 +552,7 @@ class NX3LikeReader(strax.Plugin):
         # We must build a chunk for the lowest data type, as required by strax.
         results = self.chunk(
             start=np.min(results["time"]),
-            end=np.max(results["time"]) + np.int64(self.dt * self.config["record_length"]),
+            end=np.max(results["time"]) + np.int64(self.dt_exact * self.config["record_length"]),
             data=results,
             data_type="raw_records",
         )
