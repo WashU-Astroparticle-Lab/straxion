@@ -8,6 +8,9 @@ from straxion.utils import (
     NOT_FOUND_INDEX,
     SECOND_TO_NANOSECOND,
     PULSE_TEMPLATE_ARGMAX,
+    PULSE_TEMPLATE_LENGTH,
+    DEFAULT_TEMPLATE_INTERP_PATH,
+    load_interpolation,
 )
 
 export, __all__ = strax.exporter()
@@ -31,6 +34,13 @@ export, __all__ = strax.exporter()
         track=True,
         type=int,
         help="Sampling frequency (assumed the same for all channels) in unit of Hz",
+    ),
+    strax.Option(
+        "template_interp_path",
+        type=str,
+        default=DEFAULT_TEMPLATE_INTERP_PATH,
+        track=True,
+        help="Path to the saved template interpolation file.",
     ),
 )
 class Match(strax.Plugin):
@@ -76,6 +86,17 @@ class Match(strax.Plugin):
             self.match_window_ns = match_window_ms * 1_000_000
         else:
             self.match_window_ns = None
+        # Calculate pulse template argmax for current sampling frequency
+        # We need to recreate the same interpolation process used in records.py
+        # to find where the maximum actually occurs in the interpolated template
+        At_interp, t_max = load_interpolation(self.config["template_interp_path"])
+        dt_seconds = 1.0 / self.config["fs"]
+        t_seconds = np.arange(PULSE_TEMPLATE_LENGTH) * dt_seconds
+        t_max_target = PULSE_TEMPLATE_ARGMAX * dt_seconds
+        time_shift = t_max_target - t_max
+        timeshifted_seconds = t_seconds - time_shift
+        interpolated_template = At_interp(timeshifted_seconds)
+        self.pulse_template_argmax = np.argmax(interpolated_template)
 
     def infer_dtype(self):
         """Define the data type for match results."""
@@ -298,10 +319,11 @@ class Match(strax.Plugin):
 
         half_window_ns = self.match_window_ns / 2
 
-        # For truth: The maximum occurs at PULSE_TEMPLATE_ARGMAX samples
-        # from the start of the pulse template. Since truth["time"] is the
-        # start of the pulse template, we can calculate the maximum time.
-        truth_max_times = truth_ch["time"] + PULSE_TEMPLATE_ARGMAX * self.dt_exact
+        # For truth: The maximum occurs at pulse_template_argmax samples
+        # from the start of the pulse template (at the current sampling
+        # frequency). Since truth["time"] is the start of the pulse template,
+        # we can calculate the maximum time.
+        truth_max_times = truth_ch["time"] + self.pulse_template_argmax * self.dt_exact
         truth_ch_restricted["time"] = np.maximum(
             truth_ch["time"],
             truth_max_times - half_window_ns,
