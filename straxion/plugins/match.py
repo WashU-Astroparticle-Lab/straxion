@@ -20,7 +20,7 @@ export, __all__ = strax.exporter()
 @strax.takes_config(
     strax.Option(
         "match_window_ms",
-        default=2,
+        default=1.5,
         track=True,
         type=(int, float, type(None)),
         help=(
