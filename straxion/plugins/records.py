@@ -254,6 +254,7 @@ class DxRecords(strax.Plugin):
                 "The time of the fine frequency scan (IQ loop) of resonator npy file, "
                 "the wide frequency scan (IQ loop) of resonator npy file, "
                 "and the resonant frequency npy file should be the same",
+                f"finescan: {finescan_parts[1]}, widescan: {widescan_parts[1]}, fr: {fr_parts[1]}",
             )
 
         self.fine_z = np.load(os.path.join(self.config["iq_finescan_dir"], iq_finescan_filename))
