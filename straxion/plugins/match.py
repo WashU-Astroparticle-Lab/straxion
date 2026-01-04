@@ -333,10 +333,26 @@ class Match(strax.Plugin):
             truth_max_times + half_window_ns,
         ).astype(TIME_DTYPE)
 
-        # For hits: Use the center of the hit window as an approximation
-        # for the maximum location, since hit waveforms are aligned around
-        # their maximum.
-        hit_max_times = (hits_ch["time"] + (hits_ch["length"] / 2.0) * hits_ch["dt"]).astype(
+        # For hits: Find the actual maximum position in each hit's waveform
+        # Note: hit["time"] corresponds to the start of actual data (left_i),
+        # not the start of the padded waveform array. The waveform array may
+        # have padding (zeros) at the beginning. We need to find the first
+        # non-zero sample to determine the padding offset.
+        hit_max_sample_indices = np.argmax(hits_ch["data_dx"], axis=1)
+        # Find first non-zero sample index for each hit to account for padding
+        # hit["time"] corresponds to when the actual data starts (target_start
+        # in waveform array), not index 0
+        waveform_data = hits_ch["data_dx"]
+        n_hits = len(hits_ch)
+        padding_offsets = np.zeros(n_hits, dtype=np.int32)
+        for i in range(n_hits):
+            non_zero_indices = np.nonzero(waveform_data[i])[0]
+            if len(non_zero_indices) > 0:
+                padding_offsets[i] = non_zero_indices[0]
+        # Adjust max indices: remove padding offset since hit["time"] already
+        # accounts for it
+        hit_max_sample_indices_adjusted = hit_max_sample_indices - padding_offsets
+        hit_max_times = (hits_ch["time"] + hit_max_sample_indices_adjusted * hits_ch["dt"]).astype(
             TIME_DTYPE
         )
         hits_ch_restricted["time"] = np.maximum(
