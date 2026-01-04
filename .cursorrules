@@ -1,0 +1,25 @@
+# Cursor Rules for Straxion Project
+
+## CRITICAL: Conda Environment Requirement
+**MANDATORY**: ALL Python commands, test runs, and scripts MUST be
+executed with the `straxion` conda environment activated.
+
+## Command Format Rules
+- **REQUIRED**: Every Python command, pytest command, or script execution
+  MUST be prefixed with `conda activate straxion &&`
+- **DO NOT** run commands like `python -m pytest` directly
+- **ALWAYS** run commands like: `conda activate straxion && python -m
+  pytest ...`
+- This applies to ALL terminal commands that use Python or project
+  dependencies
+
+## Examples
+✅ CORRECT: `conda activate straxion && python -m pytest tests/test_match.py`
+✅ CORRECT: `conda activate straxion && python scripts/online_monitor.py`
+❌ WRONG: `python -m pytest tests/test_match.py` (missing conda activate)
+❌ WRONG: `cd /path && python -m pytest ...` (missing conda activate)
+
+## Why This Matters
+The project dependencies are installed in the `straxion` conda environment.
+Running commands without activating this environment will result in
+ModuleNotFoundError or other dependency issues.
