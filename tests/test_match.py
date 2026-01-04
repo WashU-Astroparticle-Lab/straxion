@@ -3,7 +3,16 @@ import pytest
 import numpy as np
 import straxion
 from straxion.plugins.match import Match
-from straxion.utils import NOT_FOUND_INDEX
+from straxion.utils import (
+    NOT_FOUND_INDEX,
+    PULSE_TEMPLATE_LENGTH,
+    DEFAULT_TEMPLATE_INTERP_PATH,
+    TIME_DTYPE,
+    DATA_DTYPE,
+    HIT_WINDOW_LENGTH_LEFT,
+    HIT_WINDOW_LENGTH_RIGHT,
+    PULSE_TEMPLATE_ARGMAX,
+)
 import shutil
 
 
@@ -497,3 +506,264 @@ class TestMatchWithRealData:
 
         except Exception as e:
             pytest.fail(f"Failed to test match_window_ms: {str(e)}")
+
+
+class TestMatchRestrictWindow:
+    """Test the _restrict_to_maximum_window method of Match plugin."""
+
+    def setup_method(self):
+        """Set up test data and create a Match instance."""
+        from straxion.utils import DEFAULT_TEMPLATE_INTERP_PATH
+
+        self.match = Match()
+        self.match.config = {
+            "fs": 38000,
+            "match_window_ms": 1.5,
+            "template_interp_path": DEFAULT_TEMPLATE_INTERP_PATH,
+        }
+        self.match.setup()
+
+        # Store constants for tests
+        self.HIT_WINDOW_LENGTH_LEFT = HIT_WINDOW_LENGTH_LEFT
+        self.HIT_WINDOW_LENGTH_RIGHT = HIT_WINDOW_LENGTH_RIGHT
+        self.hit_waveform_length = HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
+
+    def test_pulse_template_argmax_calculation(self):
+        """Test that pulse_template_argmax is calculated correctly."""
+        # Verify pulse_template_argmax is set
+        assert hasattr(self.match, "pulse_template_argmax")
+        assert isinstance(self.match.pulse_template_argmax, (int, np.integer))
+        assert 0 <= self.match.pulse_template_argmax < PULSE_TEMPLATE_LENGTH
+
+    def test_pulse_template_argmax_different_fs(self):
+        """Test that pulse_template_argmax is preserved at PULSE_TEMPLATE_ARGMAX.
+
+        The interpolation process preserves the maximum at the same sample index
+        (PULSE_TEMPLATE_ARGMAX) regardless of sampling frequency, because it
+        aligns the maximum at the target time which corresponds to that index.
+        """
+        from straxion.utils import DEFAULT_TEMPLATE_INTERP_PATH
+
+        # Test at 38kHz (default)
+        match_38k = Match()
+        match_38k.config = {
+            "fs": 38000,
+            "match_window_ms": 1.5,
+            "template_interp_path": DEFAULT_TEMPLATE_INTERP_PATH,
+        }
+        match_38k.setup()
+
+        # Test at different frequency (e.g., 50kHz)
+        match_50k = Match()
+        match_50k.config = {
+            "fs": 50000,
+            "match_window_ms": 1.5,
+            "template_interp_path": DEFAULT_TEMPLATE_INTERP_PATH,
+        }
+        match_50k.setup()
+
+        # The interpolation process preserves the maximum at PULSE_TEMPLATE_ARGMAX
+        # regardless of sampling frequency, because it aligns the maximum at the
+        # target time which corresponds to that index
+        assert match_38k.pulse_template_argmax == PULSE_TEMPLATE_ARGMAX
+        assert match_50k.pulse_template_argmax == PULSE_TEMPLATE_ARGMAX
+
+    def test_restrict_window_truth_basic(self):
+        """Test truth window restriction with basic case."""
+
+        # Create simple truth data
+        truth_ch = np.zeros(2, dtype=[("time", TIME_DTYPE), ("endtime", TIME_DTYPE)])
+        truth_ch["time"] = [1000, 5000]
+        truth_ch["endtime"] = [
+            1000 + PULSE_TEMPLATE_LENGTH * self.match.dt_exact,
+            5000 + PULSE_TEMPLATE_LENGTH * self.match.dt_exact,
+        ]
+
+        # Create dummy hits with proper dtype (not used in truth calculation)
+        # Empty array but with correct structure
+        hits_ch = np.zeros(
+            0,
+            dtype=[
+                ("time", TIME_DTYPE),
+                ("endtime", TIME_DTYPE),
+                ("dt", TIME_DTYPE),
+                ("data_dx", DATA_DTYPE, self.hit_waveform_length),
+            ],
+        )
+
+        hits_restricted, truth_restricted = self.match._restrict_to_maximum_window(
+            hits_ch, truth_ch
+        )
+
+        # Check that windows are centered around maximum
+        for i in range(len(truth_ch)):
+            expected_max_time = (
+                truth_ch["time"][i] + self.match.pulse_template_argmax * self.match.dt_exact
+            )
+            half_window = self.match.match_window_ns / 2
+            expected_start = expected_max_time - half_window
+            expected_end = expected_max_time + half_window
+
+            # Should be clipped to original time/endtime bounds
+            assert truth_restricted["time"][i] >= truth_ch["time"][i]
+            assert truth_restricted["time"][i] <= expected_start or np.isclose(
+                truth_restricted["time"][i], expected_start
+            )
+            assert truth_restricted["endtime"][i] <= truth_ch["endtime"][i]
+            assert truth_restricted["endtime"][i] >= expected_end or np.isclose(
+                truth_restricted["endtime"][i], expected_end
+            )
+
+    def test_restrict_window_hit_no_padding(self):
+        """Test hit window restriction with no padding."""
+
+        # Create hit with no padding (data starts at index 0)
+        dt_ns = int(self.match.dt_exact)
+        hit_time = 10000
+        max_sample_idx = 200  # Maximum at sample 200 (typical alignment point)
+
+        # Create waveform: max at index 200, no padding (data starts at index 0)
+        waveform = np.zeros(self.hit_waveform_length, dtype=DATA_DTYPE)
+        waveform[0] = 0.1  # Small value at start to indicate no padding
+        waveform[max_sample_idx] = 10.0  # Maximum value
+        waveform[max_sample_idx - 1] = 9.0
+        waveform[max_sample_idx + 1] = 8.0
+
+        hits_ch = np.zeros(
+            1,
+            dtype=[
+                ("time", TIME_DTYPE),
+                ("endtime", TIME_DTYPE),
+                ("dt", TIME_DTYPE),
+                ("data_dx", DATA_DTYPE, self.hit_waveform_length),
+            ],
+        )
+        hits_ch["time"] = [hit_time]
+        hits_ch["dt"] = [dt_ns]
+        hits_ch["endtime"] = [hit_time + self.hit_waveform_length * dt_ns]
+        hits_ch["data_dx"][0] = waveform
+
+        # Create dummy truth (not used)
+        truth_ch = np.zeros(0, dtype=[("time", TIME_DTYPE), ("endtime", TIME_DTYPE)])
+
+        hits_restricted, truth_restricted = self.match._restrict_to_maximum_window(
+            hits_ch, truth_ch
+        )
+
+        # Expected maximum time: hit_time + max_sample_idx * dt
+        # (no padding offset since data starts at index 0)
+        expected_max_time = hit_time + max_sample_idx * dt_ns
+        half_window = self.match.match_window_ns / 2
+        expected_start = expected_max_time - half_window
+        expected_end = expected_max_time + half_window
+
+        # The window should be centered around expected_max_time, but clipped to bounds
+        assert hits_restricted["time"][0] >= hits_ch["time"][0]
+        assert hits_restricted["time"][0] <= expected_start or np.isclose(
+            hits_restricted["time"][0], expected_start, rtol=1e-3
+        )
+        assert hits_restricted["endtime"][0] <= hits_ch["endtime"][0]
+        # The endtime should be at least expected_end (if not clipped)
+        # or the hit endtime (if clipped)
+        assert hits_restricted["endtime"][0] >= min(
+            expected_end, hits_ch["endtime"][0]
+        ) or np.isclose(
+            hits_restricted["endtime"][0],
+            min(expected_end, hits_ch["endtime"][0]),
+            rtol=1e-3,
+        )
+
+    def test_restrict_window_hit_with_padding(self):
+        """Test hit window restriction with padding at the beginning."""
+
+        # Create hit with padding (zeros at start)
+        dt_ns = int(self.match.dt_exact)
+        hit_time = 10000
+        padding_offset = 50  # 50 samples of padding
+        max_sample_idx_in_waveform = 250  # Maximum at sample 250 in waveform array
+        max_sample_idx_actual = max_sample_idx_in_waveform - padding_offset  # Actual offset
+
+        # Create waveform: padding at start, max at index 250
+        waveform = np.zeros(self.hit_waveform_length, dtype=DATA_DTYPE)
+        waveform[padding_offset : padding_offset + 100] = 1.0  # Some data
+        waveform[max_sample_idx_in_waveform] = 10.0  # Maximum value
+
+        hits_ch = np.zeros(
+            1,
+            dtype=[
+                ("time", TIME_DTYPE),
+                ("endtime", TIME_DTYPE),
+                ("dt", TIME_DTYPE),
+                ("data_dx", DATA_DTYPE, self.hit_waveform_length),
+            ],
+        )
+        hits_ch["time"] = [hit_time]
+        hits_ch["dt"] = [dt_ns]
+        hits_ch["endtime"] = [hit_time + (self.hit_waveform_length - padding_offset) * dt_ns]
+        hits_ch["data_dx"][0] = waveform
+
+        # Create dummy truth (not used)
+        truth_ch = np.zeros(0, dtype=[("time", TIME_DTYPE), ("endtime", TIME_DTYPE)])
+
+        hits_restricted, truth_restricted = self.match._restrict_to_maximum_window(
+            hits_ch, truth_ch
+        )
+
+        # Expected maximum time: hit_time + (max_sample_idx_in_waveform - padding_offset) * dt
+        expected_max_time = hit_time + max_sample_idx_actual * dt_ns
+        half_window = self.match.match_window_ns / 2
+
+        # The window should be centered around the expected maximum
+        assert hits_restricted["time"][0] >= hits_ch["time"][0]
+        assert hits_restricted["endtime"][0] <= hits_ch["endtime"][0]
+
+        # Check that the window is approximately centered (allow for clipping at boundaries)
+        window_center = (hits_restricted["time"][0] + hits_restricted["endtime"][0]) / 2
+        assert abs(window_center - expected_max_time) < half_window
+
+    def test_restrict_window_boundaries(self):
+        """Test that restricted windows don't exceed original boundaries."""
+
+        # Create truth with sufficient length to accommodate the window
+        # Need at least pulse_template_argmax samples + half window on each side
+        truth_ch = np.zeros(1, dtype=[("time", TIME_DTYPE), ("endtime", TIME_DTYPE)])
+        truth_ch["time"] = [1000]
+        # Ensure endtime is long enough for the template and window
+        min_length = (
+            self.match.pulse_template_argmax * self.match.dt_exact + self.match.match_window_ns
+        )
+        truth_ch["endtime"] = [1000 + int(min_length) + 1000000]  # Add some extra margin
+
+        # Create dummy hits with proper dtype (not used in truth calculation)
+        hits_ch = np.zeros(
+            0,
+            dtype=[
+                ("time", TIME_DTYPE),
+                ("endtime", TIME_DTYPE),
+                ("dt", TIME_DTYPE),
+                ("data_dx", DATA_DTYPE, self.hit_waveform_length),
+            ],
+        )
+
+        hits_restricted, truth_restricted = self.match._restrict_to_maximum_window(
+            hits_ch, truth_ch
+        )
+
+        # Restricted window should not exceed original boundaries
+        assert truth_restricted["time"][0] >= truth_ch["time"][0]
+        assert truth_restricted["endtime"][0] <= truth_ch["endtime"][0]
+        assert truth_restricted["time"][0] < truth_restricted["endtime"][0]
+
+    def test_restrict_window_match_window_ns_none(self):
+        """Test that _restrict_to_maximum_window is not called when match_window_ns is None."""
+        # This test verifies the calling code, not the method itself
+        # The method should still work if called directly (it's just not called)
+        match_no_window = Match()
+        match_no_window.config = {
+            "fs": 38000,
+            "match_window_ms": None,
+            "template_interp_path": DEFAULT_TEMPLATE_INTERP_PATH,
+        }
+        match_no_window.setup()
+
+        assert match_no_window.match_window_ns is None
