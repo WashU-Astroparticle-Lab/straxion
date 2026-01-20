@@ -262,12 +262,14 @@ class DxHitClassification(strax.Plugin):
         self.At_interp, self.t_max = load_interpolation(self.template_interp_path)
         self.At_interp_dict = {}
         self.t_max_dict = {}
-        for file in os.listdir(self.template_interp_folder):
-            if file.endswith(".pkl"):
-                ch = int(file.split("_")[0].split("ch")[1])
-                self.At_interp_dict[ch], self.t_max_dict[ch] = load_interpolation(
-                    os.path.join(self.template_interp_folder, file)
-                )
+        # Load per-channel templates if folder exists, otherwise use default for all channels
+        if os.path.isdir(self.template_interp_folder):
+            for file in os.listdir(self.template_interp_folder):
+                if file.endswith(".pkl"):
+                    ch = int(file.split("_")[0].split("ch")[1])
+                    self.At_interp_dict[ch], self.t_max_dict[ch] = load_interpolation(
+                        os.path.join(self.template_interp_folder, file)
+                    )
 
     def compute_per_channel_noise_psd(self, noises, n_channels):
         """Compute per-channel noise PSDs from noise windows.
