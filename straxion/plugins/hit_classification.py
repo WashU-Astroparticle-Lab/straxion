@@ -1,5 +1,6 @@
 import strax
 import numpy as np
+import os
 from straxion.utils import (
     TIME_DTYPE,
     CHANNEL_DTYPE,
@@ -9,6 +10,7 @@ from straxion.utils import (
     DATA_DTYPE,
     NOISE_PSD_38kHz,
     DEFAULT_TEMPLATE_INTERP_PATH,
+    TEMPLATE_INTERP_FOLDER,
     load_interpolation,
 )
 
@@ -83,6 +85,13 @@ export, __all__ = strax.exporter()
         help="Path to the saved template interpolation file.",
     ),
     strax.Option(
+        "template_interp_folder",
+        type=str,
+        default=TEMPLATE_INTERP_FOLDER,
+        track=False,
+        help="Folder containing the template interpolation files.",
+    ),
+    strax.Option(
         "of_shift_range_min",
         type=int,
         default=-50,
@@ -136,7 +145,7 @@ export, __all__ = strax.exporter()
 class DxHitClassification(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.2.3"
+    __version__ = "0.2.4"
 
     depends_on = ("hits", "records", "noises")
     provides = "hit_classification"
@@ -195,6 +204,7 @@ class DxHitClassification(strax.Plugin):
         self.max_spike_coincidence = self.config["max_spike_coincidence"]
         self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
         self.template_interp_path = self.config["template_interp_path"]
+        self.template_interp_folder = self.config["template_interp_folder"]
         self.noise_psd = self.config["noise_psd_placeholder"]
         self.of_window_left = self.config["of_window_left"]
         self.of_window_right = self.config["of_window_right"]
@@ -211,6 +221,14 @@ class DxHitClassification(strax.Plugin):
 
         # Load interpolation function
         self.At_interp, self.t_max = load_interpolation(self.template_interp_path)
+        self.At_interp_dict = {}
+        self.t_max_dict = {}
+        for file in os.listdir(self.template_interp_folder):
+            if file.endswith(".pkl"):
+                ch = int(file.split("_")[0].split("ch")[1])
+                self.At_interp_dict[ch], self.t_max_dict[ch] = load_interpolation(
+                    os.path.join(self.template_interp_folder, file)
+                )
 
     def compute_per_channel_noise_psd(self, noises, n_channels):
         """Compute per-channel noise PSDs from noise windows.
@@ -678,14 +696,21 @@ class DxHitClassification(strax.Plugin):
             else:
                 Jf = channel_noise_psds[ch]
 
+            if ch in self.At_interp_dict.keys():
+                At_interp = self.At_interp_dict[ch]
+                t_max = self.t_max_dict[ch]
+            else:
+                At_interp = self.At_interp
+                t_max = self.t_max
+
             # Compute optimal filter with shift optimization
             # dt_seconds is explicitly in seconds
             best_aOF, best_chi2, best_OF_shift, _ = self.optimal_filter(
                 St,
                 dt_seconds,
                 Jf,
-                self.At_interp,
-                self.t_max,
+                At_interp,
+                t_max,
                 self.of_window_left,
                 self.of_window_right,
                 self.config["of_shift_range_min"],
