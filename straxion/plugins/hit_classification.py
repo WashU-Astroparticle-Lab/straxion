@@ -696,6 +696,8 @@ class DxHitClassification(strax.Plugin):
             else:
                 Jf = channel_noise_psds[ch]
 
+            # If the template interpolation file for this channel exists, use it,
+            # otherwise use the default one.
             if ch in self.At_interp_dict.keys():
                 At_interp = self.At_interp_dict[ch]
                 t_max = self.t_max_dict[ch]
