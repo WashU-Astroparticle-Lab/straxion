@@ -46,6 +46,7 @@ NOISE_PSD_38kHz = np.load(Path(__file__).parent / "msc" / "noise_psd_38kHz.npy")
 # Default path to template interpolation file
 # This constructs path relative to this module's location
 DEFAULT_TEMPLATE_INTERP_PATH = str(Path(__file__).parent / "msc" / "template_interp.pkl")
+TEMPLATE_INTERP_FOLDER = str(Path(__file__).parent / "msc" / "sr2_pt2_templates")
 
 
 def load_interpolation(load_path="template_interp.pkl"):

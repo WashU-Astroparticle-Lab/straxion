@@ -1,5 +1,6 @@
 import strax
 import numpy as np
+import os
 from straxion.utils import (
     TIME_DTYPE,
     CHANNEL_DTYPE,
@@ -9,7 +10,9 @@ from straxion.utils import (
     DATA_DTYPE,
     NOISE_PSD_38kHz,
     DEFAULT_TEMPLATE_INTERP_PATH,
+    TEMPLATE_INTERP_FOLDER,
     load_interpolation,
+    INDEX_DTYPE,
 )
 
 export, __all__ = strax.exporter()
@@ -79,8 +82,15 @@ export, __all__ = strax.exporter()
         "template_interp_path",
         type=str,
         default=DEFAULT_TEMPLATE_INTERP_PATH,
-        track=True,
+        track=False,
         help="Path to the saved template interpolation file.",
+    ),
+    strax.Option(
+        "template_interp_folder",
+        type=str,
+        default=TEMPLATE_INTERP_FOLDER,
+        track=False,
+        help="Folder containing the template interpolation files.",
     ),
     strax.Option(
         "of_shift_range_min",
@@ -136,7 +146,7 @@ export, __all__ = strax.exporter()
 class DxHitClassification(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.2.3"
+    __version__ = "0.2.5"
 
     depends_on = ("hits", "records", "noises")
     provides = "hit_classification"
@@ -181,6 +191,44 @@ class DxHitClassification(strax.Plugin):
                 ("Best time shift in samples for optimal filter", "best_OF_shift"),
                 int,
             ),
+            (
+                (
+                    (
+                        "Width of the hit waveform (length above the hit threshold) "
+                        "in unit of samples.",
+                    ),
+                    "width",
+                ),
+                INDEX_DTYPE,
+            ),
+            (
+                (
+                    ("Maximum amplitude of the dx hit waveform",),
+                    "amplitude",
+                ),
+                DATA_DTYPE,
+            ),
+            (
+                (
+                    "Maximum amplitude of the dx hit waveform further smoothed by moving average",
+                    "amplitude_moving_average",
+                ),
+                DATA_DTYPE,
+            ),
+            (
+                (
+                    "Maximum amplitude of the dx hit waveform further smoothed by pulse kernel",
+                    "amplitude_convolved",
+                ),
+                DATA_DTYPE,
+            ),
+            (
+                (
+                    "Hit finding threshold in unit of dx=df/f0 for kernel convolved signal.",
+                    "hit_threshold",
+                ),
+                DATA_DTYPE,
+            ),
         ]
 
         return base_dtype + hit_id_dtype + hit_feature_dtype
@@ -195,6 +243,7 @@ class DxHitClassification(strax.Plugin):
         self.max_spike_coincidence = self.config["max_spike_coincidence"]
         self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
         self.template_interp_path = self.config["template_interp_path"]
+        self.template_interp_folder = self.config["template_interp_folder"]
         self.noise_psd = self.config["noise_psd_placeholder"]
         self.of_window_left = self.config["of_window_left"]
         self.of_window_right = self.config["of_window_right"]
@@ -211,6 +260,16 @@ class DxHitClassification(strax.Plugin):
 
         # Load interpolation function
         self.At_interp, self.t_max = load_interpolation(self.template_interp_path)
+        self.At_interp_dict = {}
+        self.t_max_dict = {}
+        # Load per-channel templates if folder exists, otherwise use default for all channels
+        if os.path.isdir(self.template_interp_folder):
+            for file in os.listdir(self.template_interp_folder):
+                if file.endswith(".pkl"):
+                    ch = int(file.split("_")[0].split("ch")[1])
+                    self.At_interp_dict[ch], self.t_max_dict[ch] = load_interpolation(
+                        os.path.join(self.template_interp_folder, file)
+                    )
 
     def compute_per_channel_noise_psd(self, noises, n_channels):
         """Compute per-channel noise PSDs from noise windows.
@@ -678,14 +737,23 @@ class DxHitClassification(strax.Plugin):
             else:
                 Jf = channel_noise_psds[ch]
 
+            # If the template interpolation file for this channel exists, use it,
+            # otherwise use the default one.
+            if ch in self.At_interp_dict.keys():
+                At_interp = self.At_interp_dict[ch]
+                t_max = self.t_max_dict[ch]
+            else:
+                At_interp = self.At_interp
+                t_max = self.t_max
+
             # Compute optimal filter with shift optimization
             # dt_seconds is explicitly in seconds
             best_aOF, best_chi2, best_OF_shift, _ = self.optimal_filter(
                 St,
                 dt_seconds,
                 Jf,
-                self.At_interp,
-                self.t_max,
+                At_interp,
+                t_max,
                 self.of_window_left,
                 self.of_window_right,
                 self.config["of_shift_range_min"],
@@ -709,6 +777,11 @@ class DxHitClassification(strax.Plugin):
         hit_classification["time"] = hits["time"]
         hit_classification["endtime"] = hits["endtime"]
         hit_classification["channel"] = hits["channel"]
+        hit_classification["width"] = hits["width"]
+        hit_classification["amplitude"] = hits["amplitude"]
+        hit_classification["amplitude_moving_average"] = hits["amplitude_moving_average"]
+        hit_classification["amplitude_convolved"] = hits["amplitude_convolved"]
+        hit_classification["hit_threshold"] = hits["hit_threshold"]
 
         self.compute_rise_edge_slope(hits, hit_classification)
         self.find_spike_coincidence(hit_classification, hits, records, spike_threshold_dx)

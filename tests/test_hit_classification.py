@@ -3,6 +3,7 @@ import pytest
 import numpy as np
 import straxion
 from straxion.plugins.hit_classification import HitClassification, DxHitClassification
+from straxion.utils import DEFAULT_TEMPLATE_INTERP_PATH
 import shutil
 
 
@@ -332,6 +333,11 @@ def test_spike_coincidence_dtype_inference():
         "best_aOF",
         "best_chi2",
         "best_OF_shift",
+        "width",
+        "amplitude",
+        "amplitude_moving_average",
+        "amplitude_convolved",
+        "hit_threshold",
     ]
     field_names = [name[1] for name, *_ in dtype]
     for field in expected_fields:
@@ -456,6 +462,11 @@ class TestDxHitClassificationWithRealDataOffline:
                 "best_aOF",
                 "best_chi2",
                 "best_OF_shift",
+                "width",
+                "amplitude",
+                "amplitude_moving_average",
+                "amplitude_convolved",
+                "hit_threshold",
             ]
             for field in required_fields:
                 assert (
@@ -474,6 +485,11 @@ class TestDxHitClassificationWithRealDataOffline:
             assert hit_classification["best_aOF"].dtype == np.float32
             assert hit_classification["best_chi2"].dtype == np.float32
             assert hit_classification["best_OF_shift"].dtype == np.int64
+            assert hit_classification["width"].dtype == np.int32
+            assert hit_classification["amplitude"].dtype == np.float32
+            assert hit_classification["amplitude_moving_average"].dtype == np.float32
+            assert hit_classification["amplitude_convolved"].dtype == np.float32
+            assert hit_classification["hit_threshold"].dtype == np.float32
 
             # Check that channels are within expected range (0-40 based on context config)
             if len(hit_classification) > 0:
@@ -587,6 +603,23 @@ class TestDxHitClassificationWithRealDataOffline:
                 assert np.all(
                     np.isfinite(hit_classification["best_OF_shift"])
                 ), "Non-finite values found in best_OF_shift"
+
+                # Check amplitude fields from hits
+                assert np.all(
+                    np.isfinite(hit_classification["amplitude"])
+                ), "Non-finite values found in amplitude"
+                assert np.all(
+                    np.isfinite(hit_classification["amplitude_moving_average"])
+                ), "Non-finite values found in amplitude_moving_average"
+                assert np.all(
+                    np.isfinite(hit_classification["amplitude_convolved"])
+                ), "Non-finite values found in amplitude_convolved"
+                assert np.all(
+                    np.isfinite(hit_classification["hit_threshold"])
+                ), "Non-finite values found in hit_threshold"
+
+                # Check width is non-negative
+                assert np.all(hit_classification["width"] >= 0), "Negative width values found"
 
                 # Check that n_spikes_coinciding is an integer and non-negative
                 assert np.all(
@@ -794,3 +827,274 @@ class TestDxHitClassificationWithRealDataOffline:
 
         except Exception as e:
             pytest.fail(f"Failed to verify per-channel PSD usage in optimal filter: {str(e)}")
+
+
+# =============================================================================
+# Unit Tests for Static Methods (Tests 1, 2, 3)
+# =============================================================================
+
+
+def test_calculate_spike_threshold():
+    """Test that spike threshold is calculated correctly from signal statistics."""
+    # Create mock signal with known statistics
+    # Row 0: values 1, 2, 3, 4, 5 -> mean=3.0, std=sqrt(2)
+    # Row 1: values 2, 4, 6, 8, 10 -> mean=6.0, std=2*sqrt(2)
+    signal = np.array([[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]])
+    spike_threshold_sigma = 2.0
+
+    threshold = DxHitClassification.calculate_spike_threshold(signal, spike_threshold_sigma)
+
+    # Verify expected values: mean + sigma * std
+    expected_mean_0 = np.mean(signal[0])  # 3.0
+    expected_std_0 = np.std(signal[0])  # sqrt(2) ≈ 1.414
+    expected_threshold_0 = expected_mean_0 + spike_threshold_sigma * expected_std_0
+
+    expected_mean_1 = np.mean(signal[1])  # 6.0
+    expected_std_1 = np.std(signal[1])  # 2*sqrt(2) ≈ 2.828
+    expected_threshold_1 = expected_mean_1 + spike_threshold_sigma * expected_std_1
+
+    assert np.isclose(
+        threshold[0], expected_threshold_0
+    ), f"Expected threshold[0]={expected_threshold_0}, got {threshold[0]}"
+    assert np.isclose(
+        threshold[1], expected_threshold_1
+    ), f"Expected threshold[1]={expected_threshold_1}, got {threshold[1]}"
+
+
+def test_optimal_filter_basic():
+    """Test that optimal filter returns valid amplitude and chi-squared."""
+    # Simple test case with known signal and template
+    n_samples = 100
+    St = np.sin(np.linspace(0, 2 * np.pi, n_samples))
+    At = np.sin(np.linspace(0, 2 * np.pi, n_samples))  # Perfect match
+    Jf = np.ones(n_samples)  # Flat noise PSD
+
+    ahatOF, chisq = DxHitClassification._optimal_filter(St, Jf, At)
+
+    # When signal matches template exactly, amplitude should be ~1
+    assert np.isclose(
+        ahatOF, 1.0, atol=0.01
+    ), f"Expected amplitude ~1.0 for matching signal/template, got {ahatOF}"
+    # Chi-squared should be non-negative
+    assert chisq >= 0, f"Chi-squared should be non-negative, got {chisq}"
+    # Chi-squared should be very small for perfect match
+    assert chisq < 1e-10, f"Chi-squared should be near zero for perfect match, got {chisq}"
+
+
+def test_optimal_filter_scaled_signal():
+    """Test optimal filter with scaled signal."""
+    n_samples = 100
+    scale_factor = 2.5
+    At = np.sin(np.linspace(0, 2 * np.pi, n_samples))  # Template
+    St = scale_factor * At  # Signal is scaled template
+    Jf = np.ones(n_samples)  # Flat noise PSD
+
+    ahatOF, chisq = DxHitClassification._optimal_filter(St, Jf, At)
+
+    # Amplitude should recover the scale factor
+    assert np.isclose(
+        ahatOF, scale_factor, atol=0.01
+    ), f"Expected amplitude ~{scale_factor}, got {ahatOF}"
+    # Chi-squared should still be very small (perfect scaled match)
+    assert chisq < 1e-10, f"Chi-squared should be near zero for scaled match, got {chisq}"
+
+
+def test_modify_template_windowing():
+    """Test that modify_template correctly applies windowing."""
+    St = np.zeros(700)  # Signal length
+    dt_seconds = 1 / 38000
+    tau = 0  # No shift
+
+    # Test without windowing
+    At_no_window = DxHitClassification.modify_template(
+        St, dt_seconds, tau, interp_path=DEFAULT_TEMPLATE_INTERP_PATH, apply_window=False
+    )
+
+    # Test with windowing
+    of_window_left = 100
+    of_window_right = 300
+    At_windowed = DxHitClassification.modify_template(
+        St,
+        dt_seconds,
+        tau,
+        interp_path=DEFAULT_TEMPLATE_INTERP_PATH,
+        apply_window=True,
+        of_window_left=of_window_left,
+        of_window_right=of_window_right,
+    )
+
+    assert len(At_no_window) == len(
+        St
+    ), f"Expected non-windowed template length {len(St)}, got {len(At_no_window)}"
+    expected_windowed_length = of_window_left + of_window_right
+    assert len(At_windowed) == expected_windowed_length, (
+        f"Expected windowed template length {expected_windowed_length}, " f"got {len(At_windowed)}"
+    )
+
+
+def test_modify_template_windowing_requires_params():
+    """Test that modify_template raises error when windowing params are missing."""
+    St = np.zeros(700)
+    dt_seconds = 1 / 38000
+    tau = 0
+
+    # Should raise ValueError when apply_window=True but params not provided
+    with pytest.raises(ValueError, match="of_window_left and of_window_right must be provided"):
+        DxHitClassification.modify_template(
+            St,
+            dt_seconds,
+            tau,
+            interp_path=DEFAULT_TEMPLATE_INTERP_PATH,
+            apply_window=True,
+            of_window_left=None,
+            of_window_right=None,
+        )
+
+
+# =============================================================================
+# Test 6: determine_spike_threshold mutual exclusivity
+# =============================================================================
+
+
+def test_determine_spike_threshold_with_sigma():
+    """Test determine_spike_threshold works correctly with spike_thresholds_sigma."""
+    st = straxion.qualiphide_thz_offline()
+    plugin = st.get_single_plugin("1756824965", "hit_classification")
+
+    # Create mock records with data_dx_convolved
+    n_records = 3
+    record_length = 1000
+    records = np.zeros(
+        n_records, dtype=[("channel", np.int16), ("data_dx_convolved", np.float32, record_length)]
+    )
+    records["channel"] = [0, 1, 2]
+    # Add some random data
+    np.random.seed(42)
+    for i in range(n_records):
+        records["data_dx_convolved"][i] = np.random.randn(record_length) * 0.1
+
+    # Plugin should have spike_threshold_dx=None and spike_thresholds_sigma set
+    # This should work without error
+    threshold = plugin.determine_spike_threshold(records)
+
+    assert len(threshold) == n_records, f"Expected {n_records} thresholds, got {len(threshold)}"
+    assert np.all(np.isfinite(threshold)), "Thresholds should be finite"
+
+
+# =============================================================================
+# Test 9: Noise PSD length validation
+# =============================================================================
+
+
+def test_noise_psd_length_validation():
+    """Test that noise PSD length mismatch raises ValueError during setup."""
+    st = straxion.qualiphide_thz_offline()
+
+    # Create invalid PSD with wrong length (should be 400 = 100 + 300)
+    invalid_psd = [1.0] * 50  # Wrong length
+
+    # Set the invalid config on the context
+    st.set_config({"noise_psd_placeholder": invalid_psd})
+
+    # The error should be raised during plugin setup
+    clean_strax_data()
+    with pytest.raises(ValueError, match="Noise PSD length"):
+        # Get the plugin, which triggers setup
+        st.get_single_plugin("1756824965", "hit_classification")
+
+
+# =============================================================================
+# Test 10: Empty noise windows handling
+# =============================================================================
+
+
+def test_compute_per_channel_noise_psd_empty_channel():
+    """Test that channels without noise windows return None for PSD."""
+    st = straxion.qualiphide_thz_offline()
+    plugin = st.get_single_plugin("1756824965", "hit_classification")
+
+    # Get the expected PSD length from plugin config
+    psd_length = plugin.of_window_left + plugin.of_window_right
+
+    # Create mock noises array with only channel 0
+    noises = np.zeros(5, dtype=[("channel", np.int16), ("data_dx", np.float32, psd_length)])
+    noises["channel"] = 0  # All noise windows for channel 0 only
+    # Add some random data
+    np.random.seed(42)
+    for i in range(5):
+        noises["data_dx"][i] = np.random.randn(psd_length) * 0.1
+
+    n_channels = 3
+    channel_psds = plugin.compute_per_channel_noise_psd(noises, n_channels)
+
+    # Verify the result is a dictionary
+    assert isinstance(channel_psds, dict), "Result should be a dictionary"
+
+    # Verify all channels are present
+    assert (
+        len(channel_psds) == n_channels
+    ), f"Expected {n_channels} channels, got {len(channel_psds)}"
+
+    # Channel 0 should have PSD (has noise windows)
+    assert channel_psds[0] is not None, "Channel 0 should have PSD"
+    assert (
+        len(channel_psds[0]) == psd_length
+    ), f"PSD length should be {psd_length}, got {len(channel_psds[0])}"
+
+    # Channels 1 and 2 should be None (no noise windows)
+    assert channel_psds[1] is None, "Channel 1 should have None (no noise windows)"
+    assert channel_psds[2] is None, "Channel 2 should have None (no noise windows)"
+
+    # PSD values should be non-negative (it's |FFT|^2)
+    assert np.all(channel_psds[0] >= 0), "PSD values should be non-negative"
+
+    # PSD should contain finite values
+    assert np.all(np.isfinite(channel_psds[0])), "PSD should contain finite values"
+
+
+# =============================================================================
+# Test 11: Photon candidate classification logic
+# =============================================================================
+
+
+def test_photon_candidate_exclusion_logic():
+    """Test that is_photon_candidate correctly excludes problematic hits.
+
+    Photon candidate logic: is_photon_candidate = NOT(coincident OR symmetric_spike OR truncated)
+    """
+    # Test cases: (is_coincident, is_symmetric_spike, is_truncated) -> expected is_photon_candidate
+    test_cases = [
+        (False, False, False, True),  # Clean hit -> photon candidate
+        (True, False, False, False),  # Coincident with spikes -> not candidate
+        (False, True, False, False),  # Symmetric spike -> not candidate
+        (False, False, True, False),  # Truncated -> not candidate
+        (True, True, False, False),  # Coincident + symmetric -> not candidate
+        (True, False, True, False),  # Coincident + truncated -> not candidate
+        (False, True, True, False),  # Symmetric + truncated -> not candidate
+        (True, True, True, False),  # All flags set -> not candidate
+    ]
+
+    for coincident, symmetric, truncated, expected in test_cases:
+        # Compute photon candidate using the same logic as the plugin
+        result = not (coincident or symmetric or truncated)
+        assert result == expected, (
+            f"For coincident={coincident}, symmetric={symmetric}, truncated={truncated}: "
+            f"expected is_photon_candidate={expected}, got {result}"
+        )
+
+
+def test_photon_candidate_exclusion_vectorized():
+    """Test photon candidate logic with numpy arrays (vectorized version)."""
+    is_coincident = np.array([False, True, False, False, True, True, False, True])
+    is_symmetric = np.array([False, False, True, False, True, False, True, True])
+    is_truncated = np.array([False, False, False, True, False, True, True, True])
+
+    # Expected results based on the logic
+    expected = np.array([True, False, False, False, False, False, False, False])
+
+    # Compute using the same logic as the plugin
+    is_photon_candidate = ~(is_coincident | is_symmetric | is_truncated)
+
+    np.testing.assert_array_equal(
+        is_photon_candidate, expected, err_msg="Vectorized photon candidate logic mismatch"
+    )

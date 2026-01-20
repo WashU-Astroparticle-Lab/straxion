@@ -27,7 +27,7 @@ export, __all__ = strax.exporter()
     ),
     strax.Option(
         "hit_thresholds_sigma",
-        default=[3.0 for _ in range(41)],
+        default=[4.0 for _ in range(41)],
         track=True,
         type=list,
         help=(
