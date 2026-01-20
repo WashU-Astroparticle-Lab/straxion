@@ -81,7 +81,7 @@ export, __all__ = strax.exporter()
         "template_interp_path",
         type=str,
         default=DEFAULT_TEMPLATE_INTERP_PATH,
-        track=True,
+        track=False,
         help="Path to the saved template interpolation file.",
     ),
     strax.Option(
