@@ -332,6 +332,11 @@ def test_spike_coincidence_dtype_inference():
         "best_aOF",
         "best_chi2",
         "best_OF_shift",
+        "width",
+        "amplitude",
+        "amplitude_moving_average",
+        "amplitude_convolved",
+        "hit_threshold",
     ]
     field_names = [name[1] for name, *_ in dtype]
     for field in expected_fields:
@@ -456,6 +461,11 @@ class TestDxHitClassificationWithRealDataOffline:
                 "best_aOF",
                 "best_chi2",
                 "best_OF_shift",
+                "width",
+                "amplitude",
+                "amplitude_moving_average",
+                "amplitude_convolved",
+                "hit_threshold",
             ]
             for field in required_fields:
                 assert (
@@ -474,6 +484,11 @@ class TestDxHitClassificationWithRealDataOffline:
             assert hit_classification["best_aOF"].dtype == np.float32
             assert hit_classification["best_chi2"].dtype == np.float32
             assert hit_classification["best_OF_shift"].dtype == np.int64
+            assert hit_classification["width"].dtype == np.int32
+            assert hit_classification["amplitude"].dtype == np.float32
+            assert hit_classification["amplitude_moving_average"].dtype == np.float32
+            assert hit_classification["amplitude_convolved"].dtype == np.float32
+            assert hit_classification["hit_threshold"].dtype == np.float32
 
             # Check that channels are within expected range (0-40 based on context config)
             if len(hit_classification) > 0:
@@ -587,6 +602,23 @@ class TestDxHitClassificationWithRealDataOffline:
                 assert np.all(
                     np.isfinite(hit_classification["best_OF_shift"])
                 ), "Non-finite values found in best_OF_shift"
+
+                # Check amplitude fields from hits
+                assert np.all(
+                    np.isfinite(hit_classification["amplitude"])
+                ), "Non-finite values found in amplitude"
+                assert np.all(
+                    np.isfinite(hit_classification["amplitude_moving_average"])
+                ), "Non-finite values found in amplitude_moving_average"
+                assert np.all(
+                    np.isfinite(hit_classification["amplitude_convolved"])
+                ), "Non-finite values found in amplitude_convolved"
+                assert np.all(
+                    np.isfinite(hit_classification["hit_threshold"])
+                ), "Non-finite values found in hit_threshold"
+
+                # Check width is non-negative
+                assert np.all(hit_classification["width"] >= 0), "Negative width values found"
 
                 # Check that n_spikes_coinciding is an integer and non-negative
                 assert np.all(
