@@ -12,6 +12,7 @@ from straxion.utils import (
     DEFAULT_TEMPLATE_INTERP_PATH,
     TEMPLATE_INTERP_FOLDER,
     load_interpolation,
+    INDEX_DTYPE,
 )
 
 export, __all__ = strax.exporter()
@@ -145,7 +146,7 @@ export, __all__ = strax.exporter()
 class DxHitClassification(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.2.4"
+    __version__ = "0.2.5"
 
     depends_on = ("hits", "records", "noises")
     provides = "hit_classification"
@@ -189,6 +190,44 @@ class DxHitClassification(strax.Plugin):
             (
                 ("Best time shift in samples for optimal filter", "best_OF_shift"),
                 int,
+            ),
+            (
+                (
+                    (
+                        "Width of the hit waveform (length above the hit threshold) "
+                        "in unit of samples.",
+                    ),
+                    "width",
+                ),
+                INDEX_DTYPE,
+            ),
+            (
+                (
+                    ("Maximum amplitude of the dx hit waveform",),
+                    "amplitude",
+                ),
+                DATA_DTYPE,
+            ),
+            (
+                (
+                    "Maximum amplitude of the dx hit waveform further smoothed by moving average",
+                    "amplitude_moving_average",
+                ),
+                DATA_DTYPE,
+            ),
+            (
+                (
+                    "Maximum amplitude of the dx hit waveform further smoothed by pulse kernel",
+                    "amplitude_convolved",
+                ),
+                DATA_DTYPE,
+            ),
+            (
+                (
+                    "Hit finding threshold in unit of dx=df/f0 for kernel convolved signal.",
+                    "hit_threshold",
+                ),
+                DATA_DTYPE,
             ),
         ]
 
@@ -736,6 +775,11 @@ class DxHitClassification(strax.Plugin):
         hit_classification["time"] = hits["time"]
         hit_classification["endtime"] = hits["endtime"]
         hit_classification["channel"] = hits["channel"]
+        hit_classification["width"] = hits["width"]
+        hit_classification["amplitude"] = hits["amplitude"]
+        hit_classification["amplitude_moving_average"] = hits["amplitude_moving_average"]
+        hit_classification["amplitude_convolved"] = hits["amplitude_convolved"]
+        hit_classification["hit_threshold"] = hits["hit_threshold"]
 
         self.compute_rise_edge_slope(hits, hit_classification)
         self.find_spike_coincidence(hit_classification, hits, records, spike_threshold_dx)
