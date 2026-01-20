@@ -18,6 +18,52 @@ import os
 
 export, __all__ = strax.exporter()
 
+# Common strax.Option definitions for pulse kernel parameters shared across plugins
+PULSE_KERNEL_OPTIONS = (
+    strax.Option(
+        "pulse_kernel_start_time",
+        default=200_000,
+        track=True,
+        type=int,
+        help="Relative start time of the exponential decay in pulse kernel (t0), in unit of ns.",
+    ),
+    strax.Option(
+        "pulse_kernel_decay_time",
+        default=600_000,
+        track=True,
+        type=int,
+        help="Decay time of the exponential falling in pulse kernel (tau), in unit of ns.",
+    ),
+    strax.Option(
+        "pulse_kernel_gaussian_smearing_width",
+        default=28_000,
+        track=True,
+        type=int,
+        help=(
+            "Gaussian smearing width of the exponentially-modified-gaussian kernel "
+            "(sigma), in unit of ns."
+        ),
+    ),
+    strax.Option(
+        "moving_average_width",
+        default=100_000,  # The original Matlab code says 5 samples (with fs = 5E4Hz).
+        track=True,
+        type=int,
+        help="Moving average width for smoothed reference waveform, in unit of ns.",
+    ),
+    strax.Option(
+        "pulse_kernel_truncation_factor",
+        default=10,
+        track=True,
+        type=float,
+        help=(
+            "Factor for truncating the pulse kernel to improve performance. "
+            "The kernel is truncated after truncation_factor * tau samples, "
+            "where the exponential decay becomes negligible."
+        ),
+    ),
+)
+
 
 @export
 @strax.takes_config(
@@ -90,48 +136,7 @@ export, __all__ = strax.exporter()
         type=int,
         help="Order of the polynomial fit for cable correction",
     ),
-    strax.Option(
-        "pulse_kernel_start_time",
-        default=200_000,
-        track=True,
-        type=int,
-        help="Relative start time of the exponential decay in pulse kernel (t0), in unit of ns.",
-    ),
-    strax.Option(
-        "pulse_kernel_decay_time",
-        default=600_000,
-        track=True,
-        type=int,
-        help="Decay time of the exponential falling in pulse kernel (tau), in unit of ns.",
-    ),
-    strax.Option(
-        "pulse_kernel_gaussian_smearing_width",
-        default=28_000,
-        track=True,
-        type=int,
-        help=(
-            "Gaussian smearing width of the exponentially-modified-gaussian kernel "
-            "(sigma), in unit of ns."
-        ),
-    ),
-    strax.Option(
-        "moving_average_width",
-        default=100_000,  # The original Matlab code says 5 samples (with fs = 5E4Hz).
-        track=True,
-        type=int,
-        help="Moving average width for smoothed reference waveform, in unit of ns.",
-    ),
-    strax.Option(
-        "pulse_kernel_truncation_factor",
-        default=10,
-        track=True,
-        type=float,
-        help=(
-            "Factor for truncating the pulse kernel to improve performance. "
-            "The kernel is truncated after truncation_factor * tau samples, "
-            "where the exponential decay becomes negligible."
-        ),
-    ),
+    *PULSE_KERNEL_OPTIONS,
     strax.Option(
         "pca_n_components",
         default=0,
@@ -687,48 +692,7 @@ class DxRecords(strax.Plugin):
         type=int,
         help="Sampling frequency (assumed the same for all channels) in unit of Hz",
     ),
-    strax.Option(
-        "pulse_kernel_start_time",
-        default=200_000,
-        track=True,
-        type=int,
-        help="Relative start time of the exponential decay in pulse kernel (t0), in unit of ns.",
-    ),
-    strax.Option(
-        "pulse_kernel_decay_time",
-        default=600_000,
-        track=True,
-        type=int,
-        help="Decay time of the exponential falling in pulse kernel (tau), in unit of ns.",
-    ),
-    strax.Option(
-        "pulse_kernel_gaussian_smearing_width",
-        default=28_000,
-        track=True,
-        type=int,
-        help=(
-            "Gaussian smearing width of the exponentially-modified-gaussian kernel "
-            "(sigma), in unit of ns."
-        ),
-    ),
-    strax.Option(
-        "moving_average_width",
-        default=100_000,  # The original Matlab code says 5 samples (with fs = 5E4Hz).
-        track=True,
-        type=int,
-        help="Moving average width for smoothed reference waveform, in unit of ns.",
-    ),
-    strax.Option(
-        "pulse_kernel_truncation_factor",
-        default=10,
-        track=True,
-        type=float,
-        help=(
-            "Factor for truncating the pulse kernel to improve performance. "
-            "The kernel is truncated after truncation_factor * tau samples, "
-            "where the exponential decay becomes negligible."
-        ),
-    ),
+    *PULSE_KERNEL_OPTIONS,
 )
 class PulseProcessing(strax.Plugin):
     """Process raw IQ data to extract phase information.
