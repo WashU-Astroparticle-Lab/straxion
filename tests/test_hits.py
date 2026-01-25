@@ -702,3 +702,277 @@ class TestHitsWithRealDataOffline:
         clean_strax_data()
         with pytest.raises(Exception):
             st.get_array(run_id, "hits", config=configs)
+
+
+# =============================================================================
+# Unit Tests for Numba-Accelerated Helper Functions (DxHits)
+# =============================================================================
+
+
+class TestFindHitCandidatesNumba:
+    """Test the numba-accelerated _find_hit_candidates_numba function."""
+
+    def test_find_hit_candidates_basic(self):
+        """Test basic hit detection with clear threshold crossings."""
+        from straxion.plugins.hits import _find_hit_candidates_numba
+
+        # Create signal with two clear hits
+        signal = np.zeros(1000, dtype=np.float64)
+        signal[100:150] = 1.0  # First hit: 50 samples wide
+        signal[300:320] = 1.0  # Second hit: 20 samples wide
+
+        threshold = 0.5
+        min_width = 10
+
+        starts, widths = _find_hit_candidates_numba(signal, threshold, min_width)
+
+        assert len(starts) == 2, f"Expected 2 hits, got {len(starts)}"
+        assert starts[0] == 100, f"First hit should start at 100, got {starts[0]}"
+        assert widths[0] == 50, f"First hit width should be 50, got {widths[0]}"
+        assert starts[1] == 300, f"Second hit should start at 300, got {starts[1]}"
+        assert widths[1] == 20, f"Second hit width should be 20, got {widths[1]}"
+
+    def test_find_hit_candidates_min_width_filter(self):
+        """Test that hits below minimum width are filtered out."""
+        from straxion.plugins.hits import _find_hit_candidates_numba
+
+        signal = np.zeros(500, dtype=np.float64)
+        signal[100:105] = 1.0  # 5 samples - too short
+        signal[200:220] = 1.0  # 20 samples - should pass
+
+        threshold = 0.5
+        min_width = 10
+
+        starts, widths = _find_hit_candidates_numba(signal, threshold, min_width)
+
+        assert len(starts) == 1, f"Expected 1 hit (filtered by min_width), got {len(starts)}"
+        assert starts[0] == 200
+        assert widths[0] == 20
+
+    def test_find_hit_candidates_edge_at_start(self):
+        """Test hit that starts at index 0."""
+        from straxion.plugins.hits import _find_hit_candidates_numba
+
+        signal = np.zeros(500, dtype=np.float64)
+        signal[0:30] = 1.0  # Hit starts at beginning
+
+        threshold = 0.5
+        min_width = 10
+
+        starts, widths = _find_hit_candidates_numba(signal, threshold, min_width)
+
+        assert len(starts) == 1
+        assert starts[0] == 0
+        assert widths[0] == 30
+
+    def test_find_hit_candidates_edge_at_end(self):
+        """Test hit that extends to end of signal."""
+        from straxion.plugins.hits import _find_hit_candidates_numba
+
+        signal = np.zeros(500, dtype=np.float64)
+        signal[470:500] = 1.0  # Hit extends to end
+
+        threshold = 0.5
+        min_width = 10
+
+        starts, widths = _find_hit_candidates_numba(signal, threshold, min_width)
+
+        assert len(starts) == 1
+        assert starts[0] == 470
+        assert widths[0] == 30
+
+    def test_find_hit_candidates_no_hits(self):
+        """Test signal with no hits above threshold."""
+        from straxion.plugins.hits import _find_hit_candidates_numba
+
+        signal = np.zeros(500, dtype=np.float64)
+        signal[:] = 0.1  # All below threshold
+
+        threshold = 0.5
+        min_width = 10
+
+        starts, widths = _find_hit_candidates_numba(signal, threshold, min_width)
+
+        assert len(starts) == 0
+        assert len(widths) == 0
+
+    def test_find_hit_candidates_matches_original(self):
+        """Test that numba version matches the original numpy implementation."""
+        from straxion.plugins.hits import _find_hit_candidates_numba
+
+        # Original numpy implementation for comparison
+        def find_hit_candidates_original(signal, hit_threshold, min_pulse_width):
+            above_threshold = signal >= hit_threshold
+            padded_array = np.concatenate(([False], above_threshold, [False]))
+            diffs = np.diff(padded_array.astype(int))
+            hit_start_indices = np.where(diffs == 1)[0]
+            hit_end_indices = np.where(diffs == -1)[0]
+            if len(hit_start_indices) == 0:
+                return np.array([]), np.array([])
+            hit_widths = hit_end_indices - hit_start_indices
+            valid_mask = hit_widths >= min_pulse_width
+            return hit_start_indices[valid_mask], hit_widths[valid_mask]
+
+        # Create random signal with pulses
+        np.random.seed(42)
+        signal = np.random.randn(10000) * 0.1
+        for _ in range(20):
+            pos = np.random.randint(0, 9900)
+            width = np.random.randint(10, 50)
+            signal[pos : pos + width] += 0.5
+
+        threshold = 0.3
+        min_width = 10
+
+        starts_orig, widths_orig = find_hit_candidates_original(signal, threshold, min_width)
+        starts_numba, widths_numba = _find_hit_candidates_numba(
+            signal.astype(np.float64), threshold, min_width
+        )
+
+        np.testing.assert_array_equal(starts_orig, starts_numba)
+        np.testing.assert_array_equal(widths_orig, widths_numba)
+
+
+class TestComputeHitBoundariesAndAmplitudes:
+    """Test the numba-accelerated _compute_hit_boundaries_and_amplitudes function."""
+
+    def test_compute_boundaries_basic(self):
+        """Test basic boundary and amplitude computation."""
+        from straxion.plugins.hits import _compute_hit_boundaries_and_amplitudes
+
+        # Create signals
+        n_samples = 1000
+        signal_conv = np.zeros(n_samples, dtype=np.float64)
+        signal_ma = np.zeros(n_samples, dtype=np.float64)
+        signal_raw = np.zeros(n_samples, dtype=np.float64)
+
+        # Add a pulse with peak at sample 525 (middle of sine wave from 500-550)
+        signal_conv[500:550] = np.sin(np.linspace(0, np.pi, 50))
+        signal_ma[500:550] = signal_conv[500:550] * 0.9
+        signal_raw[500:550] = signal_conv[500:550] * 1.1
+
+        hit_starts = np.array([500], dtype=np.int64)
+        hit_widths = np.array([50], dtype=np.int64)
+
+        result = _compute_hit_boundaries_and_amplitudes(
+            hit_starts,
+            hit_widths,
+            signal_conv,
+            signal_ma,
+            signal_raw,
+            hit_window_length_left=200,
+            hit_window_length_right=400,
+            signal_length=n_samples,
+        )
+
+        (
+            aligned_indices,
+            left_indices,
+            right_indices,
+            amp_conv,
+            amp_ma,
+            amp_raw,
+            amp_conv_i,
+            amp_ma_i,
+            amp_raw_i,
+        ) = result
+
+        # The peak should be near the middle of the sine wave (around 525)
+        assert 520 <= aligned_indices[0] <= 530, f"Aligned at {aligned_indices[0]}"
+
+        # Amplitudes should be positive and match the max values
+        assert amp_conv[0] > 0.9, f"Convolved amplitude should be near 1.0, got {amp_conv[0]}"
+        assert amp_ma[0] > 0.8, f"MA amplitude should be near 0.9, got {amp_ma[0]}"
+        assert amp_raw[0] > 1.0, f"Raw amplitude should be near 1.1, got {amp_raw[0]}"
+
+    def test_compute_boundaries_multiple_hits(self):
+        """Test with multiple hits and boundary constraints."""
+        from straxion.plugins.hits import _compute_hit_boundaries_and_amplitudes
+
+        n_samples = 2000
+        signal = np.zeros(n_samples, dtype=np.float64)
+
+        # Two hits close together
+        signal[200:250] = 1.0
+        signal[400:450] = 2.0
+
+        hit_starts = np.array([200, 400], dtype=np.int64)
+        hit_widths = np.array([50, 50], dtype=np.int64)
+
+        result = _compute_hit_boundaries_and_amplitudes(
+            hit_starts,
+            hit_widths,
+            signal,
+            signal,
+            signal,
+            hit_window_length_left=100,
+            hit_window_length_right=100,
+            signal_length=n_samples,
+        )
+
+        left_indices = result[1]
+        right_indices = result[2]
+
+        # First hit's right boundary should be limited by second hit's start
+        assert right_indices[0] <= hit_starts[1], "First hit right should not overlap second"
+
+        # Second hit's left boundary should be limited by first hit's end
+        first_hit_end = hit_starts[0] + hit_widths[0]
+        assert left_indices[1] >= first_hit_end, "Second hit left should not overlap first"
+
+    def test_compute_boundaries_edge_cases(self):
+        """Test boundary computation at signal edges."""
+        from straxion.plugins.hits import _compute_hit_boundaries_and_amplitudes
+
+        n_samples = 500
+        signal = np.zeros(n_samples, dtype=np.float64)
+        signal[0:50] = 1.0  # Hit at start
+
+        hit_starts = np.array([0], dtype=np.int64)
+        hit_widths = np.array([50], dtype=np.int64)
+
+        result = _compute_hit_boundaries_and_amplitudes(
+            hit_starts,
+            hit_widths,
+            signal,
+            signal,
+            signal,
+            hit_window_length_left=200,
+            hit_window_length_right=200,
+            signal_length=n_samples,
+        )
+
+        left_indices = result[1]
+
+        # Left boundary should be clamped to 0
+        assert left_indices[0] == 0, "Left index should be 0 at signal start"
+
+
+class TestDxHitsFindHitCandidatesMethod:
+    """Test DxHits.find_hit_candidates method using the numba implementation."""
+
+    def test_find_hit_candidates_uses_numba(self):
+        """Test that the public method correctly calls the numba function."""
+        from straxion.plugins.hits import DxHits
+
+        signal = np.zeros(1000, dtype=np.float64)
+        signal[100:150] = 1.0
+
+        starts, widths = DxHits.find_hit_candidates(signal, 0.5, 10)
+
+        assert len(starts) == 1
+        assert starts[0] == 100
+        assert widths[0] == 50
+
+    def test_find_hit_candidates_type_conversion(self):
+        """Test that input types are correctly converted."""
+        from straxion.plugins.hits import DxHits
+
+        # Test with float32 input (should be converted to float64)
+        signal = np.zeros(500, dtype=np.float32)
+        signal[100:130] = 1.0
+
+        starts, widths = DxHits.find_hit_candidates(signal, 0.5, 10)
+
+        assert len(starts) == 1
+        assert starts[0] == 100
