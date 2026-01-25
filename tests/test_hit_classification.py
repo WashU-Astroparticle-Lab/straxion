@@ -327,6 +327,9 @@ def test_spike_coincidence_dtype_inference():
         "endtime",
         "channel",
         "is_coincident_with_spikes",
+        "is_symmetric_spike",
+        "is_truncated_hit",
+        "is_invalid_kappa",
         "is_photon_candidate",
         "rise_edge_slope",
         "n_spikes_coinciding",
@@ -457,6 +460,8 @@ class TestDxHitClassificationWithRealDataOffline:
                 "channel",
                 "is_coincident_with_spikes",
                 "is_symmetric_spike",
+                "is_truncated_hit",
+                "is_invalid_kappa",
                 "is_photon_candidate",
                 "rise_edge_slope",
                 "n_spikes_coinciding",
@@ -481,6 +486,8 @@ class TestDxHitClassificationWithRealDataOffline:
             assert hit_classification["channel"].dtype == np.int16
             assert hit_classification["is_coincident_with_spikes"].dtype == bool
             assert hit_classification["is_symmetric_spike"].dtype == bool
+            assert hit_classification["is_truncated_hit"].dtype == bool
+            assert hit_classification["is_invalid_kappa"].dtype == bool
             assert hit_classification["is_photon_candidate"].dtype == bool
             assert hit_classification["rise_edge_slope"].dtype == np.float32
             assert hit_classification["n_spikes_coinciding"].dtype == np.int64
@@ -612,6 +619,14 @@ class TestDxHitClassificationWithRealDataOffline:
                     hit_classification["kappa"] > 0
                 ), "Kappa values must be positive (or inf)"
 
+                # Check is_invalid_kappa is consistent with kappa values
+                expected_invalid_kappa = ~np.isfinite(hit_classification["kappa"])
+                np.testing.assert_array_equal(
+                    hit_classification["is_invalid_kappa"],
+                    expected_invalid_kappa,
+                    err_msg="is_invalid_kappa should match ~np.isfinite(kappa)",
+                )
+
                 # Check amplitude fields from hits
                 assert np.all(
                     np.isfinite(hit_classification["amplitude"])
@@ -634,13 +649,21 @@ class TestDxHitClassificationWithRealDataOffline:
                     hit_classification["n_spikes_coinciding"] >= 0
                 ), "Negative spike coincidence counts found"
 
-                # Check that is_photon_candidate is False when
-                # is_coincident_with_spikes or is_symmetric_spike is True
+                # Check that is_photon_candidate is False when any exclusion criteria is met
                 for hit_class in hit_classification:
-                    if hit_class["is_coincident_with_spikes"] or hit_class["is_symmetric_spike"]:
+                    has_exclusion = (
+                        hit_class["is_coincident_with_spikes"]
+                        or hit_class["is_symmetric_spike"]
+                        or hit_class["is_truncated_hit"]
+                        or hit_class["is_invalid_kappa"]
+                    )
+                    if has_exclusion:
                         assert not hit_class["is_photon_candidate"], (
-                            "Hit cannot be a photon candidate when it is coincident with spikes "
-                            "or is a symmetric spike"
+                            "Hit cannot be a photon candidate when it has any exclusion: "
+                            f"coincident={hit_class['is_coincident_with_spikes']}, "
+                            f"symmetric={hit_class['is_symmetric_spike']}, "
+                            f"truncated={hit_class['is_truncated_hit']}, "
+                            f"invalid_kappa={hit_class['is_invalid_kappa']}"
                         )
 
         except Exception as e:
@@ -1231,40 +1254,57 @@ def test_compute_per_channel_noise_psd_empty_channel():
 def test_photon_candidate_exclusion_logic():
     """Test that is_photon_candidate correctly excludes problematic hits.
 
-    Photon candidate logic: is_photon_candidate = NOT(coincident OR symmetric_spike OR truncated)
+    Photon candidate logic:
+        is_photon_candidate = NOT(coincident OR symmetric OR truncated OR invalid_kappa)
     """
-    # Test cases: (is_coincident, is_symmetric_spike, is_truncated) -> expected is_photon_candidate
+    # Test cases: (coincident, symmetric, truncated, invalid_kappa) -> expected is_photon_candidate
     test_cases = [
-        (False, False, False, True),  # Clean hit -> photon candidate
-        (True, False, False, False),  # Coincident with spikes -> not candidate
-        (False, True, False, False),  # Symmetric spike -> not candidate
-        (False, False, True, False),  # Truncated -> not candidate
-        (True, True, False, False),  # Coincident + symmetric -> not candidate
-        (True, False, True, False),  # Coincident + truncated -> not candidate
-        (False, True, True, False),  # Symmetric + truncated -> not candidate
-        (True, True, True, False),  # All flags set -> not candidate
+        # Clean hit with valid kappa -> photon candidate
+        (False, False, False, False, True),
+        # Clean hit but invalid kappa -> not candidate
+        (False, False, False, True, False),
+        # Coincident with spikes -> not candidate
+        (True, False, False, False, False),
+        # Symmetric spike -> not candidate
+        (False, True, False, False, False),
+        # Truncated -> not candidate
+        (False, False, True, False, False),
+        # Invalid kappa alone -> not candidate
+        (False, False, False, True, False),
+        # Multiple issues -> not candidate
+        (True, True, False, False, False),
+        (True, False, True, False, False),
+        (False, True, True, False, False),
+        (True, True, True, False, False),
+        # All bad including invalid kappa
+        (True, True, True, True, False),
     ]
 
-    for coincident, symmetric, truncated, expected in test_cases:
+    for coincident, symmetric, truncated, invalid_kappa, expected in test_cases:
         # Compute photon candidate using the same logic as the plugin
-        result = not (coincident or symmetric or truncated)
+        result = not (coincident or symmetric or truncated or invalid_kappa)
         assert result == expected, (
-            f"For coincident={coincident}, symmetric={symmetric}, truncated={truncated}: "
-            f"expected is_photon_candidate={expected}, got {result}"
+            f"For coincident={coincident}, symmetric={symmetric}, truncated={truncated}, "
+            f"invalid_kappa={invalid_kappa}: expected is_photon_candidate={expected}, got {result}"
         )
 
 
 def test_photon_candidate_exclusion_vectorized():
     """Test photon candidate logic with numpy arrays (vectorized version)."""
-    is_coincident = np.array([False, True, False, False, True, True, False, True])
-    is_symmetric = np.array([False, False, True, False, True, False, True, True])
-    is_truncated = np.array([False, False, False, True, False, True, True, True])
+    is_coincident = np.array([False, True, False, False, True, True, False, True, False])
+    is_symmetric = np.array([False, False, True, False, True, False, True, True, False])
+    is_truncated = np.array([False, False, False, True, False, True, True, True, False])
+    is_invalid_kappa = np.array([False, False, False, False, False, False, False, False, True])
 
-    # Expected results based on the logic
-    expected = np.array([True, False, False, False, False, False, False, False])
+    # Expected results based on the logic:
+    # is_photon_candidate = ~(is_coincident | is_symmetric | is_truncated | is_invalid_kappa)
+    # Index 0: all False -> True (photon candidate)
+    # Index 1-7: at least one exclusion flag True -> False
+    # Index 8: invalid kappa -> False
+    expected = np.array([True, False, False, False, False, False, False, False, False])
 
     # Compute using the same logic as the plugin
-    is_photon_candidate = ~(is_coincident | is_symmetric | is_truncated)
+    is_photon_candidate = ~(is_coincident | is_symmetric | is_truncated | is_invalid_kappa)
 
     np.testing.assert_array_equal(
         is_photon_candidate, expected, err_msg="Vectorized photon candidate logic mismatch"

@@ -182,7 +182,7 @@ export, __all__ = strax.exporter()
 class DxHitClassification(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.3.1"
+    __version__ = "0.3.2"
 
     depends_on = ("hits", "records", "noises")
     provides = "hit_classification"
@@ -200,6 +200,7 @@ class DxHitClassification(strax.Plugin):
             (("Is in coincidence with spikes", "is_coincident_with_spikes"), bool),
             (("Is symmetric spike hit", "is_symmetric_spike"), bool),
             (("Is truncated hit", "is_truncated_hit"), bool),
+            (("Is invalid kappa (inf or nan)", "is_invalid_kappa"), bool),
             (("Photon candidate hit", "is_photon_candidate"), bool),
         ]
 
@@ -964,10 +965,16 @@ class DxHitClassification(strax.Plugin):
         hit_classification["is_coincident_with_spikes"] = (
             hit_classification["n_spikes_coinciding"] > self.max_spike_coincidence
         )
+
+        # Invalid kappa means not finite (inf or nan)
+        hit_classification["is_invalid_kappa"] = ~np.isfinite(hit_classification["kappa"])
+
+        # Photon candidate must pass all quality cuts (all exclusion flags must be False)
         hit_classification["is_photon_candidate"] = ~(
             hit_classification["is_coincident_with_spikes"]
             | hit_classification["is_symmetric_spike"]
             | hit_classification["is_truncated_hit"]
+            | hit_classification["is_invalid_kappa"]
         )
 
         return hit_classification
