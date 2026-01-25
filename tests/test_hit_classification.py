@@ -1081,6 +1081,47 @@ def test_optimal_filter_kappa_inf_when_out_of_bounds():
     assert np.isinf(kappa), f"Expected kappa to be inf when out of bounds, got {kappa}"
 
 
+def test_optimal_filter_kappa_with_negative_amplitude():
+    """Test that kappa fitting works correctly when best_aOF is negative.
+
+    This tests the fix for the bug where negative amplitudes caused
+    the curve_fit bounds to be inverted (lower > upper).
+    """
+    n_samples = 700
+    St = np.zeros(n_samples)
+    # Create an inverted pulse (negative amplitude)
+    St[200:400] = -np.sin(np.linspace(0, 2 * np.pi, 200))
+    dt_seconds = 1 / 38000
+    Jf = np.ones(400)
+
+    from straxion.utils import load_interpolation
+
+    At_interp, t_max_seconds = load_interpolation(DEFAULT_TEMPLATE_INTERP_PATH)
+
+    # Run optimal filter - this should not crash even with negative amplitude
+    result = DxHitClassification.optimal_filter(
+        St,
+        dt_seconds,
+        Jf,
+        At_interp,
+        t_max_seconds,
+        of_window_left=100,
+        of_window_right=300,
+        of_shift_range_min=-50,
+        of_shift_range_max=50,
+        of_shift_step=1,
+        kappa_fit_half_band_width=20,
+        kappa_fit_smoothing_window=3,
+    )
+
+    best_aOF, best_chi2, best_OF_shift, kappa, best_At_shifted = result
+
+    # The fit should not crash - kappa should be positive (or inf if fit legitimately failed)
+    assert kappa > 0, f"Kappa should be positive, got {kappa}"
+    # best_aOF can be negative for inverted signals
+    assert np.isfinite(best_aOF), f"best_aOF should be finite, got {best_aOF}"
+
+
 # =============================================================================
 # Test: determine_spike_threshold mutual exclusivity
 # =============================================================================

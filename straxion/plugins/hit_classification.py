@@ -182,7 +182,7 @@ export, __all__ = strax.exporter()
 class DxHitClassification(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.3.0"
+    __version__ = "0.3.1"
 
     depends_on = ("hits", "records", "noises")
     provides = "hit_classification"
@@ -669,14 +669,20 @@ class DxHitClassification(strax.Plugin):
                 p0 = [best_aOF, best_OF_shift, 1.0]
 
                 # Set bounds for curve_fit
+                # Use min/max to handle negative best_aOF correctly
+                amp_bound_1 = best_aOF * kappa_fit_amplitude_bound_low
+                amp_bound_2 = best_aOF * kappa_fit_amplitude_bound_high
+                amp_lower = min(amp_bound_1, amp_bound_2)
+                amp_upper = max(amp_bound_1, amp_bound_2)
+
                 bounds = (
                     [
-                        best_aOF * kappa_fit_amplitude_bound_low,
+                        amp_lower,
                         best_OF_shift - kappa_fit_center_tolerance,
                         0,
                     ],  # lower bounds
                     [
-                        best_aOF * kappa_fit_amplitude_bound_high,
+                        amp_upper,
                         best_OF_shift + kappa_fit_center_tolerance,
                         np.inf,
                     ],  # upper bounds
