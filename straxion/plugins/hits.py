@@ -1,5 +1,6 @@
 import strax
 import numpy as np
+import numba
 import warnings
 from straxion.utils import (
     DATA_DTYPE,
@@ -11,6 +12,182 @@ from straxion.utils import (
 )
 
 export, __all__ = strax.exporter()
+
+
+# =============================================================================
+# Numba-accelerated helper functions for DxHits
+# =============================================================================
+
+
+@numba.njit(cache=True)
+def _find_hit_candidates_numba(signal, hit_threshold, min_pulse_width):
+    """Numba-accelerated single-pass hit candidate detection.
+
+    Finds contiguous regions where signal >= threshold with width >= min_width.
+
+    Args:
+        signal (np.ndarray): The signal array (float64).
+        hit_threshold (float): Threshold value for hit detection.
+        min_pulse_width (int): Minimum width required for a valid hit.
+
+    Returns:
+        tuple: (hit_start_indices, hit_widths) as int64 arrays.
+
+    """
+    n = len(signal)
+    # Pre-allocate arrays for worst case (every other sample is a hit start)
+    max_hits = (n // 2) + 1
+    starts = np.empty(max_hits, dtype=np.int64)
+    widths = np.empty(max_hits, dtype=np.int64)
+
+    n_hits = 0
+    in_hit = False
+    hit_start = 0
+
+    for i in range(n):
+        above = signal[i] >= hit_threshold
+
+        if above and not in_hit:
+            # Start of a new hit
+            in_hit = True
+            hit_start = i
+        elif not above and in_hit:
+            # End of current hit
+            in_hit = False
+            width = i - hit_start
+            if width >= min_pulse_width:
+                starts[n_hits] = hit_start
+                widths[n_hits] = width
+                n_hits += 1
+
+    # Handle hit that extends to end of signal
+    if in_hit:
+        width = n - hit_start
+        if width >= min_pulse_width:
+            starts[n_hits] = hit_start
+            widths[n_hits] = width
+            n_hits += 1
+
+    return starts[:n_hits].copy(), widths[:n_hits].copy()
+
+
+@numba.njit(cache=True)
+def _compute_hit_boundaries_and_amplitudes(
+    hit_start_indices,
+    hit_widths,
+    signal_convolved,
+    signal_ma,
+    signal_raw,
+    hit_window_length_left,
+    hit_window_length_right,
+    signal_length,
+):
+    """Compute hit boundaries and amplitude metrics for all hits in batch.
+
+    Args:
+        hit_start_indices (np.ndarray): Start indices of hits.
+        hit_widths (np.ndarray): Widths of hits.
+        signal_convolved (np.ndarray): Convolved signal array.
+        signal_ma (np.ndarray): Moving average signal array.
+        signal_raw (np.ndarray): Raw signal array.
+        hit_window_length_left (int): Left window size.
+        hit_window_length_right (int): Right window size.
+        signal_length (int): Length of the signal arrays.
+
+    Returns:
+        tuple: Multiple arrays with hit characteristics.
+
+    """
+    n_hits = len(hit_start_indices)
+
+    # Output arrays
+    aligned_indices = np.empty(n_hits, dtype=np.int64)
+    left_indices = np.empty(n_hits, dtype=np.int64)
+    right_indices = np.empty(n_hits, dtype=np.int64)
+    amp_convolved = np.empty(n_hits, dtype=np.float64)
+    amp_ma = np.empty(n_hits, dtype=np.float64)
+    amp_raw = np.empty(n_hits, dtype=np.float64)
+    amp_conv_max_i = np.empty(n_hits, dtype=np.int64)
+    amp_ma_max_i = np.empty(n_hits, dtype=np.int64)
+    amp_raw_max_i = np.empty(n_hits, dtype=np.int64)
+
+    for h in range(n_hits):
+        start_i = hit_start_indices[h]
+        width = hit_widths[h]
+
+        # Find maximum in the hit region (above threshold)
+        max_val = signal_convolved[start_i]
+        max_i = 0
+        for j in range(1, width):
+            if signal_convolved[start_i + j] > max_val:
+                max_val = signal_convolved[start_i + j]
+                max_i = j
+        aligned_i = start_i + max_i
+        aligned_indices[h] = aligned_i
+
+        # Calculate boundaries considering neighboring hits
+        left_boundary = aligned_i - hit_window_length_left
+
+        # For left boundary, consider previous hit end
+        if h > 0:
+            prev_end = hit_start_indices[h - 1] + hit_widths[h - 1]
+            left_i = max(0, left_boundary, prev_end)
+        else:
+            left_i = max(0, left_boundary)
+
+        # For right boundary, consider next hit start
+        right_boundary = aligned_i + hit_window_length_right
+        if h < n_hits - 1:
+            next_start = hit_start_indices[h + 1]
+            right_i = min(signal_length, right_boundary, next_start)
+        else:
+            right_i = min(signal_length, right_boundary)
+
+        left_indices[h] = left_i
+        right_indices[h] = right_i
+
+        # Compute amplitudes and argmax for each signal type
+        # Convolved
+        max_conv = signal_convolved[left_i]
+        max_conv_i = left_i
+        for j in range(left_i + 1, right_i):
+            if signal_convolved[j] > max_conv:
+                max_conv = signal_convolved[j]
+                max_conv_i = j
+        amp_convolved[h] = max_conv
+        amp_conv_max_i[h] = max_conv_i
+
+        # Moving average
+        max_ma = signal_ma[left_i]
+        max_ma_i = left_i
+        for j in range(left_i + 1, right_i):
+            if signal_ma[j] > max_ma:
+                max_ma = signal_ma[j]
+                max_ma_i = j
+        amp_ma[h] = max_ma
+        amp_ma_max_i[h] = max_ma_i
+
+        # Raw
+        max_raw = signal_raw[left_i]
+        max_raw_i = left_i
+        for j in range(left_i + 1, right_i):
+            if signal_raw[j] > max_raw:
+                max_raw = signal_raw[j]
+                max_raw_i = j
+        amp_raw[h] = max_raw
+        amp_raw_max_i[h] = max_raw_i
+
+    return (
+        aligned_indices,
+        left_indices,
+        right_indices,
+        amp_convolved,
+        amp_ma,
+        amp_raw,
+        amp_conv_max_i,
+        amp_ma_max_i,
+        amp_raw_max_i,
+    )
 
 
 @export
@@ -267,7 +444,7 @@ class DxHits(strax.Plugin):
 
     @staticmethod
     def find_hit_candidates(signal, hit_threshold, min_pulse_width):
-        """Finds potential hit candidates, correctly handling edge cases.
+        """Finds potential hit candidates using numba-accelerated single-pass detection.
 
         Args:
             signal: The signal array.
@@ -277,32 +454,12 @@ class DxHits(strax.Plugin):
         Returns:
             tuple: (hit_start_indices, hit_widths) for valid hits.
         """
-        # 1. Create a boolean array where True means the signal is at or above the threshold
-        above_threshold = signal >= hit_threshold
-
-        # 2. Pad the array with False at both ends. This is the key to finding
-        #    hits that start at index 0 or end at the last index.
-        padded_array = np.concatenate(([False], above_threshold, [False]))
-
-        # 3. Find the changes from False to True (starts) and True to False (ends)
-        #    A change from 0 to 1 is a start (diff = 1).
-        #    A change from 1 to 0 is an end (diff = -1).
-        diffs = np.diff(padded_array.astype(int))
-
-        hit_start_indices = np.where(diffs == 1)[0]
-        hit_end_indices = np.where(diffs == -1)[0]
-
-        # If no hits are found, return empty lists
-        if len(hit_start_indices) == 0:
-            return np.array([]), np.array([])
-
-        # 4. Calculate the width of each potential hit
-        hit_widths = hit_end_indices - hit_start_indices
-
-        # 5. Filter the hits by the minimum pulse width
-        valid_mask = hit_widths >= min_pulse_width
-
-        return hit_start_indices[valid_mask], hit_widths[valid_mask]
+        # Use numba-accelerated single-pass detection
+        return _find_hit_candidates_numba(
+            np.asarray(signal, dtype=np.float64),
+            float(hit_threshold),
+            int(min_pulse_width),
+        )
 
     def compute(self, records):
         """Process records to find and characterize hits.
@@ -333,7 +490,7 @@ class DxHits(strax.Plugin):
         return results
 
     def _process_single_record(self, record, hit_threshold_dx):
-        """Process a single record to find hits.
+        """Process a single record to find hits using batch numba processing.
 
         Args:
             record: Single record containing signal data.
@@ -350,25 +507,76 @@ class DxHits(strax.Plugin):
         if len(hit_start_i) == 0:
             return None
 
-        hits = np.zeros(len(hit_start_i), dtype=self.infer_dtype())
+        n_hits = len(hit_start_i)
+        hits = np.zeros(n_hits, dtype=self.infer_dtype())
         hits["width"] = hit_widths
         hits["channel"] = record["channel"]
-        hits["dt"] = self.dt_exact  # Will be converted to int when saving
+        hits["dt"] = self.dt_exact
         hits["hit_threshold"] = hit_threshold_dx[hits["channel"]]
 
-        for i, start_i in enumerate(hit_start_i):
-            self._process_hit(
-                hits[i],
-                record["data_dx_convolved"],
-                record["data_dx_moving_average"],
-                record["data_dx"],
-                start_i,
-                hit_widths[i],
-                record["time"],
-                record["endtime"],
-                previous_hit_end_i=hit_start_i[i - 1] + hit_widths[i - 1] if i > 0 else None,
-                next_hit_start_i=hit_start_i[i + 1] if i < len(hit_start_i) - 1 else None,
-            )
+        # Convert signals to float64 for numba
+        signal_convolved = np.asarray(record["data_dx_convolved"], dtype=np.float64)
+        signal_ma = np.asarray(record["data_dx_moving_average"], dtype=np.float64)
+        signal_raw = np.asarray(record["data_dx"], dtype=np.float64)
+        signal_length = len(signal_convolved)
+
+        # OPTIMIZATION: Use numba batch processing for boundaries and amplitudes
+        (
+            aligned_indices,
+            left_indices,
+            right_indices,
+            amp_convolved,
+            amp_ma,
+            amp_raw,
+            amp_conv_max_i,
+            amp_ma_max_i,
+            amp_raw_max_i,
+        ) = _compute_hit_boundaries_and_amplitudes(
+            hit_start_i,
+            hit_widths,
+            signal_convolved,
+            signal_ma,
+            signal_raw,
+            self.hit_window_length_left,
+            self.hit_window_length_right,
+            signal_length,
+        )
+
+        # Set amplitude values (computed in batch)
+        hits["amplitude_convolved"] = amp_convolved
+        hits["amplitude_moving_average"] = amp_ma
+        hits["amplitude"] = amp_raw
+        hits["amplitude_convolved_max_record_i"] = amp_conv_max_i
+        hits["amplitude_moving_average_max_record_i"] = amp_ma_max_i
+        hits["amplitude_max_record_i"] = amp_raw_max_i
+
+        # Extract waveforms and set timing (requires array slicing, done in Python)
+        start_time = record["time"]
+        record_endtime = record["endtime"]
+
+        for i in range(n_hits):
+            left_i = left_indices[i]
+            right_i = right_indices[i]
+            aligned_i = aligned_indices[i]
+
+            # Calculate valid sample ranges
+            n_right_valid = min(right_i - aligned_i, self.hit_window_length_right)
+            n_left_valid = min(aligned_i - left_i, self.hit_window_length_left)
+
+            # Calculate target indices in hit waveform array
+            target_start = self.hit_window_length_left - n_left_valid
+            target_end = self.hit_window_length_left + n_right_valid
+
+            # Extract waveforms
+            hits[i]["data_dx_convolved"][target_start:target_end] = signal_convolved[left_i:right_i]
+            hits[i]["data_dx_moving_average"][target_start:target_end] = signal_ma[left_i:right_i]
+            hits[i]["data_dx"][target_start:target_end] = signal_raw[left_i:right_i]
+
+            # Calculate time and endtime
+            hits[i]["time"] = np.int64(start_time + np.int64(left_i * self.dt_exact))
+            calculated_endtime = np.int64(start_time + np.int64(right_i * self.dt_exact))
+            hits[i]["endtime"] = min(calculated_endtime, record_endtime)
+            hits[i]["length"] = right_i - left_i
 
         return hits
 
