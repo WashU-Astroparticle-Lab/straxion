@@ -7,6 +7,7 @@ from straxion.utils import (
     NOT_FOUND_INDEX,
     PULSE_TEMPLATE_LENGTH,
     DEFAULT_TEMPLATE_INTERP_PATH,
+    TEMPLATE_INTERP_FOLDER,
     TIME_DTYPE,
     DATA_DTYPE,
     HIT_WINDOW_LENGTH_LEFT,
@@ -513,13 +514,14 @@ class TestMatchRestrictWindow:
 
     def setup_method(self):
         """Set up test data and create a Match instance."""
-        from straxion.utils import DEFAULT_TEMPLATE_INTERP_PATH
+        from straxion.utils import DEFAULT_TEMPLATE_INTERP_PATH, TEMPLATE_INTERP_FOLDER
 
         self.match = Match()
         self.match.config = {
             "fs": 38000,
             "match_window_ms": 1.5,
             "template_interp_path": DEFAULT_TEMPLATE_INTERP_PATH,
+            "template_interp_folder": TEMPLATE_INTERP_FOLDER,
         }
         self.match.setup()
 
@@ -542,7 +544,7 @@ class TestMatchRestrictWindow:
         (PULSE_TEMPLATE_ARGMAX) regardless of sampling frequency, because it
         aligns the maximum at the target time which corresponds to that index.
         """
-        from straxion.utils import DEFAULT_TEMPLATE_INTERP_PATH
+        from straxion.utils import DEFAULT_TEMPLATE_INTERP_PATH, TEMPLATE_INTERP_FOLDER
 
         # Test at 38kHz (default)
         match_38k = Match()
@@ -550,6 +552,7 @@ class TestMatchRestrictWindow:
             "fs": 38000,
             "match_window_ms": 1.5,
             "template_interp_path": DEFAULT_TEMPLATE_INTERP_PATH,
+            "template_interp_folder": TEMPLATE_INTERP_FOLDER,
         }
         match_38k.setup()
 
@@ -559,6 +562,7 @@ class TestMatchRestrictWindow:
             "fs": 50000,
             "match_window_ms": 1.5,
             "template_interp_path": DEFAULT_TEMPLATE_INTERP_PATH,
+            "template_interp_folder": TEMPLATE_INTERP_FOLDER,
         }
         match_50k.setup()
 
@@ -572,12 +576,20 @@ class TestMatchRestrictWindow:
         """Test truth window restriction with basic case."""
 
         # Create simple truth data
-        truth_ch = np.zeros(2, dtype=[("time", TIME_DTYPE), ("endtime", TIME_DTYPE)])
+        truth_ch = np.zeros(
+            2,
+            dtype=[
+                ("time", TIME_DTYPE),
+                ("endtime", TIME_DTYPE),
+                ("channel", np.int16),
+            ],
+        )
         truth_ch["time"] = [1000, 5000]
         truth_ch["endtime"] = [
             1000 + PULSE_TEMPLATE_LENGTH * self.match.dt_exact,
             5000 + PULSE_TEMPLATE_LENGTH * self.match.dt_exact,
         ]
+        truth_ch["channel"] = 0
 
         # Create dummy hits with proper dtype (not used in truth calculation)
         # Empty array but with correct structure
@@ -643,8 +655,15 @@ class TestMatchRestrictWindow:
         hits_ch["endtime"] = [hit_time + self.hit_waveform_length * dt_ns]
         hits_ch["data_dx"][0] = waveform
 
-        # Create dummy truth (not used)
-        truth_ch = np.zeros(0, dtype=[("time", TIME_DTYPE), ("endtime", TIME_DTYPE)])
+        # Create dummy truth (not used but needs channel field)
+        truth_ch = np.zeros(
+            0,
+            dtype=[
+                ("time", TIME_DTYPE),
+                ("endtime", TIME_DTYPE),
+                ("channel", np.int16),
+            ],
+        )
 
         hits_restricted, truth_restricted = self.match._restrict_to_maximum_window(
             hits_ch, truth_ch
@@ -702,8 +721,15 @@ class TestMatchRestrictWindow:
         hits_ch["endtime"] = [hit_time + (self.hit_waveform_length - padding_offset) * dt_ns]
         hits_ch["data_dx"][0] = waveform
 
-        # Create dummy truth (not used)
-        truth_ch = np.zeros(0, dtype=[("time", TIME_DTYPE), ("endtime", TIME_DTYPE)])
+        # Create dummy truth (not used but needs channel field)
+        truth_ch = np.zeros(
+            0,
+            dtype=[
+                ("time", TIME_DTYPE),
+                ("endtime", TIME_DTYPE),
+                ("channel", np.int16),
+            ],
+        )
 
         hits_restricted, truth_restricted = self.match._restrict_to_maximum_window(
             hits_ch, truth_ch
@@ -726,8 +752,16 @@ class TestMatchRestrictWindow:
 
         # Create truth with sufficient length to accommodate the window
         # Need at least pulse_template_argmax samples + half window on each side
-        truth_ch = np.zeros(1, dtype=[("time", TIME_DTYPE), ("endtime", TIME_DTYPE)])
+        truth_ch = np.zeros(
+            1,
+            dtype=[
+                ("time", TIME_DTYPE),
+                ("endtime", TIME_DTYPE),
+                ("channel", np.int16),
+            ],
+        )
         truth_ch["time"] = [1000]
+        truth_ch["channel"] = 0
         # Ensure endtime is long enough for the template and window
         min_length = (
             self.match.pulse_template_argmax * self.match.dt_exact + self.match.match_window_ns
@@ -763,6 +797,7 @@ class TestMatchRestrictWindow:
             "fs": 38000,
             "match_window_ms": None,
             "template_interp_path": DEFAULT_TEMPLATE_INTERP_PATH,
+            "template_interp_folder": TEMPLATE_INTERP_FOLDER,
         }
         match_no_window.setup()
 

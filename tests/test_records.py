@@ -8,6 +8,7 @@ from straxion.utils import (
     PULSE_TEMPLATE_LENGTH,
     PULSE_TEMPLATE_ARGMAX,
     DEFAULT_TEMPLATE_INTERP_PATH,
+    TEMPLATE_INTERP_FOLDER,
     load_interpolation,
     SECOND_TO_NANOSECOND,
 )
@@ -525,6 +526,7 @@ class TestDxRecordsSetupMethods:
             "moving_average_width": 100000,
             "pca_n_components": 4,
             "template_interp_path": DEFAULT_TEMPLATE_INTERP_PATH,
+            "template_interp_folder": TEMPLATE_INTERP_FOLDER,
         }
 
         # Create test data files
@@ -685,6 +687,7 @@ class TestDxRecordsCompute:
             "pulse_kernel_truncation_factor": 10,
             "pca_n_components": 4,
             "template_interp_path": DEFAULT_TEMPLATE_INTERP_PATH,
+            "template_interp_folder": TEMPLATE_INTERP_FOLDER,
         }
 
         # Create test data files
@@ -746,6 +749,11 @@ class TestDxRecordsCompute:
         self.dx_records.At_interp, self.dx_records.t_max = load_interpolation(
             self.dx_records.config["template_interp_path"]
         )
+        # Initialize per-channel template dicts (empty for tests without channel templates)
+        self.dx_records.At_interp_dict = {}
+        self.dx_records.t_max_dict = {}
+        self.dx_records.interpolated_template_dict = {}
+
         dt_seconds = 1.0 / self.dx_records.config["fs"]
         t_seconds = np.arange(PULSE_TEMPLATE_LENGTH) * dt_seconds
         t_max_target = PULSE_TEMPLATE_ARGMAX * dt_seconds
@@ -863,6 +871,11 @@ class TestDxRecordsCompute:
         self.dx_records.At_interp, self.dx_records.t_max = load_interpolation(
             self.dx_records.config["template_interp_path"]
         )
+        # Initialize per-channel template dicts (empty for tests without channel templates)
+        self.dx_records.At_interp_dict = {}
+        self.dx_records.t_max_dict = {}
+        self.dx_records.interpolated_template_dict = {}
+
         dt_seconds = 1.0 / self.dx_records.config["fs"]
         t_seconds = np.arange(PULSE_TEMPLATE_LENGTH) * dt_seconds
         t_max_target = PULSE_TEMPLATE_ARGMAX * dt_seconds
@@ -937,6 +950,11 @@ class TestDxRecordsCompute:
         self.dx_records.At_interp, self.dx_records.t_max = load_interpolation(
             self.dx_records.config["template_interp_path"]
         )
+        # Initialize per-channel template dicts (empty for tests without channel templates)
+        self.dx_records.At_interp_dict = {}
+        self.dx_records.t_max_dict = {}
+        self.dx_records.interpolated_template_dict = {}
+
         dt_seconds = 1.0 / self.dx_records.config["fs"]
         t_seconds = np.arange(PULSE_TEMPLATE_LENGTH) * dt_seconds
         t_max_target = PULSE_TEMPLATE_ARGMAX * dt_seconds
@@ -1020,6 +1038,11 @@ class TestDxRecordsCompute:
         self.dx_records.At_interp, self.dx_records.t_max = load_interpolation(
             self.dx_records.config["template_interp_path"]
         )
+        # Initialize per-channel template dicts (empty for tests without channel templates)
+        self.dx_records.At_interp_dict = {}
+        self.dx_records.t_max_dict = {}
+        self.dx_records.interpolated_template_dict = {}
+
         dt_seconds = 1.0 / self.dx_records.config["fs"]
         t_seconds = np.arange(PULSE_TEMPLATE_LENGTH) * dt_seconds
         t_max_target = PULSE_TEMPLATE_ARGMAX * dt_seconds
