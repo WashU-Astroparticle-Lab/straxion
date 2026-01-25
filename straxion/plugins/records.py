@@ -9,6 +9,7 @@ from straxion.utils import (
     PULSE_TEMPLATE_LENGTH,
     PULSE_TEMPLATE_ARGMAX,
     DEFAULT_TEMPLATE_INTERP_PATH,
+    TEMPLATE_INTERP_FOLDER,
     load_interpolation,
 )
 from scipy.ndimage import gaussian_filter1d
@@ -150,6 +151,13 @@ PULSE_KERNEL_OPTIONS = (
         default=DEFAULT_TEMPLATE_INTERP_PATH,
         track=False,
         help="Path to the saved template interpolation file.",
+    ),
+    strax.Option(
+        "template_interp_folder",
+        type=str,
+        default=TEMPLATE_INTERP_FOLDER,
+        track=False,
+        help="Folder containing per-channel template interpolation files.",
     ),
 )
 class DxRecords(strax.Plugin):
@@ -508,6 +516,18 @@ class DxRecords(strax.Plugin):
         # Load interpolation function for pulse template
         self.At_interp, self.t_max = load_interpolation(self.config["template_interp_path"])
 
+        # Load per-channel templates if folder exists
+        self.At_interp_dict = {}
+        self.t_max_dict = {}
+        template_interp_folder = self.config["template_interp_folder"]
+        if os.path.isdir(template_interp_folder):
+            for file in os.listdir(template_interp_folder):
+                if file.endswith(".pkl"):
+                    ch = int(file.split("_")[0].split("ch")[1])
+                    self.At_interp_dict[ch], self.t_max_dict[ch] = load_interpolation(
+                        os.path.join(template_interp_folder, file)
+                    )
+
         # Generate interpolated pulse template at current sampling frequency
         # Calculate time step in seconds
         dt_seconds = 1.0 / self.config["fs"]
@@ -520,6 +540,13 @@ class DxRecords(strax.Plugin):
         timeshifted_seconds = t_seconds - time_shift
         # Generate interpolated template
         self.interpolated_template = self.At_interp(timeshifted_seconds)
+
+        # Generate per-channel interpolated templates
+        self.interpolated_template_dict = {}
+        for ch in self.At_interp_dict:
+            time_shift_ch = t_max_target - self.t_max_dict[ch]
+            timeshifted_seconds_ch = t_seconds - time_shift_ch
+            self.interpolated_template_dict[ch] = self.At_interp_dict[ch](timeshifted_seconds_ch)
 
         # Pre-compute moving average kernel.
         moving_average_kernel_width = int(self.config["moving_average_width"] / self.dt_exact)
@@ -536,6 +563,14 @@ class DxRecords(strax.Plugin):
         """
         # Find truth events that match this record's channel and time range
         matching_truth = truth[(truth["channel"] == record["channel"])]
+        ch = record["channel"]
+
+        # If the template interpolation file for this channel exists, use it,
+        # otherwise use the default one.
+        if ch in self.interpolated_template_dict.keys():
+            template = self.interpolated_template_dict[ch]
+        else:
+            template = self.interpolated_template
 
         for t in matching_truth:
             # Calculate the pulse amplitude scaled by the photon energy
@@ -553,7 +588,7 @@ class DxRecords(strax.Plugin):
             # Inject the interpolated pulse template if within bounds
             if start_sample >= 0 and inject_length > 0:
                 record["data_dx"][start_sample : start_sample + inject_length] += (
-                    pulse_amplitude * self.interpolated_template[:inject_length]
+                    pulse_amplitude * template[:inject_length]
                 )
 
     def pca(self, y):

@@ -10,8 +10,10 @@ from straxion.utils import (
     PULSE_TEMPLATE_ARGMAX,
     PULSE_TEMPLATE_LENGTH,
     DEFAULT_TEMPLATE_INTERP_PATH,
+    TEMPLATE_INTERP_FOLDER,
     load_interpolation,
 )
+import os
 
 export, __all__ = strax.exporter()
 
@@ -41,6 +43,13 @@ export, __all__ = strax.exporter()
         default=DEFAULT_TEMPLATE_INTERP_PATH,
         track=False,
         help="Path to the saved template interpolation file.",
+    ),
+    strax.Option(
+        "template_interp_folder",
+        type=str,
+        default=TEMPLATE_INTERP_FOLDER,
+        track=False,
+        help="Folder containing per-channel template interpolation files.",
     ),
 )
 class Match(strax.Plugin):
@@ -97,6 +106,21 @@ class Match(strax.Plugin):
         timeshifted_seconds = t_seconds - time_shift
         interpolated_template = At_interp(timeshifted_seconds)
         self.pulse_template_argmax = np.argmax(interpolated_template)
+
+        # Load per-channel templates if folder exists and compute per-channel argmax
+        self.pulse_template_argmax_dict = {}
+        template_interp_folder = self.config["template_interp_folder"]
+        if os.path.isdir(template_interp_folder):
+            for file in os.listdir(template_interp_folder):
+                if file.endswith(".pkl"):
+                    ch = int(file.split("_")[0].split("ch")[1])
+                    At_interp_ch, t_max_ch = load_interpolation(
+                        os.path.join(template_interp_folder, file)
+                    )
+                    time_shift_ch = t_max_target - t_max_ch
+                    timeshifted_seconds_ch = t_seconds - time_shift_ch
+                    interpolated_template_ch = At_interp_ch(timeshifted_seconds_ch)
+                    self.pulse_template_argmax_dict[ch] = np.argmax(interpolated_template_ch)
 
     def infer_dtype(self):
         """Define the data type for match results."""
@@ -323,7 +347,17 @@ class Match(strax.Plugin):
         # from the start of the pulse template (at the current sampling
         # frequency). Since truth["time"] is the start of the pulse template,
         # we can calculate the maximum time.
-        truth_max_times = truth_ch["time"] + self.pulse_template_argmax * self.dt_exact
+        # If the template interpolation file for this channel exists, use it,
+        # otherwise use the default one.
+        if len(truth_ch) > 0:
+            ch = truth_ch["channel"][0]  # All truth in this array have same channel
+            if ch in self.pulse_template_argmax_dict.keys():
+                pulse_argmax = self.pulse_template_argmax_dict[ch]
+            else:
+                pulse_argmax = self.pulse_template_argmax
+        else:
+            pulse_argmax = self.pulse_template_argmax
+        truth_max_times = truth_ch["time"] + pulse_argmax * self.dt_exact
         truth_ch_restricted["time"] = np.maximum(
             truth_ch["time"],
             truth_max_times - half_window_ns,
