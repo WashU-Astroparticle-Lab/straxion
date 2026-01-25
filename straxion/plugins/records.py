@@ -1,5 +1,6 @@
 import strax
 import numpy as np
+import numba
 from straxion.utils import (
     DATA_DTYPE,
     SECOND_TO_NANOSECOND,
@@ -14,10 +15,205 @@ from straxion.utils import (
 )
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import fftconvolve
-from scipy.interpolate import interp1d
 import os
 
 export, __all__ = strax.exporter()
+
+
+# =============================================================================
+# Numba-accelerated helper functions for DxRecords
+# =============================================================================
+
+
+@numba.njit(cache=True)
+def _linear_interp_numba(x_new, x_data, y_data):
+    """Numba-accelerated linear interpolation with extrapolation.
+
+    Replaces scipy.interpolate.interp1d for better performance.
+
+    Args:
+        x_new (np.ndarray): New x values to interpolate at (1D array).
+        x_data (np.ndarray): Known x data points (1D array, must be sorted).
+        y_data (np.ndarray): Known y data points (1D array).
+
+    Returns:
+        np.ndarray: Interpolated y values at x_new positions.
+
+    """
+    n_new = len(x_new)
+    n_data = len(x_data)
+    result = np.empty(n_new, dtype=np.float64)
+
+    for i in range(n_new):
+        x = x_new[i]
+
+        # Handle extrapolation below range
+        if x <= x_data[0]:
+            # Linear extrapolation using first two points
+            slope = (y_data[1] - y_data[0]) / (x_data[1] - x_data[0])
+            result[i] = y_data[0] + slope * (x - x_data[0])
+        # Handle extrapolation above range
+        elif x >= x_data[n_data - 1]:
+            # Linear extrapolation using last two points
+            slope = (y_data[n_data - 1] - y_data[n_data - 2]) / (
+                x_data[n_data - 1] - x_data[n_data - 2]
+            )
+            result[i] = y_data[n_data - 1] + slope * (x - x_data[n_data - 1])
+        else:
+            # Binary search for the interval
+            lo = 0
+            hi = n_data - 1
+            while hi - lo > 1:
+                mid = (lo + hi) // 2
+                if x_data[mid] <= x:
+                    lo = mid
+                else:
+                    hi = mid
+
+            # Linear interpolation
+            t = (x - x_data[lo]) / (x_data[hi] - x_data[lo])
+            result[i] = y_data[lo] + t * (y_data[hi] - y_data[lo])
+
+    return result
+
+
+@numba.njit(cache=True)
+def _apply_iq_correction_numba(
+    data_i,
+    data_q,
+    i_model_val,
+    q_model_val,
+    iq_center_real,
+    iq_center_imag,
+    phi,
+    theta_at_fres,
+):
+    """Numba-accelerated IQ correction and theta computation.
+
+    Combines multiple operations into a single pass for efficiency.
+
+    Args:
+        data_i (np.ndarray): In-phase data.
+        data_q (np.ndarray): Quadrature data.
+        i_model_val (float): I model value at f=fres.
+        q_model_val (float): Q model value at f=fres.
+        iq_center_real (float): Real part of IQ center.
+        iq_center_imag (float): Imaginary part of IQ center.
+        phi (float): Phi angle for rotation.
+        theta_at_fres (float): Theta value at resonant frequency.
+
+    Returns:
+        tuple: (dtheta, theta) arrays
+
+    """
+    n = len(data_i)
+    dtheta = np.empty(n, dtype=np.float64)
+    theta = np.empty(n, dtype=np.float64)
+
+    # Pre-compute correction divisor
+    divisor_real = i_model_val
+    divisor_imag = q_model_val
+    divisor_mag_sq = divisor_real * divisor_real + divisor_imag * divisor_imag
+
+    # Pre-compute rotation factor
+    cos_phi = np.cos(-phi)
+    sin_phi = np.sin(-phi)
+
+    for i in range(n):
+        # Complex division: data_z / (i_model + j*q_model)
+        z_real = data_i[i]
+        z_imag = data_q[i]
+        # (a+jb)/(c+jd) = ((ac+bd) + j(bc-ad)) / (c^2+d^2)
+        corrected_real = (z_real * divisor_real + z_imag * divisor_imag) / divisor_mag_sq
+        corrected_imag = (z_imag * divisor_real - z_real * divisor_imag) / divisor_mag_sq
+
+        # Center the data
+        centered_real = corrected_real - iq_center_real
+        centered_imag = corrected_imag - iq_center_imag
+
+        # Rotate by exp(-j*phi)
+        rotated_real = centered_real * cos_phi - centered_imag * sin_phi
+        rotated_imag = centered_real * sin_phi + centered_imag * cos_phi
+
+        # Compute angle and apply mod 2*pi
+        angle = np.arctan2(rotated_imag, rotated_real)
+        if angle < 0:
+            angle += 2 * np.pi
+        theta[i] = angle
+
+        # Compute dtheta
+        dtheta[i] = angle - theta_at_fres
+
+    return dtheta, theta
+
+
+@numba.njit(cache=True)
+def _convolve_same_numba(signal, kernel):
+    """Numba-accelerated 1D convolution with 'same' output size.
+
+    Args:
+        signal (np.ndarray): Input signal (1D).
+        kernel (np.ndarray): Convolution kernel (1D).
+
+    Returns:
+        np.ndarray: Convolved signal with same length as input.
+
+    """
+    n_signal = len(signal)
+    n_kernel = len(kernel)
+    result = np.zeros(n_signal, dtype=np.float64)
+
+    # Half kernel size for centering
+    half_k = n_kernel // 2
+
+    for i in range(n_signal):
+        total = 0.0
+        for j in range(n_kernel):
+            # Index into signal with boundary handling
+            sig_idx = i - half_k + j
+            if 0 <= sig_idx < n_signal:
+                total += signal[sig_idx] * kernel[j]
+        result[i] = total
+
+    return result
+
+
+@numba.njit(cache=True)
+def _inject_truth_pulses_numba(
+    data_dx, template, truth_times, truth_energies, record_time, dt_exact, photon_mev
+):
+    """Numba-accelerated truth pulse injection.
+
+    Args:
+        data_dx (np.ndarray): Data array to inject pulses into (modified in place).
+        template (np.ndarray): Pulse template.
+        truth_times (np.ndarray): Times of truth events.
+        truth_energies (np.ndarray): Energies of truth events.
+        record_time (int): Start time of the record.
+        dt_exact (float): Time step in nanoseconds.
+        photon_mev (float): Photon energy normalization constant.
+
+    """
+    record_length = len(data_dx)
+    template_length = len(template)
+
+    for t_idx in range(len(truth_times)):
+        # Calculate pulse amplitude
+        pulse_amplitude = truth_energies[t_idx] / photon_mev
+
+        # Calculate starting sample index
+        time_offset = truth_times[t_idx] - record_time
+        start_sample = int(time_offset / dt_exact)
+
+        # Determine injection length
+        samples_to_end = record_length - start_sample
+        inject_length = min(template_length, samples_to_end)
+
+        # Inject if within bounds
+        if start_sample >= 0 and inject_length > 0:
+            for j in range(inject_length):
+                data_dx[start_sample + j] += pulse_amplitude * template[j]
+
 
 # Common strax.Option definitions for pulse kernel parameters shared across plugins
 PULSE_KERNEL_OPTIONS = (
@@ -402,35 +598,60 @@ class DxRecords(strax.Plugin):
 
         This method:
         1. Finds the theta value at the resonant frequency for each channel
-        2. Creates interpolation models that map theta differences to frequency offsets
+        2. Creates interpolation data arrays for numba-accelerated interpolation
         3. Validates the interpolation models for self-consistency
+
+        Optimized version stores sorted arrays for numba instead of scipy interp1d.
         """
         # Initialize interpolation data arrays
         self.thetas_at_fres = np.zeros(len(self.fres))
         self.interpolated_freqs = np.zeros_like(self.fres)
-        self.f_interpolation_models = []
 
-        # Create interpolation models for each channel
+        # Store arrays for numba interpolation (replaces scipy interp1d)
+        self.interp_x_data = []  # dtheta values (x-axis)
+        self.interp_y_data = []  # frequency values (y-axis)
+
+        # Create interpolation data for each channel
         for ch in range(len(self.fres)):
             # Find the index closest to resonant frequency
             f0_idx = np.argmin(np.abs(self.fine_f[ch] - self.fres[ch]))
 
-            # Get theta value at resonant frequency
-            self.thetas_at_fres[ch] = self.fine_z_corrected[ch][f0_idx]
+            # Get theta value at resonant frequency (ensure real value)
+            theta_val = self.fine_z_corrected[ch][f0_idx]
+            self.thetas_at_fres[ch] = (
+                np.real(theta_val) if np.iscomplexobj(theta_val) else theta_val
+            )
 
             # Calculate theta differences from resonant frequency
             dtheta_fine = self.fine_z_corrected[ch] - self.thetas_at_fres[ch]
+            # Ensure real values for interpolation
+            if np.iscomplexobj(dtheta_fine):
+                dtheta_fine = np.real(dtheta_fine)
 
-            # Create interpolation model mapping theta differences to frequencies
-            # Use bounds_error=False to handle out-of-bounds values gracefully
-            # and fill_value='extrapolate' to extrapolate beyond the range
-            self.f_interpolation_models.append(
-                interp1d(dtheta_fine, self.fine_f[ch], bounds_error=False, fill_value="extrapolate")
-            )
+            # Sort data by x values for numba interpolation (required for binary search)
+            sort_idx = np.argsort(dtheta_fine)
+            x_sorted = np.ascontiguousarray(dtheta_fine[sort_idx], dtype=np.float64)
+            y_sorted = np.ascontiguousarray(self.fine_f[ch][sort_idx], dtype=np.float64)
 
-            # Validate interpolation model (should return resonant frequency at theta=0)
-            # This is just for self-consistency check
-            self.interpolated_freqs[ch] = self.f_interpolation_models[ch](0)
+            self.interp_x_data.append(x_sorted)
+            self.interp_y_data.append(y_sorted)
+
+            # Validate interpolation (should return resonant frequency at theta=0)
+            self.interpolated_freqs[ch] = _linear_interp_numba(np.array([0.0]), x_sorted, y_sorted)[
+                0
+            ]
+
+        # Pre-compute IQ model values at f=fres for each channel (used in compute)
+        self.i_model_vals = np.array(
+            [self.i_models[ch](0) for ch in range(len(self.fres))], dtype=np.float64
+        )
+        self.q_model_vals = np.array(
+            [self.q_models[ch](0) for ch in range(len(self.fres))], dtype=np.float64
+        )
+
+        # Convert IQ centers to separate real/imag arrays for numba
+        self.iq_centers_real = np.real(self.iq_centers).astype(np.float64)
+        self.iq_centers_imag = np.imag(self.iq_centers).astype(np.float64)
 
     @staticmethod
     def pulse_kernel(ns, fs, t0, tau, sigma, truncation_factor=5):
@@ -639,8 +860,19 @@ class DxRecords(strax.Plugin):
         return z
 
     def compute(self, raw_records, truth):
-        """Compute the dx=df/f0 for the timestream data with truth pulse injection."""
+        """Compute the dx=df/f0 for the timestream data with truth pulse injection.
+
+        Optimized version using:
+        1. Numba-accelerated IQ correction and theta computation
+        2. Numba-accelerated linear interpolation (replaces scipy interp1d)
+        3. Numba-accelerated truth pulse injection
+        4. FFT-based convolution for all kernel sizes
+        """
         results = np.zeros(len(raw_records), dtype=self.infer_dtype())
+
+        # Pre-convert moving average kernel to float64 for consistency
+        ma_kernel = np.asarray(self.moving_average_kernel, dtype=np.float64)
+        pulse_kernel = np.asarray(self.kernel, dtype=np.float64)
 
         for i, rr in enumerate(raw_records):
             r = results[i]
@@ -649,51 +881,62 @@ class DxRecords(strax.Plugin):
             r["length"] = rr["length"]
             r["dt"] = rr["dt"]
             r["channel"] = rr["channel"]
+            ch = rr["channel"]
 
-            data_z = rr["data_i"] + 1j * rr["data_q"]
-            # Apply IQ gain correction.
-            data_z = data_z / (
-                self.i_models[rr["channel"]](0) + 1j * self.q_models[rr["channel"]](0)
-            )
-            # Center the data and rotate back by the phi value.
-            data_z = (data_z - self.iq_centers[rr["channel"]]) * np.exp(
-                -1j * self.phis[rr["channel"]]
-            )
+            # OPTIMIZATION 1: Use numba-accelerated IQ correction and theta computation
+            data_i = np.asarray(rr["data_i"], dtype=np.float64)
+            data_q = np.asarray(rr["data_q"], dtype=np.float64)
 
-            # Convert to theta (phase angle) relative to the IQ loop center.
-            theta = np.mod(np.angle(data_z), 2 * np.pi)
-            dtheta = theta - self.thetas_at_fres[rr["channel"]]
+            dtheta, theta = _apply_iq_correction_numba(
+                data_i,
+                data_q,
+                self.i_model_vals[ch],
+                self.q_model_vals[ch],
+                self.iq_centers_real[ch],
+                self.iq_centers_imag[ch],
+                self.phis[ch],
+                self.thetas_at_fres[ch],
+            )
             r["data_dtheta"] = dtheta
 
-            # Interpolate to get the frequency offset.
-            r["data_dx"] = (
-                self.f_interpolation_models[rr["channel"]](dtheta)
-                - self.interpolated_freqs[rr["channel"]]
-            ) / self.interpolated_freqs[rr["channel"]]
+            # OPTIMIZATION 2: Use numba-accelerated linear interpolation
+            interp_freq = _linear_interp_numba(
+                dtheta, self.interp_x_data[ch], self.interp_y_data[ch]
+            )
+            r["data_dx"] = (interp_freq - self.interpolated_freqs[ch]) / self.interpolated_freqs[ch]
 
-            # Remove principal components from the data.
+            # Remove principal components from the data (keep as-is, typically disabled)
             if self.pca_n_components > 0:
                 r["data_dx"] = self.pca(r["data_dx"])
 
-            # Inject truth pulses into data_dx
-            self._inject_truth_pulses(r, truth)
+            # OPTIMIZATION 3: Use numba-accelerated truth pulse injection
+            matching_truth = truth[truth["channel"] == ch]
+            if len(matching_truth) > 0:
+                # Get template for this channel
+                if ch in self.interpolated_template_dict:
+                    template = np.asarray(self.interpolated_template_dict[ch], dtype=np.float64)
+                else:
+                    template = np.asarray(self.interpolated_template, dtype=np.float64)
 
-            # Moving average (convolve with a boxcar).
-            r["data_dx_moving_average"] = np.convolve(
-                r["data_dx"],
-                self.moving_average_kernel,
-                mode="same",
-            )
+                _inject_truth_pulses_numba(
+                    r["data_dx"],
+                    template,
+                    matching_truth["time"].astype(np.int64),
+                    matching_truth["energy_true"].astype(np.float64),
+                    r["time"],
+                    self.dt_exact,
+                    PHOTON_25um_meV,
+                )
 
-            # Convolve with pulse kernel.
-            # Use FFT-based convolution for large kernels (faster).
-            if len(self.kernel) > 10000:
-                _convolved = fftconvolve(r["data_dx"], self.kernel, mode="full")
-            else:
-                _convolved = np.convolve(r["data_dx"], self.kernel, mode="full")
+            # OPTIMIZATION 4: Use FFT convolution for better performance
+            # Moving average convolution
+            r["data_dx_moving_average"] = fftconvolve(r["data_dx"], ma_kernel, mode="same")
+
+            # Pulse kernel convolution
+            _convolved = fftconvolve(r["data_dx"], pulse_kernel, mode="full")
             r["data_dx_convolved"] = _convolved[-self.record_length :]
 
-            # Correct all dx by the mean of the kernel-convolved dx.
+            # Correct all dx by the mean of the kernel-convolved dx
             dx_convolved_mean = np.mean(r["data_dx_convolved"])
             r["data_dx"] = r["data_dx"] - dx_convolved_mean
             r["data_dx_moving_average"] = r["data_dx_moving_average"] - dx_convolved_mean

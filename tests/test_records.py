@@ -592,20 +592,34 @@ class TestDxRecordsSetupMethods:
         # Verify that all required attributes are set
         assert hasattr(self.dx_records, "thetas_at_fres")
         assert hasattr(self.dx_records, "interpolated_freqs")
-        assert hasattr(self.dx_records, "f_interpolation_models")
+        # Optimized version uses interp_x_data and interp_y_data instead of f_interpolation_models
+        assert hasattr(self.dx_records, "interp_x_data")
+        assert hasattr(self.dx_records, "interp_y_data")
 
         # Verify dimensions
         assert len(self.dx_records.thetas_at_fres) == self.n_channels
         assert len(self.dx_records.interpolated_freqs) == self.n_channels
-        assert len(self.dx_records.f_interpolation_models) == self.n_channels
+        assert len(self.dx_records.interp_x_data) == self.n_channels
+        assert len(self.dx_records.interp_y_data) == self.n_channels
 
-        # Verify that interpolation models are callable
+        # Verify that interpolation data arrays are properly shaped and sorted
         for i in range(self.n_channels):
-            assert hasattr(self.dx_records.f_interpolation_models[i], "__call__")
+            # x data should be sorted (required for binary search interpolation)
+            assert np.all(
+                np.diff(self.dx_records.interp_x_data[i]) >= 0
+            ), "interp_x_data should be sorted"
+            # x and y should have same length
+            assert len(self.dx_records.interp_x_data[i]) == len(self.dx_records.interp_y_data[i])
 
         # Verify that thetas and frequencies are finite
         assert np.all(np.isfinite(self.dx_records.thetas_at_fres))
         assert np.all(np.isfinite(self.dx_records.interpolated_freqs))
+
+        # Verify pre-computed IQ model values
+        assert hasattr(self.dx_records, "i_model_vals")
+        assert hasattr(self.dx_records, "q_model_vals")
+        assert len(self.dx_records.i_model_vals) == self.n_channels
+        assert len(self.dx_records.q_model_vals) == self.n_channels
 
     def test_setup_method(self):
         """Test the complete setup method."""
@@ -636,7 +650,11 @@ class TestDxRecordsSetupMethods:
         assert hasattr(self.dx_records, "fine_z_corrected")
         assert hasattr(self.dx_records, "thetas_at_fres")
         assert hasattr(self.dx_records, "interpolated_freqs")
-        assert hasattr(self.dx_records, "f_interpolation_models")
+        # Optimized version uses interp_x_data/interp_y_data instead of f_interpolation_models
+        assert hasattr(self.dx_records, "interp_x_data")
+        assert hasattr(self.dx_records, "interp_y_data")
+        assert hasattr(self.dx_records, "i_model_vals")
+        assert hasattr(self.dx_records, "q_model_vals")
         assert hasattr(self.dx_records, "kernel")
         assert hasattr(self.dx_records, "moving_average_kernel")
         assert hasattr(self.dx_records, "pca_n_components")
