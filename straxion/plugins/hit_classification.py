@@ -182,7 +182,7 @@ export, __all__ = strax.exporter()
 class DxHitClassification(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.2.5"
+    __version__ = "0.3.0"
 
     depends_on = ("hits", "records", "noises")
     provides = "hit_classification"
