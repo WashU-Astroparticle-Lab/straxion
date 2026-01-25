@@ -1,5 +1,6 @@
 import strax
 import numpy as np
+import numba
 import os
 from scipy.optimize import curve_fit
 from straxion.utils import (
@@ -17,6 +18,111 @@ from straxion.utils import (
 )
 
 export, __all__ = strax.exporter()
+
+
+# =============================================================================
+# Numba-accelerated helper functions for optimal filter
+# =============================================================================
+
+
+@numba.njit(cache=True)
+def _movmean_numba(data, window_size):
+    """Numba-accelerated moving average with edge handling.
+
+    Args:
+        data (np.ndarray): The input 1D array (float64).
+        window_size (int): The size of the moving average window.
+
+    Returns:
+        np.ndarray: Array containing the moving average.
+
+    """
+    n = len(data)
+    result = np.empty(n, dtype=np.float64)
+    half_w = window_size // 2
+
+    for i in range(n):
+        start = max(0, i - half_w)
+        end = min(n, i + half_w + 1)
+        total = 0.0
+        for j in range(start, end):
+            total += data[j]
+        result[i] = total / (end - start)
+
+    return result
+
+
+@numba.njit(cache=True)
+def _compute_chi2_batch_numba(
+    Sf_real, Sf_imag, Af_real_all, Af_imag_all, Jf_safe, n_samples, n_shifts
+):
+    """Compute chi-squared for all shifts in a batch using numba.
+
+    Args:
+        Sf_real (np.ndarray): Real part of signal FFT (1D, length n_samples).
+        Sf_imag (np.ndarray): Imaginary part of signal FFT (1D, length n_samples).
+        Af_real_all (np.ndarray): Real parts of template FFTs (2D, n_shifts x n_samples).
+        Af_imag_all (np.ndarray): Imag parts of template FFTs (2D, n_shifts x n_samples).
+        Jf_safe (np.ndarray): Safe noise PSD (1D, length n_samples).
+        n_samples (int): Number of frequency samples.
+        n_shifts (int): Number of time shifts.
+
+    Returns:
+        tuple: (ahatOF_arr, chi2_arr) - arrays of amplitude and chi2 for each shift.
+
+    """
+    ahatOF_arr = np.empty(n_shifts, dtype=np.float64)
+    chi2_arr = np.empty(n_shifts, dtype=np.float64)
+
+    for shift_idx in range(n_shifts):
+        # Get template FFT for this shift
+        Af_real = Af_real_all[shift_idx]
+        Af_imag = Af_imag_all[shift_idx]
+
+        # Compute ahatOF = sum(real(Sf * conj(Af))) / sum(real(Af * conj(Af)))
+        # Sf * conj(Af) = (Sr + j*Si) * (Ar - j*Ai)
+        #               = (Sr*Ar + Si*Ai) + j*(Si*Ar - Sr*Ai)
+        numer = 0.0
+        denom = 0.0
+        for i in range(n_samples):
+            numer += Sf_real[i] * Af_real[i] + Sf_imag[i] * Af_imag[i]
+            denom += Af_real[i] * Af_real[i] + Af_imag[i] * Af_imag[i]
+
+        ahatOF = numer / denom
+        ahatOF_arr[shift_idx] = ahatOF
+
+        # Compute chi2 = sum(|Sf - ahatOF * Af|^2 / Jf) / (n - 1)
+        chi2 = 0.0
+        for i in range(n_samples):
+            diff_real = Sf_real[i] - ahatOF * Af_real[i]
+            diff_imag = Sf_imag[i] - ahatOF * Af_imag[i]
+            chi2 += (diff_real * diff_real + diff_imag * diff_imag) / Jf_safe[i]
+        chi2 /= n_samples - 1
+
+        chi2_arr[shift_idx] = chi2
+
+    return ahatOF_arr, chi2_arr
+
+
+@numba.njit(cache=True)
+def _profile_fit_numba(x, amplitude, center, kappa):
+    """Numba-accelerated double-sided exponential profile.
+
+    Args:
+        x (np.ndarray): The x values (time shifts).
+        amplitude (float): The peak amplitude.
+        center (float): The center position.
+        kappa (float): The double-sided exponential width.
+
+    Returns:
+        np.ndarray: The profile values.
+
+    """
+    n = len(x)
+    result = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        result[i] = amplitude * np.exp(-np.abs(x[i] - center) / kappa)
+    return result
 
 
 @export
@@ -380,6 +486,8 @@ class DxHitClassification(strax.Plugin):
     def _movmean(data, window_size):
         """Calculate simple moving average of a 1D array.
 
+        Uses numba-accelerated implementation for better performance.
+
         Args:
             data (np.ndarray): The input 1D array.
             window_size (int): The size of the moving average window.
@@ -390,8 +498,8 @@ class DxHitClassification(strax.Plugin):
         """
         if window_size <= 0:
             raise ValueError("Window size must be a positive integer.")
-        weights = np.ones(window_size) / window_size
-        return np.convolve(data, weights, mode="same")
+        # Use numba-accelerated version
+        return _movmean_numba(np.asarray(data, dtype=np.float64), window_size)
 
     @staticmethod
     def _profile_fit(x, amplitude, center, kappa):
@@ -523,6 +631,41 @@ class DxHitClassification(strax.Plugin):
         return ahatOF, chisq
 
     @staticmethod
+    def _optimal_filter_with_precomputed_fft(Sf, Jf_safe, At):
+        """
+        Calculate optimal filter amplitude and chi-squared with pre-computed signal FFT.
+
+        This is an optimized version that avoids redundant FFT computation of the signal.
+
+        Parameters:
+        -----------
+        Sf : array
+            Pre-computed FFT of the signal timestream
+        Jf_safe : array
+            Safe noise PSD (with zeros replaced by small positive values)
+        At : array
+            Template timestream (to be filtered)
+
+        Returns:
+        --------
+        ahatOF : float
+            Optimal filter amplitude scaling factor
+        chisq : float
+            Chi-squared score
+        """
+        Af = np.fft.fft(At)  # FFT of the template
+
+        # Calculate optimal filter amplitude
+        numer = np.sum(np.real(Sf * np.conjugate(Af)))
+        denom = np.sum(np.real(Af * np.conjugate(Af)))
+        ahatOF = numer / denom
+
+        # Chi-squared calculation
+        chisq = np.sum(np.abs(Sf - ahatOF * Af) ** 2 / Jf_safe) / (len(Sf) - 1)
+
+        return ahatOF, chisq
+
+    @staticmethod
     def optimal_filter(
         St,
         dt_seconds,
@@ -543,6 +686,12 @@ class DxHitClassification(strax.Plugin):
     ):
         """
         Calculate optimal filter with coarse time shift optimization.
+
+        This is an optimized implementation using:
+        1. Pre-computed signal FFT (computed once, reused for all shifts)
+        2. Vectorized template generation using FFT time-shift property
+        3. Numba-accelerated batch chi2 computation
+        4. Numba-accelerated moving average for kappa fitting
 
         Parameters:
         -----------
@@ -618,36 +767,65 @@ class DxHitClassification(strax.Plugin):
         window_start = max_index - of_window_left
         window_end = max_index + of_window_right
         St_windowed = St[window_start:window_end]
+        n_samples = len(St_windowed)
 
-        # Coarse scan for optimal time shift
+        # OPTIMIZATION 1: Pre-compute signal FFT once (reused for all shifts)
+        Sf = np.fft.fft(St_windowed)
+        Sf_real = np.real(Sf).astype(np.float64)
+        Sf_imag = np.imag(Sf).astype(np.float64)
+
+        # Pre-compute safe Jf (avoid repeated np.where)
+        Jf_safe = np.where(Jf > 1e-20, Jf, 1e-20).astype(np.float64)
+
+        # Define shift array
         N_shiftOF_arr = np.arange(
             of_shift_range_min,
             of_shift_range_max,
             of_shift_step,
         )
-        ahatOF_arr = np.zeros(np.shape(N_shiftOF_arr))
-        chi2_arr = np.zeros(np.shape(N_shiftOF_arr))
-        if debug:
-            At_shifted_arr = np.zeros(np.shape(N_shiftOF_arr), dtype=object)
+        n_shifts = len(N_shiftOF_arr)
 
-        # Test different time shifts
-        for nn in range(len(N_shiftOF_arr)):
-            N_shiftOF = N_shiftOF_arr[nn]
-            At_shifted = DxHitClassification.modify_template(
-                St,
-                dt_seconds,
-                N_shiftOF,
-                At_interp=At_interp,
-                t_max_seconds=t_max_seconds,
-                apply_window=True,
-                of_window_left=of_window_left,
-                of_window_right=of_window_right,
-            )
-            ahatOF_arr[nn], chi2_arr[nn] = DxHitClassification._optimal_filter(
-                St_windowed, Jf=Jf, At=At_shifted
-            )
-            if debug:
-                At_shifted_arr[nn] = At_shifted * ahatOF_arr[nn]
+        # OPTIMIZATION 2: Pre-compute base template at tau=0 and use FFT shift property
+        # For time shift tau, FFT(shift(At, tau)) = FFT(At) * exp(-2*pi*j*k*tau/N)
+        At_base = DxHitClassification.modify_template(
+            St,
+            dt_seconds,
+            0,  # tau=0 for base template
+            At_interp=At_interp,
+            t_max_seconds=t_max_seconds,
+            apply_window=True,
+            of_window_left=of_window_left,
+            of_window_right=of_window_right,
+        )
+        Af_base = np.fft.fft(At_base)
+
+        # Pre-compute frequency indices for shift
+        k = np.fft.fftfreq(n_samples) * n_samples  # frequency bin indices
+
+        # OPTIMIZATION 3: Vectorized computation of all shifted template FFTs
+        # Using FFT time-shift property: FFT(shift(x, tau)) = FFT(x) * exp(-2*pi*j*k*tau/N)
+        # Compute phase shifts for all tau values at once
+        # Shape: (n_shifts, n_samples)
+        phase_shifts = np.exp(
+            -2j * np.pi * k[np.newaxis, :] * N_shiftOF_arr[:, np.newaxis] / n_samples
+        )
+        Af_all = Af_base[np.newaxis, :] * phase_shifts  # (n_shifts, n_samples)
+
+        # Extract real and imaginary parts for numba
+        Af_real_all = np.real(Af_all).astype(np.float64)
+        Af_imag_all = np.imag(Af_all).astype(np.float64)
+
+        # OPTIMIZATION 4: Use numba-accelerated batch computation
+        ahatOF_arr, chi2_arr = _compute_chi2_batch_numba(
+            Sf_real, Sf_imag, Af_real_all, Af_imag_all, Jf_safe, n_samples, n_shifts
+        )
+
+        # Store debug info if needed
+        if debug:
+            At_shifted_arr = np.zeros(n_shifts, dtype=object)
+            for nn in range(n_shifts):
+                # Reconstruct template from FFT for debug output
+                At_shifted_arr[nn] = np.real(np.fft.ifft(Af_all[nn])) * ahatOF_arr[nn]
 
         # Find best shift
         best_idx = np.argmin(chi2_arr)
@@ -662,15 +840,15 @@ class DxHitClassification(strax.Plugin):
             kappa = np.inf
         else:
             try:
-                # Smooth the aOF array with moving average
-                profile = DxHitClassification._movmean(ahatOF_arr, kappa_fit_smoothing_window)
+                # OPTIMIZATION 5: Use numba-accelerated moving average
+                profile = _movmean_numba(ahatOF_arr, kappa_fit_smoothing_window)
 
                 # Extract the fine region around best shift
                 N_shiftOF_arr_fine = N_shiftOF_arr[best_idx - hbw : best_idx + hbw]
                 profile_fine = profile[best_idx - hbw : best_idx + hbw]
 
                 # Initial guess: [amplitude, center, kappa]
-                p0 = [best_aOF, best_OF_shift, 1.0]
+                p0 = [best_aOF, float(best_OF_shift), 1.0]
 
                 # Set bounds for curve_fit
                 # Use min/max to handle negative best_aOF correctly
@@ -694,7 +872,7 @@ class DxHitClassification(strax.Plugin):
 
                 popt, _ = curve_fit(
                     DxHitClassification._profile_fit,
-                    N_shiftOF_arr_fine,
+                    N_shiftOF_arr_fine.astype(np.float64),
                     profile_fine,
                     p0=p0,
                     bounds=bounds,
@@ -705,17 +883,8 @@ class DxHitClassification(strax.Plugin):
                 kappa = np.inf
 
         # Generate final shifted template scaled by best amplitude
-        best_At_shifted = DxHitClassification.modify_template(
-            St,
-            dt_seconds,
-            best_OF_shift,
-            At_interp=At_interp,
-            t_max_seconds=t_max_seconds,
-            amplitude=best_aOF,
-            apply_window=True,
-            of_window_left=of_window_left,
-            of_window_right=of_window_right,
-        )
+        # Use the pre-computed FFT and inverse transform for efficiency
+        best_At_shifted = np.real(np.fft.ifft(Af_all[best_idx])) * best_aOF
 
         if debug:
             return (
