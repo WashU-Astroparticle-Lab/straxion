@@ -176,7 +176,7 @@ export, __all__ = strax.exporter()
         type=float,
         default=0.1,
         track=True,
-        help="Tolerance for center position bounds in kappa curve fitting.",
+        help="Tolerance for center position bounds in kappa curve fitting (in samples).",
     ),
 )
 class DxHitClassification(strax.Plugin):
@@ -571,7 +571,7 @@ class DxHitClassification(strax.Plugin):
         kappa_fit_amplitude_bound_high : float
             Upper bound multiplier for amplitude in kappa curve fitting
         kappa_fit_center_tolerance : float
-            Tolerance for center position bounds in kappa curve fitting
+            Tolerance for center position bounds in kappa curve fitting (in samples)
         debug : bool
             Whether to return the chi-squared values for all time shifts
             and the shifted templates. Default is False.
@@ -588,6 +588,25 @@ class DxHitClassification(strax.Plugin):
             Double-sided exponential width from fitting aOF vs shift
         best_At_shifted : array
             Template shifted to best position and scaled by best_aOF
+
+        Notes:
+        ------
+        Kappa is computed by fitting a double-sided exponential profile
+        `amplitude * exp(-|x - center| / kappa)` to the smoothed aOF vs shift curve.
+        The curve_fit bounds constrain the three fitted parameters:
+
+        +-----------+----------------------------------+----------------------------------+
+        | Parameter | Lower Bound                      | Upper Bound                      |
+        +===========+==================================+==================================+
+        | amplitude | best_aOF * amplitude_bound_low   | best_aOF * amplitude_bound_high  |
+        +-----------+----------------------------------+----------------------------------+
+        | center    | best_OF_shift - center_tolerance | best_OF_shift + center_tolerance |
+        +-----------+----------------------------------+----------------------------------+
+        | kappa     | 0                                | inf                              |
+        +-----------+----------------------------------+----------------------------------+
+
+        The amplitude and center are tightly constrained since we already found good
+        values from the optimal filter. Kappa is the parameter we want to estimate.
         """
         # Apply windowing to signal
         t_seconds = np.arange(len(St)) * dt_seconds
