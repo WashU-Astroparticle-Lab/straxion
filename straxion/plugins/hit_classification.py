@@ -146,7 +146,7 @@ export, __all__ = strax.exporter()
     strax.Option(
         "kappa_fit_half_band_width",
         type=int,
-        default=66,
+        default=25,
         track=True,
         help="Half band width around best shift for kappa fitting (in samples).",
     ),
@@ -530,7 +530,7 @@ class DxHitClassification(strax.Plugin):
         of_shift_range_min,
         of_shift_range_max,
         of_shift_step,
-        kappa_fit_half_band_width=66,
+        kappa_fit_half_band_width=25,
         kappa_fit_smoothing_window=3,
         kappa_fit_amplitude_bound_low=0.9,
         kappa_fit_amplitude_bound_high=1.1,
