@@ -333,6 +333,7 @@ def test_spike_coincidence_dtype_inference():
         "best_aOF",
         "best_chi2",
         "best_OF_shift",
+        "kappa",
         "width",
         "amplitude",
         "amplitude_moving_average",
@@ -462,6 +463,7 @@ class TestDxHitClassificationWithRealDataOffline:
                 "best_aOF",
                 "best_chi2",
                 "best_OF_shift",
+                "kappa",
                 "width",
                 "amplitude",
                 "amplitude_moving_average",
@@ -485,6 +487,7 @@ class TestDxHitClassificationWithRealDataOffline:
             assert hit_classification["best_aOF"].dtype == np.float32
             assert hit_classification["best_chi2"].dtype == np.float32
             assert hit_classification["best_OF_shift"].dtype == np.int64
+            assert hit_classification["kappa"].dtype == np.float32
             assert hit_classification["width"].dtype == np.int32
             assert hit_classification["amplitude"].dtype == np.float32
             assert hit_classification["amplitude_moving_average"].dtype == np.float32
@@ -603,6 +606,11 @@ class TestDxHitClassificationWithRealDataOffline:
                 assert np.all(
                     np.isfinite(hit_classification["best_OF_shift"])
                 ), "Non-finite values found in best_OF_shift"
+
+                # Check kappa field (can be inf when fit fails, but must be positive)
+                assert np.all(
+                    hit_classification["kappa"] > 0
+                ), "Kappa values must be positive (or inf)"
 
                 # Check amplitude fields from hits
                 assert np.all(
@@ -830,7 +838,7 @@ class TestDxHitClassificationWithRealDataOffline:
 
 
 # =============================================================================
-# Unit Tests for Static Methods (Tests 1, 2, 3)
+# Unit Tests for Static Methods
 # =============================================================================
 
 
@@ -952,7 +960,129 @@ def test_modify_template_windowing_requires_params():
 
 
 # =============================================================================
-# Test 6: determine_spike_threshold mutual exclusivity
+# Test: Kappa Fitting Helper Methods
+# =============================================================================
+
+
+def test_movmean_basic():
+    """Test that _movmean computes moving average correctly."""
+    data = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    window_size = 3
+
+    result = DxHitClassification._movmean(data, window_size)
+
+    # The moving average should smooth the data
+    assert len(result) == len(data), "Result should have same length as input"
+    # Middle values should be exact averages
+    assert np.isclose(result[2], 3.0), "Middle value should be (2+3+4)/3 = 3"
+
+
+def test_movmean_invalid_window():
+    """Test that _movmean raises error for invalid window size."""
+    data = np.array([1.0, 2.0, 3.0])
+
+    with pytest.raises(ValueError, match="Window size must be a positive integer"):
+        DxHitClassification._movmean(data, 0)
+
+    with pytest.raises(ValueError, match="Window size must be a positive integer"):
+        DxHitClassification._movmean(data, -1)
+
+
+def test_profile_fit_basic():
+    """Test that _profile_fit computes double-sided exponential correctly."""
+    x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
+    amplitude = 1.0
+    center = 0.0
+    kappa = 1.0
+
+    result = DxHitClassification._profile_fit(x, amplitude, center, kappa)
+
+    # At center, value should be amplitude
+    assert np.isclose(result[2], amplitude), "At center, value should equal amplitude"
+
+    # Values should decay symmetrically
+    assert np.isclose(result[1], result[3]), "Should be symmetric around center"
+    assert np.isclose(result[0], result[4]), "Should be symmetric around center"
+
+    # Values at x=1 should be amplitude * exp(-1)
+    expected_at_1 = amplitude * np.exp(-1)
+    assert np.isclose(result[3], expected_at_1), f"At x=1, expected {expected_at_1}"
+
+
+def test_optimal_filter_returns_kappa():
+    """Test that optimal_filter returns kappa in its output."""
+    # Create a simple test signal
+    n_samples = 700
+    St = np.zeros(n_samples)
+    St[200:400] = np.sin(np.linspace(0, 2 * np.pi, 200))  # Add a pulse-like feature
+    dt_seconds = 1 / 38000
+    Jf = np.ones(400)  # Simple flat noise PSD
+
+    from straxion.utils import load_interpolation
+
+    At_interp, t_max_seconds = load_interpolation(DEFAULT_TEMPLATE_INTERP_PATH)
+
+    # Run optimal filter
+    result = DxHitClassification.optimal_filter(
+        St,
+        dt_seconds,
+        Jf,
+        At_interp,
+        t_max_seconds,
+        of_window_left=100,
+        of_window_right=300,
+        of_shift_range_min=-50,
+        of_shift_range_max=50,
+        of_shift_step=1,
+        kappa_fit_half_band_width=20,
+        kappa_fit_smoothing_window=3,
+    )
+
+    # Should return 5 values: best_aOF, best_chi2, best_OF_shift, kappa, best_At_shifted
+    assert len(result) == 5, f"Expected 5 return values, got {len(result)}"
+
+    best_aOF, best_chi2, best_OF_shift, kappa, best_At_shifted = result
+
+    # Kappa should be positive (or inf if fit failed)
+    assert kappa > 0, f"Kappa should be positive, got {kappa}"
+
+
+def test_optimal_filter_kappa_inf_when_out_of_bounds():
+    """Test that kappa is inf when fit window would be out of bounds."""
+    n_samples = 700
+    St = np.zeros(n_samples)
+    St[200:400] = np.sin(np.linspace(0, 2 * np.pi, 200))
+    dt_seconds = 1 / 38000
+    Jf = np.ones(400)
+
+    from straxion.utils import load_interpolation
+
+    At_interp, t_max_seconds = load_interpolation(DEFAULT_TEMPLATE_INTERP_PATH)
+
+    # Use a very large half_band_width that will exceed the shift range
+    result = DxHitClassification.optimal_filter(
+        St,
+        dt_seconds,
+        Jf,
+        At_interp,
+        t_max_seconds,
+        of_window_left=100,
+        of_window_right=300,
+        of_shift_range_min=-10,  # Very small range
+        of_shift_range_max=10,
+        of_shift_step=1,
+        kappa_fit_half_band_width=50,  # Larger than available shifts
+        kappa_fit_smoothing_window=3,
+    )
+
+    _, _, _, kappa, _ = result
+
+    # Kappa should be inf because the fit window is out of bounds
+    assert np.isinf(kappa), f"Expected kappa to be inf when out of bounds, got {kappa}"
+
+
+# =============================================================================
+# Test: determine_spike_threshold mutual exclusivity
 # =============================================================================
 
 
@@ -982,7 +1112,7 @@ def test_determine_spike_threshold_with_sigma():
 
 
 # =============================================================================
-# Test 9: Noise PSD length validation
+# Test: Noise PSD length validation
 # =============================================================================
 
 
@@ -1004,7 +1134,7 @@ def test_noise_psd_length_validation():
 
 
 # =============================================================================
-# Test 10: Empty noise windows handling
+# Test: Empty noise windows handling
 # =============================================================================
 
 
@@ -1053,7 +1183,7 @@ def test_compute_per_channel_noise_psd_empty_channel():
 
 
 # =============================================================================
-# Test 11: Photon candidate classification logic
+# Test: Photon candidate classification logic
 # =============================================================================
 
 

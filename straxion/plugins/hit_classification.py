@@ -1,6 +1,7 @@
 import strax
 import numpy as np
 import os
+from scipy.optimize import curve_fit
 from straxion.utils import (
     TIME_DTYPE,
     CHANNEL_DTYPE,
@@ -142,6 +143,41 @@ export, __all__ = strax.exporter()
             "Window ends at HIT_WINDOW_LENGTH_LEFT + of_window_right."
         ),
     ),
+    strax.Option(
+        "kappa_fit_half_band_width",
+        type=int,
+        default=66,
+        track=True,
+        help="Half band width around best shift for kappa fitting (in samples).",
+    ),
+    strax.Option(
+        "kappa_fit_smoothing_window",
+        type=int,
+        default=3,
+        track=True,
+        help="Window size for moving average smoothing before kappa fitting.",
+    ),
+    strax.Option(
+        "kappa_fit_amplitude_bound_low",
+        type=float,
+        default=0.9,
+        track=True,
+        help="Lower bound multiplier for amplitude in kappa curve fitting.",
+    ),
+    strax.Option(
+        "kappa_fit_amplitude_bound_high",
+        type=float,
+        default=1.1,
+        track=True,
+        help="Upper bound multiplier for amplitude in kappa curve fitting.",
+    ),
+    strax.Option(
+        "kappa_fit_center_tolerance",
+        type=float,
+        default=0.1,
+        track=True,
+        help="Tolerance for center position bounds in kappa curve fitting.",
+    ),
 )
 class DxHitClassification(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
@@ -190,6 +226,10 @@ class DxHitClassification(strax.Plugin):
             (
                 ("Best time shift in samples for optimal filter", "best_OF_shift"),
                 int,
+            ),
+            (
+                ("Double-sided exponential width from aOF-shift fit", "kappa"),
+                DATA_DTYPE,
             ),
             (
                 (
@@ -247,6 +287,11 @@ class DxHitClassification(strax.Plugin):
         self.noise_psd = self.config["noise_psd_placeholder"]
         self.of_window_left = self.config["of_window_left"]
         self.of_window_right = self.config["of_window_right"]
+        self.kappa_fit_half_band_width = self.config["kappa_fit_half_band_width"]
+        self.kappa_fit_smoothing_window = self.config["kappa_fit_smoothing_window"]
+        self.kappa_fit_amplitude_bound_low = self.config["kappa_fit_amplitude_bound_low"]
+        self.kappa_fit_amplitude_bound_high = self.config["kappa_fit_amplitude_bound_high"]
+        self.kappa_fit_center_tolerance = self.config["kappa_fit_center_tolerance"]
 
         # Validate noise PSD length matches window size
         expected_length = self.of_window_left + self.of_window_right
@@ -326,6 +371,39 @@ class DxHitClassification(strax.Plugin):
         spike_threshold = signal_mean + spike_threshold_sigma * signal_std
 
         return spike_threshold
+
+    @staticmethod
+    def _movmean(data, window_size):
+        """Calculate simple moving average of a 1D array.
+
+        Args:
+            data (np.ndarray): The input 1D array.
+            window_size (int): The size of the moving average window.
+
+        Returns:
+            np.ndarray: Array containing the simple moving average.
+
+        """
+        if window_size <= 0:
+            raise ValueError("Window size must be a positive integer.")
+        weights = np.ones(window_size) / window_size
+        return np.convolve(data, weights, mode="same")
+
+    @staticmethod
+    def _profile_fit(x, amplitude, center, kappa):
+        """Double-sided exponential profile for fitting.
+
+        Args:
+            x (np.ndarray): The x values (time shifts).
+            amplitude (float): The peak amplitude.
+            center (float): The center position.
+            kappa (float): The double-sided exponential width.
+
+        Returns:
+            np.ndarray: The profile values.
+
+        """
+        return amplitude * np.exp(-np.abs(x - center) / kappa)
 
     @staticmethod
     def modify_template(
@@ -452,6 +530,11 @@ class DxHitClassification(strax.Plugin):
         of_shift_range_min,
         of_shift_range_max,
         of_shift_step,
+        kappa_fit_half_band_width=66,
+        kappa_fit_smoothing_window=3,
+        kappa_fit_amplitude_bound_low=0.9,
+        kappa_fit_amplitude_bound_high=1.1,
+        kappa_fit_center_tolerance=0.1,
         debug=False,
     ):
         """
@@ -479,6 +562,16 @@ class DxHitClassification(strax.Plugin):
             Maximum time shift for optimal filter coarse scan (samples)
         of_shift_step : int
             Step size for optimal filter coarse scan (in samples)
+        kappa_fit_half_band_width : int
+            Half band width around best shift for kappa fitting (in samples)
+        kappa_fit_smoothing_window : int
+            Window size for moving average smoothing before kappa fitting
+        kappa_fit_amplitude_bound_low : float
+            Lower bound multiplier for amplitude in kappa curve fitting
+        kappa_fit_amplitude_bound_high : float
+            Upper bound multiplier for amplitude in kappa curve fitting
+        kappa_fit_center_tolerance : float
+            Tolerance for center position bounds in kappa curve fitting
         debug : bool
             Whether to return the chi-squared values for all time shifts
             and the shifted templates. Default is False.
@@ -491,6 +584,8 @@ class DxHitClassification(strax.Plugin):
             Best chi-squared value
         best_OF_shift : int
             Best time shift in samples
+        kappa : float
+            Double-sided exponential width from fitting aOF vs shift
         best_At_shifted : array
             Template shifted to best position and scaled by best_aOF
         """
@@ -537,6 +632,49 @@ class DxHitClassification(strax.Plugin):
         best_aOF = ahatOF_arr[best_idx]
         best_OF_shift = N_shiftOF_arr[best_idx]
 
+        # Compute kappa by fitting double-sided exponential to aOF vs shift
+        hbw = kappa_fit_half_band_width
+        if best_idx - hbw < 0 or best_idx + hbw > len(N_shiftOF_arr):
+            # Fit window out of bounds
+            kappa = np.inf
+        else:
+            try:
+                # Smooth the aOF array with moving average
+                profile = DxHitClassification._movmean(ahatOF_arr, kappa_fit_smoothing_window)
+
+                # Extract the fine region around best shift
+                N_shiftOF_arr_fine = N_shiftOF_arr[best_idx - hbw : best_idx + hbw]
+                profile_fine = profile[best_idx - hbw : best_idx + hbw]
+
+                # Initial guess: [amplitude, center, kappa]
+                p0 = [best_aOF, best_OF_shift, 1.0]
+
+                # Set bounds for curve_fit
+                bounds = (
+                    [
+                        best_aOF * kappa_fit_amplitude_bound_low,
+                        best_OF_shift - kappa_fit_center_tolerance,
+                        0,
+                    ],  # lower bounds
+                    [
+                        best_aOF * kappa_fit_amplitude_bound_high,
+                        best_OF_shift + kappa_fit_center_tolerance,
+                        np.inf,
+                    ],  # upper bounds
+                )
+
+                popt, _ = curve_fit(
+                    DxHitClassification._profile_fit,
+                    N_shiftOF_arr_fine,
+                    profile_fine,
+                    p0=p0,
+                    bounds=bounds,
+                )
+                kappa = popt[2]
+            except (RuntimeError, ValueError):
+                # Fit failed
+                kappa = np.inf
+
         # Generate final shifted template scaled by best amplitude
         best_At_shifted = DxHitClassification.modify_template(
             St,
@@ -555,13 +693,14 @@ class DxHitClassification(strax.Plugin):
                 best_aOF,
                 best_chi2,
                 best_OF_shift,
+                kappa,
                 best_At_shifted,
                 chi2_arr,
                 At_shifted_arr,
                 ahatOF_arr,
             )
         else:
-            return best_aOF, best_chi2, best_OF_shift, best_At_shifted
+            return best_aOF, best_chi2, best_OF_shift, kappa, best_At_shifted
 
     def determine_spike_threshold(self, records):
         """Determine the spike threshold based on the provided configuration.
@@ -748,7 +887,7 @@ class DxHitClassification(strax.Plugin):
 
             # Compute optimal filter with shift optimization
             # dt_seconds is explicitly in seconds
-            best_aOF, best_chi2, best_OF_shift, _ = self.optimal_filter(
+            best_aOF, best_chi2, best_OF_shift, kappa, _ = self.optimal_filter(
                 St,
                 dt_seconds,
                 Jf,
@@ -759,12 +898,18 @@ class DxHitClassification(strax.Plugin):
                 self.config["of_shift_range_min"],
                 self.config["of_shift_range_max"],
                 self.config["of_shift_step"],
+                self.kappa_fit_half_band_width,
+                self.kappa_fit_smoothing_window,
+                self.kappa_fit_amplitude_bound_low,
+                self.kappa_fit_amplitude_bound_high,
+                self.kappa_fit_center_tolerance,
             )
 
             # Store results
             hit_classification["best_aOF"][i] = best_aOF
             hit_classification["best_chi2"][i] = best_chi2
             hit_classification["best_OF_shift"][i] = best_OF_shift
+            hit_classification["kappa"][i] = kappa
 
     def compute(self, hits, records, noises):
         spike_threshold_dx = self.determine_spike_threshold(records)
