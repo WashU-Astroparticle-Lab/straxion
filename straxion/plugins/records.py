@@ -161,7 +161,7 @@ PULSE_KERNEL_OPTIONS = (
     ),
 )
 class DxRecords(strax.Plugin):
-    __version__ = "0.2.2"
+    __version__ = "0.3.0"
     rechunk_on_save = False
     compressor = "zstd"  # Inherited from straxen. Not optimized outside XENONnT.
 
