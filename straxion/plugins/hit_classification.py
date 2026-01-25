@@ -146,7 +146,7 @@ export, __all__ = strax.exporter()
     strax.Option(
         "kappa_fit_half_band_width",
         type=int,
-        default=25,
+        default=10,
         track=True,
         help="Half band width around best shift for kappa fitting (in samples).",
     ),
