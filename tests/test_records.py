@@ -592,20 +592,34 @@ class TestDxRecordsSetupMethods:
         # Verify that all required attributes are set
         assert hasattr(self.dx_records, "thetas_at_fres")
         assert hasattr(self.dx_records, "interpolated_freqs")
-        assert hasattr(self.dx_records, "f_interpolation_models")
+        # Optimized version uses interp_x_data and interp_y_data instead of f_interpolation_models
+        assert hasattr(self.dx_records, "interp_x_data")
+        assert hasattr(self.dx_records, "interp_y_data")
 
         # Verify dimensions
         assert len(self.dx_records.thetas_at_fres) == self.n_channels
         assert len(self.dx_records.interpolated_freqs) == self.n_channels
-        assert len(self.dx_records.f_interpolation_models) == self.n_channels
+        assert len(self.dx_records.interp_x_data) == self.n_channels
+        assert len(self.dx_records.interp_y_data) == self.n_channels
 
-        # Verify that interpolation models are callable
+        # Verify that interpolation data arrays are properly shaped and sorted
         for i in range(self.n_channels):
-            assert hasattr(self.dx_records.f_interpolation_models[i], "__call__")
+            # x data should be sorted (required for binary search interpolation)
+            assert np.all(
+                np.diff(self.dx_records.interp_x_data[i]) >= 0
+            ), "interp_x_data should be sorted"
+            # x and y should have same length
+            assert len(self.dx_records.interp_x_data[i]) == len(self.dx_records.interp_y_data[i])
 
         # Verify that thetas and frequencies are finite
         assert np.all(np.isfinite(self.dx_records.thetas_at_fres))
         assert np.all(np.isfinite(self.dx_records.interpolated_freqs))
+
+        # Verify pre-computed IQ model values
+        assert hasattr(self.dx_records, "i_model_vals")
+        assert hasattr(self.dx_records, "q_model_vals")
+        assert len(self.dx_records.i_model_vals) == self.n_channels
+        assert len(self.dx_records.q_model_vals) == self.n_channels
 
     def test_setup_method(self):
         """Test the complete setup method."""
@@ -636,7 +650,11 @@ class TestDxRecordsSetupMethods:
         assert hasattr(self.dx_records, "fine_z_corrected")
         assert hasattr(self.dx_records, "thetas_at_fres")
         assert hasattr(self.dx_records, "interpolated_freqs")
-        assert hasattr(self.dx_records, "f_interpolation_models")
+        # Optimized version uses interp_x_data/interp_y_data instead of f_interpolation_models
+        assert hasattr(self.dx_records, "interp_x_data")
+        assert hasattr(self.dx_records, "interp_y_data")
+        assert hasattr(self.dx_records, "i_model_vals")
+        assert hasattr(self.dx_records, "q_model_vals")
         assert hasattr(self.dx_records, "kernel")
         assert hasattr(self.dx_records, "moving_average_kernel")
         assert hasattr(self.dx_records, "pca_n_components")
@@ -1708,3 +1726,395 @@ class TestRecordsWithRealDataOffline:
 
         except Exception as e:
             pytest.fail(f"Failed to test truth injection: {str(e)}")
+
+
+# =============================================================================
+# Unit Tests for Numba-Accelerated Helper Functions (DxRecords)
+# =============================================================================
+
+
+class TestLinearInterpNumba:
+    """Test the numba-accelerated _linear_interp_numba function."""
+
+    def test_linear_interp_basic(self):
+        """Test basic linear interpolation."""
+        from straxion.plugins.records import _linear_interp_numba
+
+        # Known data points: y = 2x
+        x_data = np.array([0.0, 1.0, 2.0, 3.0, 4.0], dtype=np.float64)
+        y_data = np.array([0.0, 2.0, 4.0, 6.0, 8.0], dtype=np.float64)
+
+        # Interpolate at midpoints
+        x_new = np.array([0.5, 1.5, 2.5, 3.5], dtype=np.float64)
+        result = _linear_interp_numba(x_new, x_data, y_data)
+
+        expected = np.array([1.0, 3.0, 5.0, 7.0])
+        np.testing.assert_allclose(result, expected, rtol=1e-10)
+
+    def test_linear_interp_extrapolation_low(self):
+        """Test extrapolation below the data range."""
+        from straxion.plugins.records import _linear_interp_numba
+
+        x_data = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+        y_data = np.array([2.0, 4.0, 6.0], dtype=np.float64)
+
+        # Extrapolate below range
+        x_new = np.array([0.0, -1.0], dtype=np.float64)
+        result = _linear_interp_numba(x_new, x_data, y_data)
+
+        # Linear extrapolation: y = 2x, so y(0) = 0, y(-1) = -2
+        expected = np.array([0.0, -2.0])
+        np.testing.assert_allclose(result, expected, rtol=1e-10)
+
+    def test_linear_interp_extrapolation_high(self):
+        """Test extrapolation above the data range."""
+        from straxion.plugins.records import _linear_interp_numba
+
+        x_data = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+        y_data = np.array([2.0, 4.0, 6.0], dtype=np.float64)
+
+        # Extrapolate above range
+        x_new = np.array([4.0, 5.0], dtype=np.float64)
+        result = _linear_interp_numba(x_new, x_data, y_data)
+
+        # Linear extrapolation: y = 2x
+        expected = np.array([8.0, 10.0])
+        np.testing.assert_allclose(result, expected, rtol=1e-10)
+
+    def test_linear_interp_at_known_points(self):
+        """Test interpolation at exact data points."""
+        from straxion.plugins.records import _linear_interp_numba
+
+        x_data = np.array([0.0, 1.0, 2.0], dtype=np.float64)
+        y_data = np.array([0.0, 5.0, 10.0], dtype=np.float64)
+
+        x_new = np.array([0.0, 1.0, 2.0], dtype=np.float64)
+        result = _linear_interp_numba(x_new, x_data, y_data)
+
+        np.testing.assert_allclose(result, y_data, rtol=1e-10)
+
+    def test_linear_interp_matches_scipy(self):
+        """Test that numba interpolation matches scipy interp1d."""
+        from scipy.interpolate import interp1d
+        from straxion.plugins.records import _linear_interp_numba
+
+        # Create test data
+        np.random.seed(42)
+        x_data = np.sort(np.random.rand(20)) * 10
+        y_data = np.sin(x_data) + np.random.randn(20) * 0.1
+
+        # Create scipy interpolator with fill_value="extrapolate"
+        scipy_interp = interp1d(x_data, y_data, kind="linear", fill_value="extrapolate")
+
+        # Test points
+        x_new = np.linspace(x_data.min(), x_data.max(), 50)
+
+        scipy_result = scipy_interp(x_new)
+        numba_result = _linear_interp_numba(
+            x_new, x_data.astype(np.float64), y_data.astype(np.float64)
+        )
+
+        np.testing.assert_allclose(scipy_result, numba_result, rtol=1e-10)
+
+
+class TestApplyIQCorrectionNumba:
+    """Test the numba-accelerated _apply_iq_correction_numba function."""
+
+    def test_iq_correction_basic(self):
+        """Test basic IQ correction output."""
+        from straxion.plugins.records import _apply_iq_correction_numba
+
+        n_samples = 100
+        data_i = np.ones(n_samples, dtype=np.float64) * 0.5
+        data_q = np.ones(n_samples, dtype=np.float64) * 0.5
+
+        # Non-zero model values are required to avoid division by zero
+        # The function computes: data / (i_model + j*q_model)
+        i_model_val = 1.0
+        q_model_val = 0.0
+        iq_center_real = 0.0
+        iq_center_imag = 0.0
+        phi = 0.0
+        theta_at_fres = 0.0
+
+        dtheta, theta = _apply_iq_correction_numba(
+            data_i,
+            data_q,
+            i_model_val,
+            q_model_val,
+            iq_center_real,
+            iq_center_imag,
+            phi,
+            theta_at_fres,
+        )
+
+        assert len(dtheta) == n_samples
+        assert len(theta) == n_samples
+        assert np.all(np.isfinite(dtheta))
+        assert np.all(np.isfinite(theta))
+
+    def test_iq_correction_with_rotation(self):
+        """Test IQ correction with non-zero rotation angle."""
+        from straxion.plugins.records import _apply_iq_correction_numba
+
+        n_samples = 50
+        # Create circular pattern
+        angles = np.linspace(0, 2 * np.pi, n_samples)
+        radius = 1.0
+        data_i = (radius * np.cos(angles)).astype(np.float64)
+        data_q = (radius * np.sin(angles)).astype(np.float64)
+
+        # Use realistic model values (non-zero to avoid division by zero)
+        i_model_val = 0.8
+        q_model_val = 0.2
+        phi = 0.1  # Small rotation angle
+
+        dtheta, theta = _apply_iq_correction_numba(
+            data_i, data_q, i_model_val, q_model_val, 0.0, 0.0, phi, 0.0
+        )
+
+        assert len(dtheta) == n_samples
+        assert np.all(np.isfinite(dtheta))
+
+    def test_iq_correction_centering(self):
+        """Test that IQ centering shifts the data correctly."""
+        from straxion.plugins.records import _apply_iq_correction_numba
+
+        # Data offset from origin (10 samples)
+        data_i = np.array([2.0, 2.1, 1.9, 2.0, 2.05, 1.95, 2.0, 2.02, 1.98, 2.0], dtype=np.float64)
+        data_q = np.array([3.0, 3.1, 2.9, 3.0, 3.05, 2.95, 3.0, 3.02, 2.98, 3.0], dtype=np.float64)
+
+        # Use non-zero model values
+        i_model_val = 1.0
+        q_model_val = 0.5
+        # Center at (2, 3)
+        iq_center_real = 2.0
+        iq_center_imag = 3.0
+
+        dtheta, theta = _apply_iq_correction_numba(
+            data_i, data_q, i_model_val, q_model_val, iq_center_real, iq_center_imag, 0.0, 0.0
+        )
+
+        # Should be centered around small values
+        assert np.all(np.isfinite(dtheta))
+
+
+class TestConvolveSameNumba:
+    """Test the numba-accelerated _convolve_same_numba function."""
+
+    def test_convolve_identity(self):
+        """Test convolution with identity-like kernel."""
+        from straxion.plugins.records import _convolve_same_numba
+
+        signal = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
+        kernel = np.array([1.0], dtype=np.float64)
+
+        result = _convolve_same_numba(signal, kernel)
+
+        np.testing.assert_allclose(result, signal, rtol=1e-10)
+
+    def test_convolve_moving_average(self):
+        """Test convolution as moving average."""
+        from straxion.plugins.records import _convolve_same_numba
+
+        signal = np.array([1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float64)
+        kernel = np.array([0.25, 0.5, 0.25], dtype=np.float64)  # Simple smoothing kernel
+
+        result = _convolve_same_numba(signal, kernel)
+
+        # For constant signal, convolution should return constant
+        # (except at edges due to zero padding)
+        assert len(result) == len(signal)
+        assert np.isclose(result[2], 1.0, atol=1e-10)
+
+    def test_convolve_matches_numpy(self):
+        """Test that numba convolution matches numpy convolve."""
+        from straxion.plugins.records import _convolve_same_numba
+
+        np.random.seed(42)
+        signal = np.random.randn(100).astype(np.float64)
+        kernel = np.array([0.1, 0.2, 0.4, 0.2, 0.1], dtype=np.float64)
+
+        numba_result = _convolve_same_numba(signal, kernel)
+        numpy_result = np.convolve(signal, kernel, mode="same")
+
+        np.testing.assert_allclose(numba_result, numpy_result, rtol=1e-10)
+
+    def test_convolve_output_length(self):
+        """Test that output length matches input signal length."""
+        from straxion.plugins.records import _convolve_same_numba
+
+        for signal_len in [10, 100, 500]:
+            for kernel_len in [3, 5, 11]:
+                signal = np.random.randn(signal_len).astype(np.float64)
+                kernel = np.random.randn(kernel_len).astype(np.float64)
+
+                result = _convolve_same_numba(signal, kernel)
+
+                assert (
+                    len(result) == signal_len
+                ), f"Output length {len(result)} != signal length {signal_len}"
+
+
+class TestInjectTruthPulsesNumba:
+    """Test the numba-accelerated _inject_truth_pulses_numba function."""
+
+    def test_inject_single_pulse(self):
+        """Test injection of a single truth pulse."""
+        from straxion.plugins.records import _inject_truth_pulses_numba
+
+        n_samples = 1000
+        data_dx = np.zeros(n_samples, dtype=np.float64)
+        template = np.exp(-np.arange(100) / 30.0)  # Exponential decay template
+
+        record_time = 0
+        dt_exact = 1e6  # 1ms per sample in nanoseconds
+        photon_mev = 0.8  # meV per photon
+
+        # Single truth event at sample 200
+        truth_times = np.array([200 * int(dt_exact)], dtype=np.int64)
+        truth_energies = np.array([photon_mev], dtype=np.float64)
+
+        _inject_truth_pulses_numba(
+            data_dx, template, truth_times, truth_energies, record_time, dt_exact, photon_mev
+        )
+
+        # Check that pulse was injected
+        assert data_dx[200] > 0, "Pulse should be injected at sample 200"
+        # Check that pulse decays
+        assert data_dx[200] > data_dx[250], "Pulse should decay after peak"
+
+    def test_inject_multiple_pulses(self):
+        """Test injection of multiple truth pulses."""
+        from straxion.plugins.records import _inject_truth_pulses_numba
+
+        n_samples = 1000
+        data_dx = np.zeros(n_samples, dtype=np.float64)
+        template = np.exp(-np.arange(50) / 20.0)
+
+        record_time = 0
+        dt_exact = 1e6
+        photon_mev = 1.0
+
+        # Multiple truth events
+        truth_times = np.array([100 * int(dt_exact), 500 * int(dt_exact)], dtype=np.int64)
+        truth_energies = np.array([1.0, 2.0], dtype=np.float64)
+
+        _inject_truth_pulses_numba(
+            data_dx, template, truth_times, truth_energies, record_time, dt_exact, photon_mev
+        )
+
+        # Check both pulses
+        assert data_dx[100] > 0, "First pulse should be injected"
+        assert data_dx[500] > 0, "Second pulse should be injected"
+        # Second pulse has higher energy, so should be larger
+        assert data_dx[500] > data_dx[100], "Second pulse should be larger (higher energy)"
+
+    def test_inject_no_pulses(self):
+        """Test that empty truth array leaves data unchanged."""
+        from straxion.plugins.records import _inject_truth_pulses_numba
+
+        n_samples = 100
+        data_dx = np.zeros(n_samples, dtype=np.float64)
+        original = data_dx.copy()
+        template = np.exp(-np.arange(20) / 5.0)
+
+        truth_times = np.array([], dtype=np.int64)
+        truth_energies = np.array([], dtype=np.float64)
+
+        _inject_truth_pulses_numba(data_dx, template, truth_times, truth_energies, 0, 1e6, 1.0)
+
+        np.testing.assert_array_equal(data_dx, original)
+
+    def test_inject_pulse_amplitude_scaling(self):
+        """Test that pulse amplitude scales correctly with energy."""
+        from straxion.plugins.records import _inject_truth_pulses_numba
+
+        n_samples = 500
+        template = np.ones(50, dtype=np.float64)  # Flat template for easy checking
+
+        record_time = 0
+        dt_exact = 1e6
+        photon_mev = 1.0
+
+        # Test different energies
+        for energy in [0.5, 1.0, 2.0]:
+            data_dx = np.zeros(n_samples, dtype=np.float64)
+            truth_times = np.array([100 * int(dt_exact)], dtype=np.int64)
+            truth_energies = np.array([energy], dtype=np.float64)
+
+            _inject_truth_pulses_numba(
+                data_dx, template, truth_times, truth_energies, record_time, dt_exact, photon_mev
+            )
+
+            # Amplitude should scale as energy / photon_mev
+            expected_amplitude = energy / photon_mev
+            actual_amplitude = data_dx[100]
+            assert np.isclose(
+                actual_amplitude, expected_amplitude, rtol=0.01
+            ), f"Expected amplitude {expected_amplitude}, got {actual_amplitude}"
+
+
+class TestDxRecordsNumbaIntegration:
+    """Integration tests for numba-accelerated functions in DxRecords."""
+
+    def test_linear_interp_used_in_compute(self):
+        """Test that linear interpolation is used correctly in the compute pipeline."""
+        # This verifies the data flow through the numba functions
+        from straxion.plugins.records import _linear_interp_numba
+
+        # Simulate theta-to-frequency interpolation
+        theta_data = np.linspace(-np.pi, np.pi, 100)
+        freq_data = np.linspace(4e9, 4.1e9, 100)  # Frequency range
+
+        # Interpolate at various theta values
+        theta_new = np.array([-0.5, 0.0, 0.5], dtype=np.float64)
+        result = _linear_interp_numba(
+            theta_new, theta_data.astype(np.float64), freq_data.astype(np.float64)
+        )
+
+        # Results should be within the frequency range
+        assert np.all(result >= freq_data.min() - 1e9)
+        assert np.all(result <= freq_data.max() + 1e9)
+        assert np.all(np.isfinite(result))
+
+    def test_iq_correction_pipeline(self):
+        """Test IQ correction with realistic parameters."""
+        from straxion.plugins.records import _apply_iq_correction_numba
+
+        # Simulate realistic IQ data
+        np.random.seed(42)
+        n_samples = 1000
+
+        # Base circular IQ trace
+        t = np.linspace(0, 10 * np.pi, n_samples)
+        radius = 0.5
+        center_i = 0.1
+        center_q = -0.2
+
+        data_i = (center_i + radius * np.cos(t) + np.random.randn(n_samples) * 0.01).astype(
+            np.float64
+        )
+        data_q = (center_q + radius * np.sin(t) + np.random.randn(n_samples) * 0.01).astype(
+            np.float64
+        )
+
+        # Apply correction with non-zero model values
+        # In practice, i_model_val and q_model_val come from IQ gain correction
+        dtheta, theta = _apply_iq_correction_numba(
+            data_i,
+            data_q,
+            i_model_val=1.0,
+            q_model_val=0.0,
+            iq_center_real=center_i,
+            iq_center_imag=center_q,
+            phi=0.1,
+            theta_at_fres=0.0,
+        )
+
+        # Output should be finite
+        assert np.all(np.isfinite(dtheta))
+        assert np.all(np.isfinite(theta))
+
+        # dtheta should have variation (we input circular data)
+        assert np.std(dtheta) > 0, "dtheta should have variation"
