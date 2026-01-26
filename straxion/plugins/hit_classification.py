@@ -666,6 +666,276 @@ class DxHitClassification(strax.Plugin):
         return ahatOF, chisq
 
     @staticmethod
+    def _extract_signal_window(St, dt_seconds, t_max_seconds, of_window_left, of_window_right):
+        """Extract windowed signal around t_max for optimal filter.
+
+        Args:
+            St: Signal timestream
+            dt_seconds: Time step in seconds
+            t_max_seconds: Time of maximum value in seconds
+            of_window_left: Left window size in samples
+            of_window_right: Right window size in samples
+
+        Returns:
+            tuple: (St_windowed, window_start, window_end, max_index)
+        """
+        t_seconds = np.arange(len(St)) * dt_seconds
+        max_index = np.argmin((t_seconds - t_max_seconds) ** 2)
+        window_start = max_index - of_window_left
+        window_end = max_index + of_window_right
+        St_windowed = St[window_start:window_end]
+        return St_windowed, window_start, window_end, max_index
+
+    @staticmethod
+    def _compute_shifted_template_ffts(
+        St,
+        dt_seconds,
+        At_interp,
+        t_max_seconds,
+        of_window_left,
+        of_window_right,
+        N_shiftOF_arr,
+        n_samples,
+    ):
+        """Compute FFTs of all shifted templates using FFT time-shift property.
+
+        Args:
+            St: Signal timestream (for template generation)
+            dt_seconds: Time step in seconds
+            At_interp: Template interpolation function
+            t_max_seconds: Time of maximum value in seconds
+            of_window_left: Left window size in samples
+            of_window_right: Right window size in samples
+            N_shiftOF_arr: Array of time shifts in samples
+            n_samples: Number of samples in windowed signal
+
+        Returns:
+            tuple: (Af_all, Af_real_all, Af_imag_all) - FFTs of all shifted templates
+        """
+        # Pre-compute base template at tau=0
+        At_base = DxHitClassification.modify_template(
+            St,
+            dt_seconds,
+            0,  # tau=0 for base template
+            At_interp=At_interp,
+            t_max_seconds=t_max_seconds,
+            apply_window=True,
+            of_window_left=of_window_left,
+            of_window_right=of_window_right,
+        )
+        Af_base = np.fft.fft(At_base)
+
+        # Pre-compute frequency indices for shift
+        k = np.fft.fftfreq(n_samples) * n_samples  # frequency bin indices
+
+        # Vectorized computation of all shifted template FFTs
+        # Using FFT time-shift property: FFT(shift(x, tau)) = FFT(x) * exp(-2*pi*j*k*tau/N)
+        phase_shifts = np.exp(
+            -2j * np.pi * k[np.newaxis, :] * N_shiftOF_arr[:, np.newaxis] / n_samples
+        )
+        Af_all = Af_base[np.newaxis, :] * phase_shifts  # (n_shifts, n_samples)
+
+        # Extract real and imaginary parts for numba
+        Af_real_all = np.real(Af_all).astype(np.float64)
+        Af_imag_all = np.imag(Af_all).astype(np.float64)
+
+        return Af_all, Af_real_all, Af_imag_all
+
+    @staticmethod
+    def _fit_kappa(
+        ahatOF_arr,
+        N_shiftOF_arr,
+        best_idx,
+        best_aOF,
+        best_OF_shift,
+        kappa_fit_half_band_width,
+        kappa_fit_smoothing_window,
+        kappa_fit_amplitude_bound_low,
+        kappa_fit_amplitude_bound_high,
+        kappa_fit_center_tolerance,
+    ):
+        """Fit kappa by fitting double-sided exponential to aOF vs shift curve.
+
+        Args:
+            ahatOF_arr: Array of optimal filter amplitudes for each shift
+            N_shiftOF_arr: Array of time shifts in samples
+            best_idx: Index of best shift
+            best_aOF: Best optimal filter amplitude
+            best_OF_shift: Best time shift in samples
+            kappa_fit_half_band_width: Half band width for fitting
+            kappa_fit_smoothing_window: Window size for moving average
+            kappa_fit_amplitude_bound_low: Lower bound multiplier for amplitude
+            kappa_fit_amplitude_bound_high: Upper bound multiplier for amplitude
+            kappa_fit_center_tolerance: Tolerance for center position bounds
+
+        Returns:
+            tuple: (kappa, profile, popt) - kappa value, smoothed profile, fit params
+        """
+        hbw = kappa_fit_half_band_width
+
+        # Compute smoothed profile unconditionally (needed for debug plotting)
+        profile = _movmean_numba(ahatOF_arr, kappa_fit_smoothing_window)
+
+        # Store fitted parameters (None if fit fails/skipped)
+        popt = None
+
+        if best_idx - hbw < 0 or best_idx + hbw > len(N_shiftOF_arr):
+            # Fit window out of bounds
+            kappa = np.inf
+        else:
+            try:
+                # Extract the fine region around best shift
+                N_shiftOF_arr_fine = N_shiftOF_arr[best_idx - hbw : best_idx + hbw]
+                profile_fine = profile[best_idx - hbw : best_idx + hbw]
+
+                # Initial guess: [amplitude, center, kappa]
+                p0 = [best_aOF, float(best_OF_shift), 1.0]
+
+                # Set bounds for curve_fit
+                # Use min/max to handle negative best_aOF correctly
+                amp_bound_1 = best_aOF * kappa_fit_amplitude_bound_low
+                amp_bound_2 = best_aOF * kappa_fit_amplitude_bound_high
+                amp_lower = min(amp_bound_1, amp_bound_2)
+                amp_upper = max(amp_bound_1, amp_bound_2)
+
+                bounds = (
+                    [
+                        amp_lower,
+                        best_OF_shift - kappa_fit_center_tolerance,
+                        0,
+                    ],  # lower bounds
+                    [
+                        amp_upper,
+                        best_OF_shift + kappa_fit_center_tolerance,
+                        np.inf,
+                    ],  # upper bounds
+                )
+
+                popt, _ = curve_fit(
+                    DxHitClassification._profile_fit,
+                    N_shiftOF_arr_fine.astype(np.float64),
+                    profile_fine,
+                    p0=p0,
+                    bounds=bounds,
+                )
+                kappa = popt[2]
+            except (RuntimeError, ValueError):
+                # Fit failed
+                kappa = np.inf
+
+        return kappa, profile, popt
+
+    @staticmethod
+    def _plot_optimal_filter_debug(
+        St,
+        dt_seconds,
+        window_start,
+        window_end,
+        At_shifted_arr,
+        N_shiftOF_arr,
+        best_At_shifted,
+        best_aOF,
+        best_OF_shift,
+        kappa,
+        ahatOF_arr,
+        profile,
+        popt,
+        kappa_fit_half_band_width,
+    ):
+        """Create debug plots for optimal filter visualization.
+
+        Args:
+            St: Original signal timestream
+            dt_seconds: Time step in seconds
+            St_windowed: Windowed signal
+            window_start: Start index of window
+            window_end: End index of window
+            At_shifted_arr: Array of shifted templates
+            N_shiftOF_arr: Array of time shifts in samples
+            best_At_shifted: Best shifted template
+            best_aOF: Best optimal filter amplitude
+            best_OF_shift: Best time shift in samples
+            kappa: Fitted kappa value
+            ahatOF_arr: Array of amplitudes for each shift
+            profile: Smoothed profile
+            popt: Fitted parameters (None if fit failed)
+            kappa_fit_half_band_width: Half band width for kappa fitting
+        """
+        import matplotlib.pyplot as plt
+        from straxion import register_xenon_colors
+
+        # Load custom style and register xenon colors
+        mplstyle_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".customized_mplstyle"
+        )
+        if os.path.exists(mplstyle_path):
+            plt.style.use(mplstyle_path)
+        register_xenon_colors()
+
+        # Compute time arrays and sampling frequency
+        fs = 1.0 / dt_seconds
+        times_ms = np.arange(len(St)) * 1000 / fs
+        shifts_ms = N_shiftOF_arr / fs * 1000
+
+        # Create 2-column figure
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(6, 3))
+
+        # === Left plot: OF Visualization ===
+        # Plot original signal
+        ax1.plot(times_ms, St, alpha=0.5, color="gray")
+
+        # Plot all shifted templates
+        window_times_ms = times_ms[window_start:window_end]
+        for i, At_shifted in enumerate(At_shifted_arr):
+            ax1.plot(window_times_ms, At_shifted, color="xenon_light_blue", alpha=0.05)
+            # Highlight unshifted template (shift=0)
+            if N_shiftOF_arr[i] == 0:
+                ax1.plot(window_times_ms, At_shifted, color="xenon_red", alpha=1, label="Unshifted")
+
+        # Plot best shifted template
+        ax1.plot(window_times_ms, best_At_shifted, color="xenon_blue", label="Best")
+
+        ax1.set_xlabel("Time [ms]")
+        ax1.set_ylabel(r"Amplitude $\delta x$")
+        ax1.legend(loc="best")
+        ax1.set_xlim(times_ms[0], times_ms[-1])
+
+        # === Right plot: Kappa Derivation ===
+        # Plot raw ahatOF vs shifts
+        ax2.plot(shifts_ms, ahatOF_arr, "o", markersize=2, alpha=0.5, label="Raw")
+
+        # Plot smoothed profile
+        ax2.plot(shifts_ms, profile, "-", linewidth=1, label="Smoothed")
+
+        # Plot best-fit double exponential if fitting succeeded
+        if popt is not None and np.isfinite(kappa):
+            # Generate fit curve centered at the fitted center (popt[1])
+            # and spanning the fitting half-band width on each side
+            fit_center = popt[1]  # fitted center in samples
+            fit_shifts = np.linspace(
+                fit_center - kappa_fit_half_band_width, fit_center + kappa_fit_half_band_width, 100
+            )
+            fit_curve = DxHitClassification._profile_fit(
+                fit_shifts.astype(np.float64), popt[0], popt[1], popt[2]
+            )
+            fit_shifts_ms = fit_shifts / fs * 1000
+            ax2.plot(fit_shifts_ms, fit_curve, "--", color="xenon_red", linewidth=1.5, label="Fit")
+
+        ax2.set_xlabel("Time shift [ms]")
+        ax2.set_ylabel(r"$\hat{a}$")
+        ax2.legend(loc="best")
+
+        # Shared title for both plots
+        fig.suptitle(
+            rf"$t_0={best_OF_shift / fs * 1000:.2f}$ ms, "
+            rf"$\hat{{a}}={best_aOF:.2e}$, "
+            rf"$\kappa={kappa / fs * 1000:.2f}$ ms"
+        )
+
+        plt.tight_layout()
+        plt.show()
+
+    @staticmethod
     def optimal_filter(
         St,
         dt_seconds,
@@ -761,15 +1031,15 @@ class DxHitClassification(strax.Plugin):
         The amplitude and center are tightly constrained since we already found good
         values from the optimal filter. Kappa is the parameter we want to estimate.
         """
-        # Apply windowing to signal
-        t_seconds = np.arange(len(St)) * dt_seconds
-        max_index = np.argmin((t_seconds - t_max_seconds) ** 2)
-        window_start = max_index - of_window_left
-        window_end = max_index + of_window_right
-        St_windowed = St[window_start:window_end]
+        # Extract windowed signal
+        St_windowed, window_start, window_end, max_index = (
+            DxHitClassification._extract_signal_window(
+                St, dt_seconds, t_max_seconds, of_window_left, of_window_right
+            )
+        )
         n_samples = len(St_windowed)
 
-        # OPTIMIZATION 1: Pre-compute signal FFT once (reused for all shifts)
+        # Pre-compute signal FFT once (reused for all shifts)
         Sf = np.fft.fft(St_windowed)
         Sf_real = np.real(Sf).astype(np.float64)
         Sf_imag = np.imag(Sf).astype(np.float64)
@@ -785,37 +1055,19 @@ class DxHitClassification(strax.Plugin):
         )
         n_shifts = len(N_shiftOF_arr)
 
-        # OPTIMIZATION 2: Pre-compute base template at tau=0 and use FFT shift property
-        # For time shift tau, FFT(shift(At, tau)) = FFT(At) * exp(-2*pi*j*k*tau/N)
-        At_base = DxHitClassification.modify_template(
+        # Compute all shifted template FFTs using FFT time-shift property
+        Af_all, Af_real_all, Af_imag_all = DxHitClassification._compute_shifted_template_ffts(
             St,
             dt_seconds,
-            0,  # tau=0 for base template
-            At_interp=At_interp,
-            t_max_seconds=t_max_seconds,
-            apply_window=True,
-            of_window_left=of_window_left,
-            of_window_right=of_window_right,
+            At_interp,
+            t_max_seconds,
+            of_window_left,
+            of_window_right,
+            N_shiftOF_arr,
+            n_samples,
         )
-        Af_base = np.fft.fft(At_base)
 
-        # Pre-compute frequency indices for shift
-        k = np.fft.fftfreq(n_samples) * n_samples  # frequency bin indices
-
-        # OPTIMIZATION 3: Vectorized computation of all shifted template FFTs
-        # Using FFT time-shift property: FFT(shift(x, tau)) = FFT(x) * exp(-2*pi*j*k*tau/N)
-        # Compute phase shifts for all tau values at once
-        # Shape: (n_shifts, n_samples)
-        phase_shifts = np.exp(
-            -2j * np.pi * k[np.newaxis, :] * N_shiftOF_arr[:, np.newaxis] / n_samples
-        )
-        Af_all = Af_base[np.newaxis, :] * phase_shifts  # (n_shifts, n_samples)
-
-        # Extract real and imaginary parts for numba
-        Af_real_all = np.real(Af_all).astype(np.float64)
-        Af_imag_all = np.imag(Af_all).astype(np.float64)
-
-        # OPTIMIZATION 4: Use numba-accelerated batch computation
+        # Use numba-accelerated batch computation
         ahatOF_arr, chi2_arr = _compute_chi2_batch_numba(
             Sf_real, Sf_imag, Af_real_all, Af_imag_all, Jf_safe, n_samples, n_shifts
         )
@@ -833,60 +1085,41 @@ class DxHitClassification(strax.Plugin):
         best_aOF = ahatOF_arr[best_idx]
         best_OF_shift = N_shiftOF_arr[best_idx]
 
-        # Compute kappa by fitting double-sided exponential to aOF vs shift
-        hbw = kappa_fit_half_band_width
-        if best_idx - hbw < 0 or best_idx + hbw > len(N_shiftOF_arr):
-            # Fit window out of bounds
-            kappa = np.inf
-        else:
-            try:
-                # OPTIMIZATION 5: Use numba-accelerated moving average
-                profile = _movmean_numba(ahatOF_arr, kappa_fit_smoothing_window)
-
-                # Extract the fine region around best shift
-                N_shiftOF_arr_fine = N_shiftOF_arr[best_idx - hbw : best_idx + hbw]
-                profile_fine = profile[best_idx - hbw : best_idx + hbw]
-
-                # Initial guess: [amplitude, center, kappa]
-                p0 = [best_aOF, float(best_OF_shift), 1.0]
-
-                # Set bounds for curve_fit
-                # Use min/max to handle negative best_aOF correctly
-                amp_bound_1 = best_aOF * kappa_fit_amplitude_bound_low
-                amp_bound_2 = best_aOF * kappa_fit_amplitude_bound_high
-                amp_lower = min(amp_bound_1, amp_bound_2)
-                amp_upper = max(amp_bound_1, amp_bound_2)
-
-                bounds = (
-                    [
-                        amp_lower,
-                        best_OF_shift - kappa_fit_center_tolerance,
-                        0,
-                    ],  # lower bounds
-                    [
-                        amp_upper,
-                        best_OF_shift + kappa_fit_center_tolerance,
-                        np.inf,
-                    ],  # upper bounds
-                )
-
-                popt, _ = curve_fit(
-                    DxHitClassification._profile_fit,
-                    N_shiftOF_arr_fine.astype(np.float64),
-                    profile_fine,
-                    p0=p0,
-                    bounds=bounds,
-                )
-                kappa = popt[2]
-            except (RuntimeError, ValueError):
-                # Fit failed
-                kappa = np.inf
+        # Fit kappa from aOF vs shift curve
+        kappa, profile, popt = DxHitClassification._fit_kappa(
+            ahatOF_arr,
+            N_shiftOF_arr,
+            best_idx,
+            best_aOF,
+            best_OF_shift,
+            kappa_fit_half_band_width,
+            kappa_fit_smoothing_window,
+            kappa_fit_amplitude_bound_low,
+            kappa_fit_amplitude_bound_high,
+            kappa_fit_center_tolerance,
+        )
 
         # Generate final shifted template scaled by best amplitude
-        # Use the pre-computed FFT and inverse transform for efficiency
         best_At_shifted = np.real(np.fft.ifft(Af_all[best_idx])) * best_aOF
 
+        # Create debug plots if requested
         if debug:
+            DxHitClassification._plot_optimal_filter_debug(
+                St,
+                dt_seconds,
+                window_start,
+                window_end,
+                At_shifted_arr,
+                N_shiftOF_arr,
+                best_At_shifted,
+                best_aOF,
+                best_OF_shift,
+                kappa,
+                ahatOF_arr,
+                profile,
+                popt,
+                kappa_fit_half_band_width,
+            )
             return (
                 best_aOF,
                 best_chi2,
