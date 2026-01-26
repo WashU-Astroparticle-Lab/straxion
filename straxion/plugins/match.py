@@ -124,6 +124,7 @@ class Match(strax.Plugin):
 
     def infer_dtype(self):
         """Define the data type for match results."""
+        # Match-specific fields (from truth and match logic)
         dtype = [
             (("Start time since unix epoch [ns]", "time"), TIME_DTYPE),
             (
@@ -147,97 +148,26 @@ class Match(strax.Plugin):
                 ),
                 INDEX_DTYPE,
             ),
-            (
-                ("Length of matched hit waveform in samples", "length"),
-                INDEX_DTYPE,
-            ),
-            (
-                ("Maximum amplitude of the matched hit", "amplitude"),
-                DATA_DTYPE,
-            ),
-            (
-                (
-                    "Maximum amplitude of matched hit (moving average)",
-                    "amplitude_moving_average",
-                ),
-                DATA_DTYPE,
-            ),
-            (
-                (
-                    "Maximum amplitude of matched hit (convolved)",
-                    "amplitude_convolved",
-                ),
-                DATA_DTYPE,
-            ),
-            (
-                ("Hit finding threshold for matched hit", "hit_threshold"),
-                DATA_DTYPE,
-            ),
-            (
-                (
-                    "Width of matched hit (length above threshold)",
-                    "width",
-                ),
-                INDEX_DTYPE,
-            ),
-            (
-                (
-                    "Rise edge slope of matched hit",
-                    "rise_edge_slope",
-                ),
-                DATA_DTYPE,
-            ),
-            (
-                (
-                    "Number of spikes coinciding with matched hit",
-                    "n_spikes_coinciding",
-                ),
-                INDEX_DTYPE,
-            ),
-            (
-                (
-                    "Is matched hit a photon candidate",
-                    "is_photon_candidate",
-                ),
-                bool,
-            ),
-            (
-                (
-                    "Is matched hit a symmetric spike",
-                    "is_symmetric_spike",
-                ),
-                bool,
-            ),
-            (
-                (
-                    "Is matched hit coincident with spikes",
-                    "is_coincident_with_spikes",
-                ),
-                bool,
-            ),
-            (
-                (
-                    "Best optimal filter amplitude for matched hit",
-                    "best_aOF",
-                ),
-                DATA_DTYPE,
-            ),
-            (
-                (
-                    "Best chi-squared value from optimal filter for matched hit",
-                    "best_chi2",
-                ),
-                DATA_DTYPE,
-            ),
-            (
-                (
-                    "Best time shift in samples for optimal filter of matched hit",
-                    "best_OF_shift",
-                ),
-                INDEX_DTYPE,
-            ),
         ]
-        return dtype
+
+        # Get hit fields from the dependency (includes hit_classification fields)
+        # Base fields to exclude (they come from truth, not hits)
+        exclude_base_fields = {"time", "endtime", "channel"}
+        hit_dtype = self.deps["hits"].dtype_for("hits")
+
+        # Extract hit fields using dtype.descr (excludes base fields)
+        # dtype.descr returns tuples like (name, dtype) or (name, dtype, shape)
+        # where name can be a tuple (title, name) or just a string
+        hit_fields = []
+        for field_desc in hit_dtype.descr:
+            # Get field name - it might be a tuple (title, name) or just a string
+            field_name = field_desc[0]
+            if isinstance(field_name, tuple):
+                field_name = field_name[1]  # Get the actual name from (title, name)
+
+            if field_name not in exclude_base_fields:
+                hit_fields.append(field_desc)
+        return dtype + hit_fields
 
     def compute(self, truth, hits):
         """Match truth events with hits based on temporal overlap.
@@ -410,17 +340,19 @@ class Match(strax.Plugin):
 
         """
         result["hit_index"] = hit_idx
-        result["length"] = hit["length"]
-        result["amplitude"] = hit["amplitude"]
-        result["amplitude_moving_average"] = hit["amplitude_moving_average"]
-        result["amplitude_convolved"] = hit["amplitude_convolved"]
-        result["hit_threshold"] = hit["hit_threshold"]
-        result["width"] = hit["width"]
-        result["rise_edge_slope"] = hit["rise_edge_slope"]
-        result["n_spikes_coinciding"] = hit["n_spikes_coinciding"]
-        result["is_photon_candidate"] = hit["is_photon_candidate"]
-        result["is_symmetric_spike"] = hit["is_symmetric_spike"]
-        result["is_coincident_with_spikes"] = hit["is_coincident_with_spikes"]
-        result["best_aOF"] = hit["best_aOF"]
-        result["best_chi2"] = hit["best_chi2"]
-        result["best_OF_shift"] = hit["best_OF_shift"]
+
+        # Fields that come from truth/match logic, not from hit
+        exclude_fields = {
+            "time",
+            "endtime",
+            "channel",
+            "energy_true",
+            "dx_true",
+            "destiny",
+            "hit_index",
+        }
+
+        # Copy all other fields from hit to result
+        for field_name in result.dtype.names:
+            if field_name not in exclude_fields and field_name in hit.dtype.names:
+                result[field_name] = hit[field_name]

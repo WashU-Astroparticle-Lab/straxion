@@ -99,9 +99,12 @@ class TestMatchWithRealData:
             "is_photon_candidate",
             "is_symmetric_spike",
             "is_coincident_with_spikes",
+            "is_truncated_hit",
+            "is_invalid_kappa",
             "best_aOF",
             "best_chi2",
             "best_OF_shift",
+            "kappa",
         ]
         field_names = [name[1] for name, *_ in dtype]
         for field in expected_fields:
@@ -149,9 +152,12 @@ class TestMatchWithRealData:
                 "is_photon_candidate",
                 "is_symmetric_spike",
                 "is_coincident_with_spikes",
+                "is_truncated_hit",
+                "is_invalid_kappa",
                 "best_aOF",
                 "best_chi2",
                 "best_OF_shift",
+                "kappa",
             ]
             for field in required_fields:
                 assert field in match.dtype.names, f"Required field '{field}' missing from match"
@@ -167,9 +173,12 @@ class TestMatchWithRealData:
             assert match["is_photon_candidate"].dtype == bool
             assert match["is_symmetric_spike"].dtype == bool
             assert match["is_coincident_with_spikes"].dtype == bool
+            assert match["is_truncated_hit"].dtype == bool
+            assert match["is_invalid_kappa"].dtype == bool
             assert match["best_aOF"].dtype == np.float32
             assert match["best_chi2"].dtype == np.float32
             assert match["best_OF_shift"].dtype == np.int32
+            assert match["kappa"].dtype == np.float32
 
             # Check that destiny values are valid
             valid_destinies = {"found", "lost", "split"}
@@ -300,6 +309,9 @@ class TestMatchWithRealData:
             assert np.all(~lost_matches["is_photon_candidate"])
             assert np.all(~lost_matches["is_symmetric_spike"])
             assert np.all(~lost_matches["is_coincident_with_spikes"])
+            assert np.all(~lost_matches["is_truncated_hit"])
+            assert np.all(~lost_matches["is_invalid_kappa"])
+            assert np.all(lost_matches["kappa"] == 0)
 
             print(f"Validated {len(lost_matches)} 'lost' matches " f"with zero/default values")
 
