@@ -1145,6 +1145,77 @@ def test_optimal_filter_kappa_with_negative_amplitude():
     assert np.isfinite(best_aOF), f"best_aOF should be finite, got {best_aOF}"
 
 
+def test_optimal_filter_debug_mode():
+    """Test that debug mode returns additional arrays and doesn't crash."""
+    import matplotlib
+
+    matplotlib.use("Agg")  # Use non-interactive backend
+    import matplotlib.pyplot as plt
+    from unittest.mock import patch
+
+    n_samples = 700
+    St = np.zeros(n_samples)
+    St[200:400] = np.sin(np.linspace(0, 2 * np.pi, 200))
+    dt_seconds = 1 / 38000
+    Jf = np.ones(400)
+
+    from straxion.utils import load_interpolation
+
+    At_interp, t_max_seconds = load_interpolation(DEFAULT_TEMPLATE_INTERP_PATH)
+
+    # Mock plt.show() to prevent blocking and verify it's called
+    with patch.object(plt, "show") as mock_show:
+        result = DxHitClassification.optimal_filter(
+            St,
+            dt_seconds,
+            Jf,
+            At_interp,
+            t_max_seconds,
+            of_window_left=100,
+            of_window_right=300,
+            of_shift_range_min=-50,
+            of_shift_range_max=50,
+            of_shift_step=1,
+            kappa_fit_half_band_width=20,
+            kappa_fit_smoothing_window=3,
+            debug=True,
+        )
+
+        # Verify plt.show() was called
+        mock_show.assert_called_once()
+
+    # Debug mode should return 8 values
+    assert len(result) == 8, f"Expected 8 return values in debug mode, got {len(result)}"
+
+    (
+        best_aOF,
+        best_chi2,
+        best_OF_shift,
+        kappa,
+        best_At_shifted,
+        chi2_arr,
+        At_shifted_arr,
+        ahatOF_arr,
+    ) = result
+
+    # Verify basic return values are valid
+    assert np.isfinite(best_aOF), "best_aOF should be finite"
+    assert np.isfinite(best_chi2), "best_chi2 should be finite"
+    assert np.isfinite(best_OF_shift), "best_OF_shift should be finite"
+    assert kappa > 0, "kappa should be positive (or inf)"
+
+    # Verify debug arrays have correct shapes
+    n_shifts = len(np.arange(-50, 50, 1))  # 100 shifts
+    assert len(chi2_arr) == n_shifts, f"chi2_arr should have {n_shifts} elements"
+    assert len(At_shifted_arr) == n_shifts, f"At_shifted_arr should have {n_shifts} elements"
+    assert len(ahatOF_arr) == n_shifts, f"ahatOF_arr should have {n_shifts} elements"
+
+    # Verify chi2 values are non-negative
+    assert np.all(chi2_arr >= 0), "All chi2 values should be non-negative"
+
+    plt.close("all")  # Clean up any figures
+
+
 # =============================================================================
 # Test: determine_spike_threshold mutual exclusivity
 # =============================================================================
