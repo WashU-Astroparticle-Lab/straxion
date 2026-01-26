@@ -150,23 +150,38 @@ class Match(strax.Plugin):
             ),
         ]
 
-        # Get hit fields from the dependency (includes hit_classification fields)
-        # Base fields to exclude (they come from truth, not hits)
+        # Get hit fields from the dependencies
+        # Both hits and hit_classification have data_kind="hits", so strax merges them
+        # We need to get fields from both plugins' infer_dtype methods
         exclude_base_fields = {"time", "endtime", "channel"}
-        hit_dtype = self.deps["hits"].dtype_for("hits")
 
-        # Extract hit fields using dtype.descr (excludes base fields)
-        # dtype.descr returns tuples like (name, dtype) or (name, dtype, shape)
-        # where name can be a tuple (title, name) or just a string
+        # Get hit fields from hits plugin
+        hits_dtype = self.deps["hits"].infer_dtype()
+        hit_classification_dtype = self.deps["hit_classification"].infer_dtype()
+
+        # Combine and extract fields (excludes base fields)
         hit_fields = []
-        for field_desc in hit_dtype.descr:
-            # Get field name - it might be a tuple (title, name) or just a string
+        seen_field_names = set()
+
+        # Process hits dtype first
+        for field_desc in hits_dtype:
             field_name = field_desc[0]
             if isinstance(field_name, tuple):
                 field_name = field_name[1]  # Get the actual name from (title, name)
 
-            if field_name not in exclude_base_fields:
+            if field_name not in exclude_base_fields and field_name not in seen_field_names:
                 hit_fields.append(field_desc)
+                seen_field_names.add(field_name)
+
+        # Process hit_classification dtype (adds classification-specific fields)
+        for field_desc in hit_classification_dtype:
+            field_name = field_desc[0]
+            if isinstance(field_name, tuple):
+                field_name = field_name[1]  # Get the actual name from (title, name)
+
+            if field_name not in exclude_base_fields and field_name not in seen_field_names:
+                hit_fields.append(field_desc)
+                seen_field_names.add(field_name)
         return dtype + hit_fields
 
     def compute(self, truth, hits):
