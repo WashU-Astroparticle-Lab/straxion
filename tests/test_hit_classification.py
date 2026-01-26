@@ -1217,6 +1217,191 @@ def test_optimal_filter_debug_mode():
 
 
 # =============================================================================
+# Unit Tests for Optimal Filter Helper Functions
+# =============================================================================
+
+
+def test_extract_signal_window():
+    """Test that _extract_signal_window correctly extracts windowed signal."""
+    n_samples = 1000
+    St = np.arange(n_samples, dtype=np.float64)
+    dt_seconds = 1 / 38000
+    t_max_seconds = 0.01  # 10 ms
+    of_window_left = 100
+    of_window_right = 200
+
+    St_windowed, window_start, window_end, max_index = DxHitClassification._extract_signal_window(
+        St, dt_seconds, t_max_seconds, of_window_left, of_window_right
+    )
+
+    # Verify window boundaries
+    expected_max_index = int(t_max_seconds / dt_seconds)
+    assert (
+        max_index == expected_max_index
+    ), f"Expected max_index={expected_max_index}, got {max_index}"
+
+    expected_window_start = max_index - of_window_left
+    assert (
+        window_start == expected_window_start
+    ), f"Expected window_start={expected_window_start}, got {window_start}"
+
+    expected_window_end = max_index + of_window_right
+    assert (
+        window_end == expected_window_end
+    ), f"Expected window_end={expected_window_end}, got {window_end}"
+
+    # Verify windowed signal length
+    expected_length = of_window_left + of_window_right
+    assert (
+        len(St_windowed) == expected_length
+    ), f"Expected windowed length={expected_length}, got {len(St_windowed)}"
+
+    # Verify windowed signal content matches original
+    np.testing.assert_array_equal(St_windowed, St[window_start:window_end])
+
+
+def test_extract_signal_window_edge_cases():
+    """Test _extract_signal_window with edge cases (t_max near boundaries)."""
+    n_samples = 1000
+    St = np.arange(n_samples, dtype=np.float64)
+    dt_seconds = 1 / 38000
+    of_window_left = 100
+    of_window_right = 200
+
+    # Test with t_max very early (window_start will be negative)
+    t_max_early = 0.0001  # Very early
+    St_windowed, window_start, window_end, max_index = DxHitClassification._extract_signal_window(
+        St, dt_seconds, t_max_early, of_window_left, of_window_right
+    )
+
+    # Function should not crash and should return valid values
+    assert isinstance(St_windowed, np.ndarray), "Should return numpy array"
+    assert isinstance(window_start, (int, np.integer)), "window_start should be integer"
+    assert isinstance(window_end, (int, np.integer)), "window_end should be integer"
+    assert isinstance(max_index, (int, np.integer)), "max_index should be integer"
+    assert window_start <= max_index <= window_end, "Indices should be ordered correctly"
+
+    # Test with t_max very late (window_end might exceed array length)
+    t_max_late = 0.025  # Near end
+    St_windowed_late, window_start_late, window_end_late, max_index_late = (
+        DxHitClassification._extract_signal_window(
+            St, dt_seconds, t_max_late, of_window_left, of_window_right
+        )
+    )
+
+    # Function should not crash
+    assert isinstance(St_windowed_late, np.ndarray), "Should return numpy array"
+    assert (
+        window_start_late <= max_index_late <= window_end_late
+    ), "Indices should be ordered correctly"
+    # Window should not exceed array bounds (numpy handles this automatically)
+    assert len(St_windowed_late) <= n_samples, "Window should not exceed array length"
+
+
+def test_fit_kappa_success():
+    """Test that _fit_kappa correctly fits kappa from aOF vs shift curve."""
+    # Create a synthetic aOF array that follows a double exponential
+    N_shiftOF_arr = np.arange(-50, 51, 1)
+    best_idx = 50  # Center of array
+    best_aOF = 1.0
+    best_OF_shift = 0.0
+
+    # Create synthetic data that follows double exponential
+    true_kappa = 10.0
+    true_amplitude = 1.0
+    true_center = 0.0
+    ahatOF_arr = DxHitClassification._profile_fit(
+        N_shiftOF_arr.astype(np.float64), true_amplitude, true_center, true_kappa
+    )
+
+    # Add some noise
+    np.random.seed(42)
+    ahatOF_arr += np.random.normal(0, 0.01, len(ahatOF_arr))
+
+    kappa, profile, popt = DxHitClassification._fit_kappa(
+        ahatOF_arr,
+        N_shiftOF_arr,
+        best_idx,
+        best_aOF,
+        best_OF_shift,
+        kappa_fit_half_band_width=25,
+        kappa_fit_smoothing_window=3,
+        kappa_fit_amplitude_bound_low=0.9,
+        kappa_fit_amplitude_bound_high=1.1,
+        kappa_fit_center_tolerance=0.1,
+    )
+
+    # Kappa should be finite and close to true value
+    assert np.isfinite(kappa), f"Kappa should be finite, got {kappa}"
+    assert np.isclose(
+        kappa, true_kappa, rtol=0.2
+    ), f"Kappa should be close to {true_kappa}, got {kappa}"
+
+    # Profile should be computed
+    assert len(profile) == len(ahatOF_arr), "Profile should have same length as ahatOF_arr"
+
+    # Fit parameters should be available
+    assert popt is not None, "Fit parameters should be available"
+    assert len(popt) == 3, "Should have 3 fit parameters (amplitude, center, kappa)"
+
+
+def test_fit_kappa_out_of_bounds():
+    """Test that _fit_kappa returns inf when fit window is out of bounds."""
+    n_shifts = 20
+    N_shiftOF_arr = np.arange(-10, 10, 1)
+    best_idx = 0  # At edge
+    best_aOF = 1.0
+    best_OF_shift = -10.0
+
+    ahatOF_arr = np.ones(n_shifts)
+
+    kappa, profile, popt = DxHitClassification._fit_kappa(
+        ahatOF_arr,
+        N_shiftOF_arr,
+        best_idx,
+        best_aOF,
+        best_OF_shift,
+        kappa_fit_half_band_width=25,  # Larger than available range
+        kappa_fit_smoothing_window=3,
+        kappa_fit_amplitude_bound_low=0.9,
+        kappa_fit_amplitude_bound_high=1.1,
+        kappa_fit_center_tolerance=0.1,
+    )
+
+    # Kappa should be inf when out of bounds
+    assert np.isinf(kappa), f"Expected kappa to be inf when out of bounds, got {kappa}"
+    assert popt is None, "Fit parameters should be None when fit fails"
+
+
+def test_fit_kappa_with_negative_amplitude():
+    """Test that _fit_kappa handles negative amplitudes correctly."""
+    N_shiftOF_arr = np.arange(-50, 51, 1)
+    best_idx = 50
+    best_aOF = -1.0  # Negative amplitude
+    best_OF_shift = 0.0
+
+    # Create synthetic data with negative amplitude
+    ahatOF_arr = -DxHitClassification._profile_fit(N_shiftOF_arr.astype(np.float64), 1.0, 0.0, 10.0)
+
+    kappa, profile, popt = DxHitClassification._fit_kappa(
+        ahatOF_arr,
+        N_shiftOF_arr,
+        best_idx,
+        best_aOF,
+        best_OF_shift,
+        kappa_fit_half_band_width=25,
+        kappa_fit_smoothing_window=3,
+        kappa_fit_amplitude_bound_low=0.9,
+        kappa_fit_amplitude_bound_high=1.1,
+        kappa_fit_center_tolerance=0.1,
+    )
+
+    # Should not crash and should return valid kappa
+    assert kappa > 0, f"Kappa should be positive, got {kappa}"
+    assert len(profile) == len(ahatOF_arr), "Profile should be computed"
+
+
+# =============================================================================
 # Test: determine_spike_threshold mutual exclusivity
 # =============================================================================
 
