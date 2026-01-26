@@ -835,14 +835,18 @@ class DxHitClassification(strax.Plugin):
 
         # Compute kappa by fitting double-sided exponential to aOF vs shift
         hbw = kappa_fit_half_band_width
+
+        # Compute smoothed profile unconditionally (needed for debug plotting)
+        profile = _movmean_numba(ahatOF_arr, kappa_fit_smoothing_window)
+
+        # Store fitted parameters for debug plotting (None if fit fails/skipped)
+        popt = None
+
         if best_idx - hbw < 0 or best_idx + hbw > len(N_shiftOF_arr):
             # Fit window out of bounds
             kappa = np.inf
         else:
             try:
-                # OPTIMIZATION 5: Use numba-accelerated moving average
-                profile = _movmean_numba(ahatOF_arr, kappa_fit_smoothing_window)
-
                 # Extract the fine region around best shift
                 N_shiftOF_arr_fine = N_shiftOF_arr[best_idx - hbw : best_idx + hbw]
                 profile_fine = profile[best_idx - hbw : best_idx + hbw]
@@ -887,6 +891,82 @@ class DxHitClassification(strax.Plugin):
         best_At_shifted = np.real(np.fft.ifft(Af_all[best_idx])) * best_aOF
 
         if debug:
+            import matplotlib.pyplot as plt
+            from straxion import register_xenon_colors
+
+            # Load custom style and register xenon colors
+            mplstyle_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".customized_mplstyle"
+            )
+            if os.path.exists(mplstyle_path):
+                plt.style.use(mplstyle_path)
+            register_xenon_colors()
+
+            # Compute time arrays and sampling frequency
+            fs = 1.0 / dt_seconds
+            times_ms = np.arange(len(St)) * 1000 / fs
+            shifts_ms = N_shiftOF_arr / fs * 1000
+
+            # Create 2-column figure
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(6, 3))
+
+            # === Left plot: OF Visualization ===
+            # Plot original signal
+            ax1.plot(times_ms, St, alpha=0.5, color="gray")
+
+            # Plot all shifted templates
+            window_times_ms = times_ms[window_start:window_end]
+            for i, At_shifted in enumerate(At_shifted_arr):
+                ax1.plot(window_times_ms, At_shifted, color="xenon_light_blue", alpha=0.05)
+                # Highlight unshifted template (shift=0)
+                if N_shiftOF_arr[i] == 0:
+                    ax1.plot(
+                        window_times_ms, At_shifted, color="xenon_red", alpha=1, label="Unshifted"
+                    )
+
+            # Plot best shifted template
+            ax1.plot(window_times_ms, best_At_shifted, color="xenon_blue", label="Best")
+
+            ax1.set_xlabel("Time [ms]")
+            ax1.set_ylabel(r"Amplitude $\delta x$")
+            ax1.legend(loc="best")
+            ax1.set_xlim(times_ms[0], times_ms[-1])
+
+            # === Right plot: Kappa Derivation ===
+            # Plot raw ahatOF vs shifts
+            ax2.plot(shifts_ms, ahatOF_arr, "o", markersize=2, alpha=0.5, label="Raw")
+
+            # Plot smoothed profile
+            ax2.plot(shifts_ms, profile, "-", linewidth=1, label="Smoothed")
+
+            # Plot best-fit double exponential if fitting succeeded
+            if popt is not None and np.isfinite(kappa):
+                # Generate fit curve centered at the fitted center (popt[1])
+                # and spanning the fitting half-band width on each side
+                fit_center = popt[1]  # fitted center in samples
+                fit_shifts = np.linspace(fit_center - hbw, fit_center + hbw, 100)
+                fit_curve = DxHitClassification._profile_fit(
+                    fit_shifts.astype(np.float64), popt[0], popt[1], popt[2]
+                )
+                fit_shifts_ms = fit_shifts / fs * 1000
+                ax2.plot(
+                    fit_shifts_ms, fit_curve, "--", color="xenon_red", linewidth=1.5, label="Fit"
+                )
+
+            ax2.set_xlabel("Time shift [ms]")
+            ax2.set_ylabel(r"$\hat{a}$")
+            ax2.legend(loc="best")
+
+            # Shared title for both plots
+            fig.suptitle(
+                rf"$t_0={best_OF_shift / fs * 1000:.2f}$ ms, "
+                rf"$\hat{{a}}={best_aOF:.2e}$, "
+                rf"$\kappa={kappa / fs * 1000:.2f}$ ms"
+            )
+
+            plt.tight_layout()
+            plt.show()
+
             return (
                 best_aOF,
                 best_chi2,
