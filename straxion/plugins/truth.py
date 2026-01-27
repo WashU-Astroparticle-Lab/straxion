@@ -124,7 +124,7 @@ class Truth(strax.Plugin):
         """Convert from dx units to meV."""
         return dx / PHOTON_25um_DX * PHOTON_25um_meV
 
-    def sigma_E(self, photon_energy_meV, sigma_deltax_sph):
+    def sigma_E(self, photon_energy_meV, sigma_deltax_sph=DX_RESOL_CONSERVATIVE):
         """Calculate energy resolution in meV."""
         return self.dx_to_meV(self.sigma_deltax(photon_energy_meV, sigma_deltax_sph))
 
