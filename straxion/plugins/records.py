@@ -874,6 +874,7 @@ class DxRecords(strax.Plugin):
         ma_kernel = np.asarray(self.moving_average_kernel, dtype=np.float64)
         pulse_kernel = np.asarray(self.kernel, dtype=np.float64)
 
+        # First pass: compute all data_dx values
         for i, rr in enumerate(raw_records):
             r = results[i]
             r["time"] = rr["time"]
@@ -905,10 +906,6 @@ class DxRecords(strax.Plugin):
             )
             r["data_dx"] = (interp_freq - self.interpolated_freqs[ch]) / self.interpolated_freqs[ch]
 
-            # Remove principal components from the data (keep as-is, typically disabled)
-            if self.pca_n_components > 0:
-                r["data_dx"] = self.pca(r["data_dx"])
-
             # OPTIMIZATION 3: Use numba-accelerated truth pulse injection
             matching_truth = truth[truth["channel"] == ch]
             if len(matching_truth) > 0:
@@ -928,6 +925,20 @@ class DxRecords(strax.Plugin):
                     PHOTON_25um_meV,
                 )
 
+        # Apply PCA across all records if enabled
+        # PCA needs multiple timestreams to work properly
+        if self.pca_n_components > 0 and len(results) > 1:
+            # Collect all data_dx arrays into a 2D array
+            # Shape: (n_records, record_length)
+            all_data_dx = np.array([r["data_dx"] for r in results])
+            # Apply PCA across all records
+            all_data_dx_corrected = self.pca(all_data_dx)
+            # Assign back to individual records
+            for i, r in enumerate(results):
+                r["data_dx"] = all_data_dx_corrected[i]
+
+        # Second pass: apply smoothing and corrections
+        for i, r in enumerate(results):
             # OPTIMIZATION 4: Use FFT convolution for better performance
             # Moving average convolution
             r["data_dx_moving_average"] = fftconvolve(r["data_dx"], ma_kernel, mode="same")
