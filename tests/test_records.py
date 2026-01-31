@@ -942,7 +942,11 @@ class TestDxRecordsCompute:
         assert np.all(np.isfinite(results[0]["data_dx"]))
 
     def test_compute_pca_affects_output(self):
-        """Test that different PCA settings affect the output."""
+        """Test that different PCA settings affect the output.
+
+        This test creates multiple mock raw records and tests that the output
+        is different when PCA is enabled and disabled.
+        """
         # Setup the plugin
         self.dx_records._setup_iq_correction_and_calibration()
         self.dx_records._setup_frequency_interpolation_models()
@@ -980,9 +984,10 @@ class TestDxRecordsCompute:
         timeshifted_seconds = t_seconds - time_shift
         self.dx_records.interpolated_template = self.dx_records.At_interp(timeshifted_seconds)
 
-        # Create mock raw records
+        # Create multiple mock raw records (need at least 2 for PCA to work)
+        n_records = 3
         raw_records = np.zeros(
-            1,
+            n_records,
             dtype=[
                 ("time", np.int64),
                 ("endtime", np.int64),
@@ -994,17 +999,19 @@ class TestDxRecordsCompute:
             ],
         )
 
-        raw_records[0]["time"] = 0
-        raw_records[0]["length"] = self.record_length
-        raw_records[0]["dt"] = int(self.dx_records.dt_exact)
-        raw_records[0]["endtime"] = (
-            raw_records[0]["time"] + raw_records[0]["length"] * raw_records[0]["dt"]
-        )
-        raw_records[0]["channel"] = 0
-        # Use the same data for both tests
+        # Use the same seed for both tests to ensure reproducibility
         np.random.seed(42)
-        raw_records[0]["data_i"] = np.random.randn(self.record_length)
-        raw_records[0]["data_q"] = np.random.randn(self.record_length)
+        for i in range(n_records):
+            raw_records[i]["time"] = i * self.record_length * int(self.dx_records.dt_exact)
+            raw_records[i]["length"] = self.record_length
+            raw_records[i]["dt"] = int(self.dx_records.dt_exact)
+            raw_records[i]["endtime"] = (
+                raw_records[i]["time"] + raw_records[i]["length"] * raw_records[i]["dt"]
+            )
+            raw_records[i]["channel"] = i % self.n_channels
+            # Create different data for each record to enable PCA
+            raw_records[i]["data_i"] = np.random.randn(self.record_length)
+            raw_records[i]["data_q"] = np.random.randn(self.record_length)
 
         # Create empty truth array
         truth_dtype = [
@@ -1016,8 +1023,9 @@ class TestDxRecordsCompute:
         ]
         truth = np.zeros(0, dtype=truth_dtype)
 
-        # Test with PCA enabled (4 components)
-        self.dx_records.pca_n_components = 4
+        # Test with PCA enabled (2 components)
+        # Use 2 components since we only have 3 records
+        self.dx_records.pca_n_components = 2
         results_with_pca = self.dx_records.compute(raw_records.copy(), truth)
 
         # Test with PCA disabled (0 components)
@@ -1025,9 +1033,18 @@ class TestDxRecordsCompute:
         results_no_pca = self.dx_records.compute(raw_records.copy(), truth)
 
         # Results should be different when PCA is applied
-        # Note: They might be very similar for random data, but should
-        # not be identical
-        assert not np.allclose(results_with_pca[0]["data_dx"], results_no_pca[0]["data_dx"])
+        # Check at least one record shows a difference
+        differences_found = False
+        for i in range(n_records):
+            if not np.allclose(
+                results_with_pca[i]["data_dx"], results_no_pca[i]["data_dx"], atol=1e-6
+            ):
+                differences_found = True
+                break
+        assert differences_found, (
+            "PCA should affect the output when applied across multiple records. "
+            "Results with PCA and without PCA should differ."
+        )
 
     def test_compute_empty_input(self):
         """Test compute with empty input."""
