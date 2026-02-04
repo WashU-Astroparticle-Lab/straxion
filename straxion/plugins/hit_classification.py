@@ -292,7 +292,7 @@ def _profile_fit_numba(x, amplitude, center, kappa):
 class DxHitClassification(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.3.2"
+    __version__ = "0.3.3"
 
     depends_on = ("hits", "records", "noises")
     provides = "hit_classification"
