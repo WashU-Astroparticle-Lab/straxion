@@ -16,6 +16,7 @@ from straxion.utils import (
     load_interpolation,
     INDEX_DTYPE,
 )
+from .hits import DxHits
 
 export, __all__ = strax.exporter()
 
@@ -463,25 +464,6 @@ class DxHitClassification(strax.Plugin):
         return channel_noise_psds
 
     @staticmethod
-    def calculate_spike_threshold(signal, spike_threshold_sigma):
-        """Calculate spike threshold based on signal statistics.
-
-        Args:
-            signal (np.ndarray): The signal array to analyze.
-            spike_threshold_sigma (float): Threshold multiplier in units of sigma.
-
-        Returns:
-            float: The calculated spike threshold.
-
-        """
-        signal_mean = np.mean(signal, axis=1)
-        signal_std = np.std(signal, axis=1)
-
-        # The naive spike threshold is a multiple of the standard deviation of the signal.
-        spike_threshold = signal_mean + spike_threshold_sigma * signal_std
-
-        return spike_threshold
-
     @staticmethod
     def _movmean(data, window_size):
         """Calculate simple moving average of a 1D array.
@@ -1135,7 +1117,7 @@ class DxHitClassification(strax.Plugin):
 
     def determine_spike_threshold(self, records):
         """Determine the spike threshold based on the provided configuration.
-        You can either provide hit_threshold_dx or hit_thresholds_sigma.
+        You can either provide spike_threshold_dx or spike_thresholds_sigma.
         You cannot provide both.
 
         Returns:
@@ -1151,7 +1133,7 @@ class DxHitClassification(strax.Plugin):
             else:
                 spike_thresholds_sigma = np.array(self.spike_thresholds_sigma)
             # Calculate spike threshold and find spike candidates
-            spike_threshold_dx = self.calculate_spike_threshold(
+            spike_threshold_dx = DxHits.calculate_hit_threshold(
                 records["data_dx_convolved"],
                 spike_thresholds_sigma[records["channel"]],
             )
