@@ -3,6 +3,7 @@ import pytest
 import numpy as np
 import straxion
 from straxion.plugins.hit_classification import HitClassification, DxHitClassification
+from straxion.plugins.hits import DxHits
 from straxion.utils import DEFAULT_TEMPLATE_INTERP_PATH
 import shutil
 
@@ -868,21 +869,26 @@ class TestDxHitClassificationWithRealDataOffline:
 def test_calculate_spike_threshold():
     """Test that spike threshold is calculated correctly from signal statistics."""
     # Create mock signal with known statistics
-    # Row 0: values 1, 2, 3, 4, 5 -> mean=3.0, std=sqrt(2)
-    # Row 1: values 2, 4, 6, 8, 10 -> mean=6.0, std=2*sqrt(2)
+    # Row 0: values 1, 2, 3, 4, 5 -> mean=3.0
+    # Row 1: values 2, 4, 6, 8, 10 -> mean=6.0
     signal = np.array([[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]])
     spike_threshold_sigma = 2.0
 
-    threshold = DxHitClassification.calculate_spike_threshold(signal, spike_threshold_sigma)
+    threshold = DxHits.calculate_hit_threshold(signal, spike_threshold_sigma)
 
-    # Verify expected values: mean + sigma * std
+    # Verify expected values: mean + sigma * robust_std
+    # Robust std uses 16th-84th percentiles: (p84 - p16) / 2.0
     expected_mean_0 = np.mean(signal[0])  # 3.0
-    expected_std_0 = np.std(signal[0])  # sqrt(2) ≈ 1.414
-    expected_threshold_0 = expected_mean_0 + spike_threshold_sigma * expected_std_0
+    p16_0 = np.percentile(signal[0], 16)
+    p84_0 = np.percentile(signal[0], 84)
+    expected_std_robust_0 = (p84_0 - p16_0) / 2.0
+    expected_threshold_0 = expected_mean_0 + spike_threshold_sigma * expected_std_robust_0
 
     expected_mean_1 = np.mean(signal[1])  # 6.0
-    expected_std_1 = np.std(signal[1])  # 2*sqrt(2) ≈ 2.828
-    expected_threshold_1 = expected_mean_1 + spike_threshold_sigma * expected_std_1
+    p16_1 = np.percentile(signal[1], 16)
+    p84_1 = np.percentile(signal[1], 84)
+    expected_std_robust_1 = (p84_1 - p16_1) / 2.0
+    expected_threshold_1 = expected_mean_1 + spike_threshold_sigma * expected_std_robust_1
 
     assert np.isclose(
         threshold[0], expected_threshold_0
