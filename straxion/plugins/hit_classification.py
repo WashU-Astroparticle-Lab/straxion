@@ -151,7 +151,7 @@ def _profile_fit_numba(x, amplitude, center, kappa):
     ),
     strax.Option(
         "spike_thresholds_sigma",
-        default=[3.0 for _ in range(41)],
+        default=[4.0 for _ in range(41)],
         track=True,
         type=list,
         help=(
