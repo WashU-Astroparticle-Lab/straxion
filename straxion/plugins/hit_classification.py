@@ -869,7 +869,7 @@ class DxHitClassification(strax.Plugin):
         # Plot all shifted templates
         window_times_ms = times_ms[window_start:window_end]
         for i, At_shifted in enumerate(At_shifted_arr):
-            ax1.plot(window_times_ms, At_shifted, color="xenon_light_blue", alpha=0.05)
+            ax1.plot(window_times_ms, At_shifted, color="xenon_lightblue", alpha=0.05)
             # Highlight unshifted template (shift=0)
             if N_shiftOF_arr[i] == 0:
                 ax1.plot(window_times_ms, At_shifted, color="xenon_red", alpha=1, label="Unshifted")
