@@ -231,6 +231,7 @@ def register_xenon_colors():
         "black": "#000000",
         "xenon_blue": "#4067b1",
         "xenon_lightblue": "#6ccef5",
+        "xenon_red": "#B9123E",
         "red": "#B9123E",
         "yellow": "#ffc74e",
         "green": "#39a974",
