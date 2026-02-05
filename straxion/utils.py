@@ -228,14 +228,30 @@ def register_xenon_colors():
     from cycler import cycler
 
     xenon_colors = {
-        "xenon_black": "#000000",
+        "black": "#000000",
         "xenon_blue": "#4067b1",
-        "xenon_light_blue": "#6ccef5",
-        "xenon_red": "#B9123E",
-        "xenon_yellow": "#ffc74e",
-        "xenon_green": "#39a974",
-        "xenon_purple": "#8A1859",
-        "xenon_silver": "#bfc2c7",
+        "xenon_lightblue": "#6ccef5",
+        "red": "#B9123E",
+        "yellow": "#ffc74e",
+        "green": "#39a974",
+        "purple": "#8A1859",
+        "silver": "#BFC2C7",
+        "salmon": "#FFB0A8",
+        "violet": "#B580CA",
+        "darkblue": "#203769",
+        "grey": "#909090",
+        "gray": "#909090",
+        "1sigma_green": "#83C369",
+        "2sigma_yellow": "#FDED95",
+        "mint": "#85F7C2",
+        "forestgreen": "#105D20",
+        "orange": "#E77D4D",
+        "darkred": "#9D0008",
+        "sand": "#EDDAB7",
+        "lightgrey": "#DCDCDC",
+        "lightgray": "#DCDCDC",
+        "jet": "#393939",
+        "teal": "#149A9A",
     }
 
     # Register each color in matplotlib's color registry
@@ -252,6 +268,9 @@ def register_xenon_colors():
         "#39a974",
         "#8A1859",
         "#bfc2c7",
+        "#FFB0A8",
+        "#85F7C2",
+        "#EDDAB7",
     ]
     plt.rcParams["axes.prop_cycle"] = cycler("color", color_list)
 
