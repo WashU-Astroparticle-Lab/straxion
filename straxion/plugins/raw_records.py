@@ -151,7 +151,7 @@ class QUALIPHIDETHzReader(strax.Plugin):
         results["endtime"] = np.int64(results["time"] + results["length"] * self.dt_exact)
         results["channel"] = np.arange(found_channels)
 
-        if len(time_stream[0]) > self.config["record_length"]:
+        if len(time_stream[0]) >= self.config["record_length"]:
             results["data_i"] = time_stream.real[:, : self.config["record_length"]]
             results["data_q"] = time_stream.imag[:, : self.config["record_length"]]
         else:
