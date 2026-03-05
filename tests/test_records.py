@@ -4,14 +4,14 @@ import os
 import tempfile
 import shutil
 from straxion.plugins.records import PulseProcessing, DxRecords
-from straxion.utils import (
+from straxion.constants import (
     PULSE_TEMPLATE_LENGTH,
     PULSE_TEMPLATE_ARGMAX,
     DEFAULT_TEMPLATE_INTERP_PATH,
     TEMPLATE_INTERP_FOLDER,
-    load_interpolation,
     SECOND_TO_NANOSECOND,
 )
+from straxion.utils import load_interpolation
 
 
 # Note: circfit method tests removed as the method doesn't exist in PulseProcessing

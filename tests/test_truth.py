@@ -3,7 +3,7 @@ import pytest
 import numpy as np
 import straxion
 from straxion.plugins.truth import Truth
-from straxion.utils import SECOND_TO_NANOSECOND
+from straxion.constants import SECOND_TO_NANOSECOND
 import shutil
 
 

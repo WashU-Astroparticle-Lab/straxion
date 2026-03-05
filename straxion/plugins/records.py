@@ -1,18 +1,16 @@
 import strax
 import numpy as np
 import numba
-from straxion.utils import (
+from straxion.constants import (
     DATA_DTYPE,
     SECOND_TO_NANOSECOND,
-    base_waveform_dtype,
-    circfit,
     PHOTON_25um_meV,
     PULSE_TEMPLATE_LENGTH,
     PULSE_TEMPLATE_ARGMAX,
     DEFAULT_TEMPLATE_INTERP_PATH,
     TEMPLATE_INTERP_FOLDER,
-    load_interpolation,
 )
+from straxion.utils import base_waveform_dtype, circfit, load_interpolation
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import fftconvolve
 import os

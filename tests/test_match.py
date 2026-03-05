@@ -3,7 +3,7 @@ import pytest
 import numpy as np
 import straxion
 from straxion.plugins.match import Match
-from straxion.utils import (
+from straxion.constants import (
     NOT_FOUND_INDEX,
     PULSE_TEMPLATE_LENGTH,
     DEFAULT_TEMPLATE_INTERP_PATH,
@@ -527,7 +527,7 @@ class TestMatchRestrictWindow:
 
     def setup_method(self):
         """Set up test data and create a Match instance."""
-        from straxion.utils import DEFAULT_TEMPLATE_INTERP_PATH, TEMPLATE_INTERP_FOLDER
+        from straxion.constants import DEFAULT_TEMPLATE_INTERP_PATH, TEMPLATE_INTERP_FOLDER
 
         self.match = Match()
         self.match.config = {
@@ -557,7 +557,7 @@ class TestMatchRestrictWindow:
         (PULSE_TEMPLATE_ARGMAX) regardless of sampling frequency, because it
         aligns the maximum at the target time which corresponds to that index.
         """
-        from straxion.utils import DEFAULT_TEMPLATE_INTERP_PATH, TEMPLATE_INTERP_FOLDER
+        from straxion.constants import DEFAULT_TEMPLATE_INTERP_PATH, TEMPLATE_INTERP_FOLDER
 
         # Test at 38kHz (default)
         match_38k = Match()

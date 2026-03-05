@@ -5,11 +5,8 @@ from typing import Tuple
 from immutabledict import immutabledict
 import strax
 import numpy as np
-from straxion.utils import (
-    DATA_DTYPE,
-    SECOND_TO_NANOSECOND,
-    base_waveform_dtype,
-)
+from straxion.constants import DATA_DTYPE, SECOND_TO_NANOSECOND
+from straxion.utils import base_waveform_dtype
 
 export, __all__ = strax.exporter()
 

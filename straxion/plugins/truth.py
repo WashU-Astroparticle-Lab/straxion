@@ -1,6 +1,6 @@
 import strax
 import numpy as np
-from straxion.utils import (
+from straxion.constants import (
     TIME_DTYPE,
     CHANNEL_DTYPE,
     DATA_DTYPE,

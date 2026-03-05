@@ -3,7 +3,7 @@ import numpy as np
 import numba
 import os
 from scipy.optimize import curve_fit
-from straxion.utils import (
+from straxion.constants import (
     TIME_DTYPE,
     CHANNEL_DTYPE,
     SECOND_TO_NANOSECOND,
@@ -13,9 +13,9 @@ from straxion.utils import (
     NOISE_PSD_38kHz,
     DEFAULT_TEMPLATE_INTERP_PATH,
     TEMPLATE_INTERP_FOLDER,
-    load_interpolation,
     INDEX_DTYPE,
 )
+from straxion.utils import load_interpolation
 from .hits import DxHits
 
 export, __all__ = strax.exporter()

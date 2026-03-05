@@ -2,14 +2,14 @@ import strax
 import numpy as np
 import numba
 import warnings
-from straxion.utils import (
+from straxion.constants import (
     DATA_DTYPE,
     INDEX_DTYPE,
     SECOND_TO_NANOSECOND,
     HIT_WINDOW_LENGTH_LEFT,
     HIT_WINDOW_LENGTH_RIGHT,
-    base_waveform_dtype,
 )
+from straxion.utils import base_waveform_dtype
 
 export, __all__ = strax.exporter()
 

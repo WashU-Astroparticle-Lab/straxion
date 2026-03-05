@@ -1,6 +1,6 @@
 import strax
 import numpy as np
-from straxion.utils import (
+from straxion.constants import (
     TIME_DTYPE,
     CHANNEL_DTYPE,
     DATA_DTYPE,
@@ -11,8 +11,8 @@ from straxion.utils import (
     PULSE_TEMPLATE_LENGTH,
     DEFAULT_TEMPLATE_INTERP_PATH,
     TEMPLATE_INTERP_FOLDER,
-    load_interpolation,
 )
+from straxion.utils import load_interpolation
 import os
 
 export, __all__ = strax.exporter()

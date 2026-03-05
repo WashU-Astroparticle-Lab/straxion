@@ -1,12 +1,12 @@
 import strax
 import numpy as np
-from straxion.utils import (
+from straxion.constants import (
     DATA_DTYPE,
     TIME_DTYPE,
     SECOND_TO_NANOSECOND,
-    base_waveform_dtype,
     N_BASELINE_MONITOR_INTERVAL,
 )
+from straxion.utils import base_waveform_dtype
 
 export, __all__ = strax.exporter()
 
