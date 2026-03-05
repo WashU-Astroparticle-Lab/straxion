@@ -1,5 +1,4 @@
 import numpy as np
-import matplotlib.colors as mcolors
 
 
 def register_xenon_colors():
@@ -17,6 +16,7 @@ def register_xenon_colors():
         >>> plt.plot([1, 2, 3], [1, 4, 2])  # Uses first color in cycle
     """
     import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
     from cycler import cycler
 
     xenon_colors = {
@@ -235,7 +235,7 @@ def plot_channels(
             (centers[0, pos_idx], centers[1, pos_idx]),
             radius=0.4,
             fill=False,
-            edgecolor="xenon_red",
+            edgecolor="#B9123E",
             linewidth=1,
             zorder=10,
         )
@@ -257,4 +257,4 @@ def plot_channels(
     if title is not None:
         ax.set_title(title)
 
-    fig.show()
+    return fig, ax, sc

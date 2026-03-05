@@ -3,6 +3,7 @@ import pickle
 import os
 
 from .constants import TIME_DTYPE, LENGTH_DTYPE, CHANNEL_DTYPE
+from .constants import *  # noqa: F401, F403
 
 
 def load_interpolation(load_path="template_interp.pkl"):
