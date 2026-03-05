@@ -4,7 +4,7 @@ import numpy as np
 import straxion
 from straxion.plugins.hit_classification import HitClassification, DxHitClassification
 from straxion.plugins.hits import DxHits
-from straxion.utils import DEFAULT_TEMPLATE_INTERP_PATH
+from straxion.constants import DEFAULT_TEMPLATE_INTERP_PATH
 import shutil
 
 

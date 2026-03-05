@@ -3,7 +3,7 @@ import pytest
 import os
 import straxion
 import shutil
-from straxion.utils import SECOND_TO_NANOSECOND
+from straxion.constants import SECOND_TO_NANOSECOND
 
 
 def clean_strax_data():

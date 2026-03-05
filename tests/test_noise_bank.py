@@ -3,7 +3,7 @@ import pytest
 import numpy as np
 import straxion
 from straxion.plugins.noise_bank import NoiseBank
-from straxion.utils import HIT_WINDOW_LENGTH_LEFT, HIT_WINDOW_LENGTH_RIGHT
+from straxion.constants import HIT_WINDOW_LENGTH_LEFT, HIT_WINDOW_LENGTH_RIGHT
 import shutil
 
 
