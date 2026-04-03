@@ -3,6 +3,7 @@
 [![Coverage Status](https://coveralls.io/repos/github/WashU-Astroparticle-Lab/straxion/badge.svg?branch=main)](https://coveralls.io/github/WashU-Astroparticle-Lab/straxion?branch=main)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
 [![CodeFactor](https://www.codefactor.io/repository/github/washu-astroparticle-lab/straxion/badge)](https://www.codefactor.io/repository/github/washu-astroparticle-lab/straxion)
+[![DOI](https://zenodo.org/badge/1016286970.svg)](https://doi.org/10.5281/zenodo.19411231)
 
 [`strax`](https://github.com/AxFoundation/strax)-based time series analysis for single photon counting experiments. `straxion` is currently used by (new) [*QAULIPHIDE*](https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.130.231001) dark photon search experiments.
 
