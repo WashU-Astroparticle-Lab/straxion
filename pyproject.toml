@@ -8,14 +8,17 @@ authors = [
   "Lanqing Yuan"
 ]
 classifiers = [
-  "Development Status :: 1 - Planning",
+  "Development Status :: 4 - Beta",
   "License :: OSI Approved :: BSD License",
   "Natural Language :: English",
   "Programming Language :: Python",
   "Intended Audience :: Science/Research",
   "Topic :: Scientific/Engineering :: Physics",
 ]
+license = "BSD-3-Clause"
 repository = "https://github.com/WashU-Astroparticle-Lab/straxion"
+
+packages = [{include = "straxion"}]
 
 [tool.poetry.dependencies]
 python = ">=3.11"
