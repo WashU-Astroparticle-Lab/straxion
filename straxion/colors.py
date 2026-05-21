@@ -285,7 +285,7 @@ def plot_channels(
             vmin=vmin if vmin is not None else positive.min(),
             vmax=vmax if vmax is not None else positive.max(),
         )
-        color_vals = np.ma.masked_less_equal(color_vals, 0)
+        color_vals = np.where(color_vals > 0, color_vals, np.nan)
         cmap = copy.copy(mpl.colormaps.get_cmap(cmap) if isinstance(cmap, str) else cmap)
         cmap.set_bad(color=bad_color)
         scatter_kwargs["norm"] = norm
