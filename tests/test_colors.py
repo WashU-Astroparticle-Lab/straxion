@@ -83,3 +83,69 @@ def test_plot_channels_vertical_colorbar_and_title():
     )
     assert ax.get_title() == "hello"
     plt.close(fig)
+
+
+def test_plot_channels_log_scale_positive_values():
+    values = np.logspace(0, 3, 41)
+    fig, _, sc = straxion.plot_channels(values, log_scale=True)
+    assert isinstance(sc.norm, matplotlib.colors.LogNorm)
+    assert sc.norm.vmin == pytest.approx(values.min())
+    assert sc.norm.vmax == pytest.approx(values.max())
+    plt.close(fig)
+
+
+def test_plot_channels_log_scale_with_vmin_vmax():
+    values = np.logspace(0, 3, 41)
+    fig, _, sc = straxion.plot_channels(values, log_scale=True, vmin=10, vmax=100)
+    assert isinstance(sc.norm, matplotlib.colors.LogNorm)
+    assert sc.norm.vmin == pytest.approx(10)
+    assert sc.norm.vmax == pytest.approx(100)
+    plt.close(fig)
+
+
+def test_plot_channels_log_scale_handles_non_positive():
+    # Mix of positive, zero, and negative values must not raise.
+    values = np.linspace(-5, 5, 41)
+    fig, _, sc = straxion.plot_channels(values, log_scale=True)
+    assert isinstance(sc.norm, matplotlib.colors.LogNorm)
+    # Norm should derive from the positive subset.
+    positive = values[values > 0]
+    assert sc.norm.vmin == pytest.approx(positive.min())
+    assert sc.norm.vmax == pytest.approx(positive.max())
+    # The cmap should have a custom 'bad' color set (not fully transparent).
+    bad_rgba = sc.get_cmap().get_bad()
+    assert bad_rgba[3] > 0  # alpha > 0 means a visible bad color
+    plt.close(fig)
+
+
+def test_plot_channels_log_scale_bad_color():
+    values = np.linspace(-1, 5, 41)
+    fig, _, sc = straxion.plot_channels(values, log_scale=True, bad_color="red")
+    expected = matplotlib.colors.to_rgba("red")
+    assert sc.get_cmap().get_bad() == pytest.approx(expected)
+    plt.close(fig)
+
+
+def test_plot_channels_log_scale_all_non_positive_raises():
+    values = np.zeros(41)
+    with pytest.raises(ValueError):
+        straxion.plot_channels(values, log_scale=True)
+
+
+def test_plot_channels_log_scale_does_not_mutate_global_cmap():
+    # Ensure setting bad_color on the cmap does not leak into the global registry.
+    import matplotlib as mpl
+
+    original_bad = mpl.colormaps.get_cmap("magma").get_bad().copy()
+    values = np.linspace(-1, 5, 41)
+    fig, _, _ = straxion.plot_channels(values, log_scale=True, bad_color="red")
+    plt.close(fig)
+    assert (mpl.colormaps.get_cmap("magma").get_bad() == original_bad).all()
+
+
+def test_plot_channels_linear_scale_unchanged():
+    # Default behavior must still use vmin/vmax (not a LogNorm).
+    values = np.arange(41, dtype=float)
+    fig, _, sc = straxion.plot_channels(values, vmin=0, vmax=40)
+    assert not isinstance(sc.norm, matplotlib.colors.LogNorm)
+    plt.close(fig)

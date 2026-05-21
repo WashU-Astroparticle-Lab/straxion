@@ -179,6 +179,8 @@ def plot_channels(
     colorbar_orientation="horizontal",
     save_pdf_at=None,
     highlight_central=True,
+    log_scale=False,
+    bad_color="lightgrey",
     **kwargs,
 ):
     """
@@ -223,6 +225,13 @@ def plot_channels(
     highlight_central : bool, optional
         If True, draw red circles around the central channels. Default
         is True.
+    log_scale : bool, optional
+        If True, use a logarithmic color scale (LogNorm). Non-positive
+        values cannot be represented on a log scale and are drawn in
+        ``bad_color`` instead. Default is False.
+    bad_color : str, optional
+        Color used for non-positive values when ``log_scale=True``.
+        Default is "lightgrey".
     **kwargs
         Additional arguments passed to scatter.
 
@@ -263,15 +272,34 @@ def plot_channels(
         fig = ax.figure
 
     # Create scatter plot
+    scatter_kwargs = dict(kwargs)
+    if log_scale:
+        import copy
+        import matplotlib as mpl
+        from matplotlib.colors import LogNorm
+
+        positive = color_vals[color_vals > 0]
+        if positive.size == 0:
+            raise ValueError("log_scale=True requires at least one positive value.")
+        norm = LogNorm(
+            vmin=vmin if vmin is not None else positive.min(),
+            vmax=vmax if vmax is not None else positive.max(),
+        )
+        color_vals = np.ma.masked_less_equal(color_vals, 0)
+        cmap = copy.copy(mpl.colormaps.get_cmap(cmap) if isinstance(cmap, str) else cmap)
+        cmap.set_bad(color=bad_color)
+        scatter_kwargs["norm"] = norm
+    else:
+        scatter_kwargs["vmin"] = vmin
+        scatter_kwargs["vmax"] = vmax
+
     sc = ax.scatter(
         centers[0, yielded],
         centers[1, yielded],
         s=s,
         c=color_vals,
         cmap=cmap,
-        vmin=vmin,
-        vmax=vmax,
-        **kwargs,
+        **scatter_kwargs,
     )
 
     # Add circles on central channels
