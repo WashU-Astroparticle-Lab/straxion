@@ -103,26 +103,60 @@ def test_plot_channels_log_scale_with_vmin_vmax():
     plt.close(fig)
 
 
+def _scatter_collections(ax):
+    from matplotlib.collections import PathCollection
+
+    return [c for c in ax.collections if isinstance(c, PathCollection)]
+
+
 def test_plot_channels_log_scale_handles_non_positive():
     # Mix of positive, zero, and negative values must not raise.
     values = np.linspace(-5, 5, 41)
-    fig, _, sc = straxion.plot_channels(values, log_scale=True)
+    fig, ax, sc = straxion.plot_channels(values, log_scale=True)
     assert isinstance(sc.norm, matplotlib.colors.LogNorm)
-    # Norm should derive from the positive subset.
     positive = values[values > 0]
     assert sc.norm.vmin == pytest.approx(positive.min())
     assert sc.norm.vmax == pytest.approx(positive.max())
-    # The cmap should have a custom 'bad' color set (not fully transparent).
-    bad_rgba = sc.get_cmap().get_bad()
-    assert bad_rgba[3] > 0  # alpha > 0 means a visible bad color
+    # Two scatter collections: one for bad (non-positive), one for positive.
+    cols = _scatter_collections(ax)
+    assert len(cols) == 2
     plt.close(fig)
 
 
-def test_plot_channels_log_scale_bad_color():
+def test_plot_channels_log_scale_bad_color_actually_rendered():
+    # Regression: bad_color must be visible in the rendered facecolors.
     values = np.linspace(-1, 5, 41)
-    fig, _, sc = straxion.plot_channels(values, log_scale=True, bad_color="red")
-    expected = matplotlib.colors.to_rgba("red")
-    assert sc.get_cmap().get_bad() == pytest.approx(expected)
+    fig, ax, _ = straxion.plot_channels(values, log_scale=True, bad_color="red")
+    fig.canvas.draw()
+    cols = _scatter_collections(ax)
+    assert len(cols) == 2
+    # The collection drawn first (the "bad" one) should be solid red and opaque.
+    bad_col = cols[0]
+    expected = np.array(matplotlib.colors.to_rgba("red"))
+    facecolors = bad_col.get_facecolors()
+    assert facecolors.shape[0] > 0
+    for c in facecolors:
+        assert np.allclose(c, expected)
+    plt.close(fig)
+
+
+def test_plot_channels_log_scale_no_bad_collection_when_all_positive():
+    values = np.logspace(0, 3, 41)
+    fig, ax, _ = straxion.plot_channels(values, log_scale=True)
+    cols = _scatter_collections(ax)
+    # Only the positive scatter exists; no separate bad collection.
+    assert len(cols) == 1
+    plt.close(fig)
+
+
+def test_plot_channels_log_scale_bad_count_matches_non_positive():
+    values = np.array([0.0] * 20 + [1.0] * 21)  # 20 non-positive, 21 positive
+    fig, ax, _ = straxion.plot_channels(values, log_scale=True)
+    fig.canvas.draw()
+    cols = _scatter_collections(ax)
+    # All 20 non-positive values fall on plotted (non-missing) channels.
+    assert len(cols[0].get_offsets()) == 20
+    assert len(cols[1].get_offsets()) == 21
     plt.close(fig)
 
 
@@ -130,17 +164,6 @@ def test_plot_channels_log_scale_all_non_positive_raises():
     values = np.zeros(41)
     with pytest.raises(ValueError):
         straxion.plot_channels(values, log_scale=True)
-
-
-def test_plot_channels_log_scale_does_not_mutate_global_cmap():
-    # Ensure setting bad_color on the cmap does not leak into the global registry.
-    import matplotlib as mpl
-
-    original_bad = mpl.colormaps.get_cmap("magma").get_bad().copy()
-    values = np.linspace(-1, 5, 41)
-    fig, _, _ = straxion.plot_channels(values, log_scale=True, bad_color="red")
-    plt.close(fig)
-    assert (mpl.colormaps.get_cmap("magma").get_bad() == original_bad).all()
 
 
 def test_plot_channels_linear_scale_unchanged():
