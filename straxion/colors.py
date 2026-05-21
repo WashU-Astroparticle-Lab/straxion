@@ -75,7 +75,7 @@ def plot_channels(
     ax=None,
     figsize=(4, 3),
     s=250,
-    cmap=None,
+    cmap="magma",
     vmin=None,
     vmax=None,
     xlim=(-1, 21),
@@ -85,6 +85,8 @@ def plot_channels(
     title=None,
     colorbar_label=None,
     colorbar_orientation="horizontal",
+    save_pdf_at=None,
+    highlight_central=True,
     **kwargs,
 ):
     """
@@ -110,7 +112,7 @@ def plot_channels(
     s : float, optional
         Size of scatter points. Default is 100.
     cmap : str or Colormap, optional
-        Colormap to use. Default is None (uses default).
+        Colormap to use. Default is 'magma'.
     vmin, vmax : float, optional
         Color scale limits.
     xlim, ylim : tuple, optional
@@ -124,6 +126,11 @@ def plot_channels(
     colorbar_orientation : str, optional
         Orientation of colorbar. 'horizontal' or 'vertical'.
         Default is 'horizontal'.
+    save_pdf_at : str or path-like, optional
+        If given, save the figure as a PDF at this path. Default is None.
+    highlight_central : bool, optional
+        If True, draw red circles around the central channels. Default
+        is True.
     **kwargs
         Additional arguments passed to scatter.
 
@@ -226,20 +233,21 @@ def plot_channels(
         **kwargs,
     )
 
-    # Add circles on central channels (always drawn)
-    from matplotlib.patches import Circle
+    # Add circles on central channels
+    if highlight_central:
+        from matplotlib.patches import Circle
 
-    central_positions = [freq_to_position_mapping[freq_idx] for freq_idx in central]
-    for pos_idx in central_positions:
-        circle = Circle(
-            (centers[0, pos_idx], centers[1, pos_idx]),
-            radius=0.4,
-            fill=False,
-            edgecolor="#B9123E",
-            linewidth=1,
-            zorder=10,
-        )
-        ax.add_patch(circle)
+        central_positions = [freq_to_position_mapping[freq_idx] for freq_idx in central]
+        for pos_idx in central_positions:
+            circle = Circle(
+                (centers[0, pos_idx], centers[1, pos_idx]),
+                radius=0.4,
+                fill=False,
+                edgecolor="#B9123E",
+                linewidth=1,
+                zorder=10,
+            )
+            ax.add_patch(circle)
 
     # Add colorbar
     if colorbar_label is None:
@@ -252,9 +260,12 @@ def plot_channels(
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.set_aspect("equal")
-    ax.tick_params(length=1)
+    ax.tick_params(length=0)
 
     if title is not None:
         ax.set_title(title)
+
+    if save_pdf_at is not None:
+        fig.savefig(save_pdf_at, format="pdf", bbox_inches="tight")
 
     return fig, ax, sc
