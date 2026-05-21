@@ -179,6 +179,8 @@ def plot_channels(
     colorbar_orientation="horizontal",
     save_pdf_at=None,
     highlight_central=True,
+    log_scale=False,
+    bad_color="lightgrey",
     **kwargs,
 ):
     """
@@ -223,6 +225,13 @@ def plot_channels(
     highlight_central : bool, optional
         If True, draw red circles around the central channels. Default
         is True.
+    log_scale : bool, optional
+        If True, use a logarithmic color scale (LogNorm). Non-positive
+        values cannot be represented on a log scale and are drawn in
+        ``bad_color`` instead. Default is False.
+    bad_color : str, optional
+        Color used for non-positive values when ``log_scale=True``.
+        Default is "lightgrey".
     **kwargs
         Additional arguments passed to scatter.
 
@@ -263,16 +272,52 @@ def plot_channels(
         fig = ax.figure
 
     # Create scatter plot
-    sc = ax.scatter(
-        centers[0, yielded],
-        centers[1, yielded],
-        s=s,
-        c=color_vals,
-        cmap=cmap,
-        vmin=vmin,
-        vmax=vmax,
-        **kwargs,
-    )
+    yielded_arr = np.array(yielded)
+    if log_scale:
+        from matplotlib.colors import LogNorm
+
+        positive_mask = color_vals > 0
+        if not positive_mask.any():
+            raise ValueError("log_scale=True requires at least one positive value.")
+        positive = color_vals[positive_mask]
+        norm = LogNorm(
+            vmin=vmin if vmin is not None else positive.min(),
+            vmax=vmax if vmax is not None else positive.max(),
+        )
+
+        # Non-positive channels are drawn separately with an explicit
+        # facecolor — relying on cmap.set_bad does not work for scatter,
+        # because PathCollection drops NaN points entirely.
+        bad_mask = ~positive_mask
+        if bad_mask.any():
+            ax.scatter(
+                centers[0, yielded_arr[bad_mask]],
+                centers[1, yielded_arr[bad_mask]],
+                s=s,
+                c=bad_color,
+                **kwargs,
+            )
+
+        sc = ax.scatter(
+            centers[0, yielded_arr[positive_mask]],
+            centers[1, yielded_arr[positive_mask]],
+            s=s,
+            c=positive,
+            cmap=cmap,
+            norm=norm,
+            **kwargs,
+        )
+    else:
+        sc = ax.scatter(
+            centers[0, yielded],
+            centers[1, yielded],
+            s=s,
+            c=color_vals,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            **kwargs,
+        )
 
     # Add circles on central channels
     if highlight_central:

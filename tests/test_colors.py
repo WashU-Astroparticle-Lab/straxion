@@ -83,3 +83,92 @@ def test_plot_channels_vertical_colorbar_and_title():
     )
     assert ax.get_title() == "hello"
     plt.close(fig)
+
+
+def test_plot_channels_log_scale_positive_values():
+    values = np.logspace(0, 3, 41)
+    fig, _, sc = straxion.plot_channels(values, log_scale=True)
+    assert isinstance(sc.norm, matplotlib.colors.LogNorm)
+    assert sc.norm.vmin == pytest.approx(values.min())
+    assert sc.norm.vmax == pytest.approx(values.max())
+    plt.close(fig)
+
+
+def test_plot_channels_log_scale_with_vmin_vmax():
+    values = np.logspace(0, 3, 41)
+    fig, _, sc = straxion.plot_channels(values, log_scale=True, vmin=10, vmax=100)
+    assert isinstance(sc.norm, matplotlib.colors.LogNorm)
+    assert sc.norm.vmin == pytest.approx(10)
+    assert sc.norm.vmax == pytest.approx(100)
+    plt.close(fig)
+
+
+def _scatter_collections(ax):
+    from matplotlib.collections import PathCollection
+
+    return [c for c in ax.collections if isinstance(c, PathCollection)]
+
+
+def test_plot_channels_log_scale_handles_non_positive():
+    # Mix of positive, zero, and negative values must not raise.
+    values = np.linspace(-5, 5, 41)
+    fig, ax, sc = straxion.plot_channels(values, log_scale=True)
+    assert isinstance(sc.norm, matplotlib.colors.LogNorm)
+    positive = values[values > 0]
+    assert sc.norm.vmin == pytest.approx(positive.min())
+    assert sc.norm.vmax == pytest.approx(positive.max())
+    # Two scatter collections: one for bad (non-positive), one for positive.
+    cols = _scatter_collections(ax)
+    assert len(cols) == 2
+    plt.close(fig)
+
+
+def test_plot_channels_log_scale_bad_color_actually_rendered():
+    # Regression: bad_color must be visible in the rendered facecolors.
+    values = np.linspace(-1, 5, 41)
+    fig, ax, _ = straxion.plot_channels(values, log_scale=True, bad_color="red")
+    fig.canvas.draw()
+    cols = _scatter_collections(ax)
+    assert len(cols) == 2
+    # The collection drawn first (the "bad" one) should be solid red and opaque.
+    bad_col = cols[0]
+    expected = np.array(matplotlib.colors.to_rgba("red"))
+    facecolors = bad_col.get_facecolors()
+    assert facecolors.shape[0] > 0
+    for c in facecolors:
+        assert np.allclose(c, expected)
+    plt.close(fig)
+
+
+def test_plot_channels_log_scale_no_bad_collection_when_all_positive():
+    values = np.logspace(0, 3, 41)
+    fig, ax, _ = straxion.plot_channels(values, log_scale=True)
+    cols = _scatter_collections(ax)
+    # Only the positive scatter exists; no separate bad collection.
+    assert len(cols) == 1
+    plt.close(fig)
+
+
+def test_plot_channels_log_scale_bad_count_matches_non_positive():
+    values = np.array([0.0] * 20 + [1.0] * 21)  # 20 non-positive, 21 positive
+    fig, ax, _ = straxion.plot_channels(values, log_scale=True)
+    fig.canvas.draw()
+    cols = _scatter_collections(ax)
+    # All 20 non-positive values fall on plotted (non-missing) channels.
+    assert len(cols[0].get_offsets()) == 20
+    assert len(cols[1].get_offsets()) == 21
+    plt.close(fig)
+
+
+def test_plot_channels_log_scale_all_non_positive_raises():
+    values = np.zeros(41)
+    with pytest.raises(ValueError):
+        straxion.plot_channels(values, log_scale=True)
+
+
+def test_plot_channels_linear_scale_unchanged():
+    # Default behavior must still use vmin/vmax (not a LogNorm).
+    values = np.arange(41, dtype=float)
+    fig, _, sc = straxion.plot_channels(values, vmin=0, vmax=40)
+    assert not isinstance(sc.norm, matplotlib.colors.LogNorm)
+    plt.close(fig)
