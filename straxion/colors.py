@@ -70,18 +70,27 @@ def get_channel_position(channel):
 
     Parameters
     ----------
-    channel : int
-        Frequency channel index (0-40).
+    channel : int or array-like of int
+        Frequency channel index (0-40), or an array of indices.
 
     Returns
     -------
     np.ndarray
-        Array of shape (2,) containing [x, y] position in mm.
+        For scalar input: shape (2,) array containing [x, y] in mm.
+        For array input of length N: shape (N, 2) array of [x, y] in mm.
     """
-    if channel not in _FREQ_TO_POSITION_MAPPING:
-        raise ValueError(f"Channel index must be in 0-40, got {channel}")
-    pos_idx = _FREQ_TO_POSITION_MAPPING[channel]
-    return _CHANNEL_CENTERS_MM[:, pos_idx].copy()
+    arr = np.asarray(channel)
+    if arr.ndim == 0:
+        ch = int(arr)
+        if ch not in _FREQ_TO_POSITION_MAPPING:
+            raise ValueError(f"Channel index must be in 0-40, got {ch}")
+        return _CHANNEL_CENTERS_MM[:, _FREQ_TO_POSITION_MAPPING[ch]].copy()
+
+    invalid = [int(c) for c in arr.ravel() if int(c) not in _FREQ_TO_POSITION_MAPPING]
+    if invalid:
+        raise ValueError(f"Channel indices must be in 0-40, got invalid values: {invalid}")
+    pos_indices = np.array([_FREQ_TO_POSITION_MAPPING[int(c)] for c in arr.ravel()])
+    return _CHANNEL_CENTERS_MM[:, pos_indices].T.reshape(*arr.shape, 2).copy()
 
 
 def register_xenon_colors():
