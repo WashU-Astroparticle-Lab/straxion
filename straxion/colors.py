@@ -1,5 +1,88 @@
 import numpy as np
 
+# QUALIPHIDE-FIR KID array layout.
+# Maps frequency channel index (0-40) to layout position index (0-43)
+# in the 2-row x 22-column array.
+_FREQ_TO_POSITION_MAPPING = {
+    0: 0,  # A1
+    1: 22,  # A2
+    2: 13,  # B1
+    3: 35,  # B2
+    4: 5,  # C1
+    5: 27,  # C2
+    6: 8,  # D1
+    7: 30,  # D2
+    8: 4,  # E1
+    9: 26,  # E2
+    10: 21,  # F1
+    11: 43,  # F2
+    12: 12,  # G1
+    13: 34,  # G2
+    14: 38,  # H2
+    15: 3,  # I1
+    16: 25,  # I2
+    17: 20,  # J1
+    18: 42,  # J2
+    19: 39,  # K2
+    20: 31,  # L2
+    21: 9,  # L1
+    22: 15,  # M1
+    23: 37,  # M2
+    24: 29,  # N2
+    25: 36,  # O2
+    26: 14,  # O1
+    27: 23,  # P2
+    28: 1,  # P1
+    29: 6,  # Q1
+    30: 28,  # Q2
+    31: 10,  # R1
+    32: 32,  # R2
+    33: 19,  # S1
+    34: 41,  # S2
+    35: 2,  # T1
+    36: 24,  # T2
+    37: 11,  # U1
+    38: 33,  # U2
+    39: 18,  # V1
+    40: 40,  # V2
+}
+
+
+def _build_channel_centers():
+    centers = np.zeros((2, 2, 22))  # x/y, row, col
+    centers[1, 0, :] = 0.779  # top row y (mm); bottom row y = 0
+    for i in range(22):
+        centers[0, 0, i] = i * 0.9 + 0.45  # top row x (mm)
+        centers[0, 1, i] = i * 0.9  # bottom row x (mm)
+    centers = centers.reshape(2, 44)
+    sorted_indices = np.argsort(centers[0, :])
+    return centers[:, sorted_indices]
+
+
+# Position-indexed (x, y) coordinates in mm, shape (2, 44).
+_CHANNEL_CENTERS_MM = _build_channel_centers()
+
+
+def get_channel_position(channel):
+    """Get the (x, y) position of a frequency channel in mm.
+
+    Layout is the QUALIPHIDE-FIR KID array (2 rows x 22 columns).
+
+    Parameters
+    ----------
+    channel : int
+        Frequency channel index (0-40).
+
+    Returns
+    -------
+    np.ndarray
+        Array of shape (2,) containing [x, y] position in mm.
+    """
+    if channel not in _FREQ_TO_POSITION_MAPPING:
+        raise ValueError(f"Channel index must be in 0-40, got {channel}")
+    pos_idx = _FREQ_TO_POSITION_MAPPING[channel]
+    return _CHANNEL_CENTERS_MM[:, pos_idx].copy()
+
 
 def register_xenon_colors():
     """Register Xenon color palette as named colors in matplotlib and set as default color cycle.
@@ -134,49 +217,7 @@ def plot_channels(
     """
     import matplotlib.pyplot as plt
 
-    freq_to_position_mapping = {
-        0: 0,  # A1
-        1: 22,  # A2
-        2: 13,  # B1
-        3: 35,  # B2
-        4: 5,  # C1
-        5: 27,  # C2
-        6: 8,  # D1
-        7: 30,  # D2
-        8: 4,  # E1
-        9: 26,  # E2
-        10: 21,  # F1
-        11: 43,  # F2
-        12: 12,  # G1
-        13: 34,  # G2
-        14: 38,  # H2
-        15: 3,  # I1
-        16: 25,  # I2
-        17: 20,  # J1
-        18: 42,  # J2
-        19: 39,  # K2
-        20: 31,  # L2
-        21: 9,  # L1
-        22: 15,  # M1
-        23: 37,  # M2
-        24: 29,  # N2
-        25: 36,  # O2
-        26: 14,  # O1
-        27: 23,  # P2
-        28: 1,  # P1
-        29: 6,  # Q1
-        30: 28,  # Q2
-        31: 10,  # R1
-        32: 32,  # R2
-        33: 19,  # S1
-        34: 41,  # S2
-        35: 2,  # T1
-        36: 24,  # T2
-        37: 11,  # U1
-        38: 33,  # U2
-        39: 18,  # V1
-        40: 40,  # V2
-    }
+    freq_to_position_mapping = _FREQ_TO_POSITION_MAPPING
 
     # Validate input
     values = np.array(values)
@@ -186,16 +227,7 @@ def plot_channels(
     # Create inverse mapping: position -> frequency
     position_to_freq_mapping = {pos: freq for freq, pos in freq_to_position_mapping.items()}
 
-    # Create channel centers
-    centers = np.zeros((2, 2, 22))  # x/y, row, col
-    centers[1, 0, :] = 0.779  # top row y, bottom y = 0
-    for i in range(22):
-        centers[0, 0, i] = i * 0.9 + 0.45  # top row x
-        centers[0, 1, i] = i * 0.9  # bottom row x
-
-    centers = centers.reshape(2, 44)
-    sorted_indices = np.argsort(centers[0, :])
-    centers = centers[:, sorted_indices]
+    centers = _CHANNEL_CENTERS_MM
 
     # Determine which channels to exclude
     missing_positions = list(missing)
