@@ -1,3 +1,4 @@
+import bisect
 import numpy as np
 import pickle
 import os
@@ -79,6 +80,48 @@ def timestamp_to_nanoseconds(timestamp_str):
     nanoseconds = int(unix_timestamp * 1_000_000_000)
 
     return nanoseconds
+
+
+def find_run_for_hit(hit_time, run_ids, run_ends_ns=None):
+    """Return the run_id whose time window contains a hit.
+
+    Run IDs are assumed to be Unix-second timestamp strings (the straxion convention,
+    e.g. "1756824965"), and ``hit_time`` is in nanoseconds since the Unix epoch
+    (the strax ``time`` field convention).
+
+    Args:
+        hit_time (int): Hit timestamp in nanoseconds since the Unix epoch.
+        run_ids (sequence of str or int): Run identifiers. Each is interpreted as a
+            Unix-second start time. Need not be sorted.
+        run_ends_ns (sequence of int, optional): Explicit run end times in
+            nanoseconds since the Unix epoch, aligned with ``run_ids``. If provided,
+            a hit only matches a run when ``start <= hit_time < end``; otherwise
+            ``None`` is returned. If ``None``, each run is treated as ending at the
+            next run's start (and the last run as open-ended).
+
+    Returns:
+        str or None: The matching run_id (as a string, matching strax conventions),
+        or ``None`` if the hit does not fall inside any run.
+
+    """
+    if len(run_ids) == 0:
+        return None
+
+    starts_ns = np.array([int(rid) * 1_000_000_000 for rid in run_ids], dtype=np.int64)
+    order = np.argsort(starts_ns)
+    starts_sorted = starts_ns[order]
+    ids_sorted = [str(run_ids[i]) for i in order]
+
+    idx = bisect.bisect_right(starts_sorted.tolist(), int(hit_time)) - 1
+    if idx < 0:
+        return None
+
+    if run_ends_ns is not None:
+        end_ns = int(np.asarray(run_ends_ns)[order[idx]])
+        if int(hit_time) >= end_ns:
+            return None
+
+    return ids_sorted[idx]
 
 
 def circfit(x, y):
