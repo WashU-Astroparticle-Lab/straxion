@@ -124,6 +124,41 @@ def find_run_for_hit(hit_time, run_ids, run_ends_ns=None):
     return ids_sorted[idx]
 
 
+def find_sample_for_hit(hit_time, records):
+    """Return the sample index in ``records`` corresponding to a hit's start time.
+
+    A hit's ``time`` field is the start time of the hit window in nanoseconds
+    since the Unix epoch (the strax convention). All channels share the same
+    timing within a chunk, so this finds any record whose ``[time, endtime)``
+    window contains ``hit_time`` and returns
+
+        ``sample_index = (hit_time - record["time"]) // record["dt"]``
+
+    which is the same for every channel.
+
+    Args:
+        hit_time (int): Hit start time in nanoseconds since the Unix epoch.
+        records (np.ndarray): Structured array with fields ``time``, ``endtime``,
+            and ``dt``.
+
+    Returns:
+        int or None: Sample index ``0 <= sample_index < record["length"]`` of
+        the matched record, or ``None`` if no record contains ``hit_time``.
+
+    """
+    if len(records) == 0:
+        return None
+
+    hit_time = int(hit_time)
+    mask = (records["time"] <= hit_time) & (hit_time < records["endtime"])
+    matches = np.where(mask)[0]
+    if len(matches) == 0:
+        return None
+
+    record = records[matches[0]]
+    return int((hit_time - int(record["time"])) // int(record["dt"]))
+
+
 def circfit(x, y):
     """Least squares fit of X-Y data to a circle.
 
