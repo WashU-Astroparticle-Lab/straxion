@@ -3,7 +3,14 @@ import numpy as np
 import pickle
 import os
 
-from .constants import TIME_DTYPE, LENGTH_DTYPE, CHANNEL_DTYPE
+from .constants import (
+    TIME_DTYPE,
+    LENGTH_DTYPE,
+    CHANNEL_DTYPE,
+    MIRROR_CHANNELS,
+    QUALIPHIDE_BASE_FOLDERS,
+    PHOTON_25um_meV,
+)
 from .constants import *  # noqa: F401, F403
 
 
@@ -243,3 +250,165 @@ def circfit(x, y):
     # Compute the RMS error between these distances and the fitted radius.
     rms_error = np.sqrt(np.mean((distances - radius) ** 2))
     return x_center, y_center, radius, rms_error
+
+
+def _list_runs_and_configs(base_folder):
+    """List run and configuration unix-second timestamps in a QUALIPHIDE folder.
+
+    Files are named ``ts_<fs>kHz-<unix_seconds>.npy`` for DAQ runs and
+    ``<name>-<unix_seconds>.npy`` for configuration files.
+
+    Returns:
+        tuple: ``(run_timestamps, config_timestamps)`` as sorted ``np.ndarray`` of int.
+    """
+    import glob as _glob
+
+    run_ts = set()
+    config_ts = set()
+    for path in _glob.glob(os.path.join(base_folder, "*.npy")):
+        stem = os.path.splitext(os.path.basename(path))[0]
+        try:
+            tag = int(stem.rsplit("-", 1)[-1])
+        except ValueError:
+            continue
+        if stem.startswith("ts_"):
+            run_ts.add(tag)
+        else:
+            config_ts.add(tag)
+    return np.array(sorted(run_ts)), np.array(sorted(config_ts))
+
+
+def _find_config_for_run(run_ts, configurations):
+    """Return the most recent configuration timestamp strictly before ``run_ts``."""
+    earlier = configurations[configurations < int(run_ts)]
+    if len(earlier) == 0:
+        raise ValueError(f"No configuration timestamp found before run {run_ts}.")
+    return int(earlier[-1])
+
+
+def _wrapped_get_array(
+    sr="SR3",
+    targets=("hits", "hit_classification"),
+    check_available=("hits",),
+    config_override=None,
+    st=None,
+    fs_kHz=38,
+    make=False,
+    output_folder=None,
+    keep_columns=None,
+    load_only=False,
+    exclude_mirror=False,
+    energy_range=None,
+    max_count=None,
+    pre_defined_runlist=None,
+):
+    """Build or load strax data for every run in a QUALIPHIDE science run.
+
+    Server-only: expects the QUALIPHIDE data layout under
+    ``QUALIPHIDE_BASE_FOLDERS`` on the analysis server.
+
+    Args:
+        sr (str): Science run key, one of ``QUALIPHIDE_BASE_FOLDERS`` (e.g. ``"SR3"``).
+        targets (tuple or str): strax target(s) passed to ``st.get_array`` / ``st.make``.
+        check_available (tuple or str): Target(s) checked by ``st.is_stored`` when
+            ``load_only=True``.
+        config_override (dict, optional): Per-run config overrides merged on top of
+            the auto-derived file paths.
+        st (strax.Context, optional): straxion context. Defaults to a fresh
+            ``straxion.qualiphide_thz_offline()`` context.
+        fs_kHz (int): Sampling rate used to locate DAQ ``ts_<fs>kHz-...`` files.
+        make (bool): If True, run ``st.make`` for each run and return ``None``.
+        output_folder (str, optional): Storage path; defaults to
+            ``<base>/strax_data``.
+        keep_columns (list, optional): Forwarded to ``st.get_array``.
+        load_only (bool): If True, only load runs already stored, skipping the rest.
+            Enables ``energy_range`` / ``max_count`` filtering.
+        exclude_mirror (bool): If True, drop ``MIRROR_CHANNELS`` from the final array.
+        energy_range (tuple, optional): ``(lo, hi)`` in meV; rows outside are dropped.
+            Only applied when ``load_only=True``.
+        max_count (int, optional): Stop loading once the concatenated result exceeds
+            this many rows. Only applied when ``load_only=True``.
+        pre_defined_runlist (sequence, optional): Use this runlist instead of scanning
+            the folder. Pass ``None`` to scan and use every run in the folder.
+
+    Returns:
+        tuple or None: ``(final_result, loaded_runlist)`` if ``make=False``,
+        otherwise ``None``.
+    """
+    import strax
+    import straxion
+    from tqdm import tqdm
+
+    if config_override is None:
+        config_override = {}
+    if st is None:
+        st = straxion.qualiphide_thz_offline()
+
+    base_folder = QUALIPHIDE_BASE_FOLDERS[sr]
+    storage = (
+        output_folder if output_folder is not None else os.path.join(base_folder, "strax_data")
+    )
+    st.storage = [strax.DataDirectory(storage)]
+
+    scanned_runs, configurations = _list_runs_and_configs(base_folder)
+    runlist = scanned_runs if pre_defined_runlist is None else pre_defined_runlist
+
+    results = []
+    loaded_runlist = []
+
+    for run in tqdm(runlist):
+        config_run = _find_config_for_run(run, configurations)
+        configs = {
+            "daq_input_dir": os.path.join(base_folder, f"ts_{fs_kHz}kHz-{run}.npy"),
+            "iq_finescan_dir": base_folder,
+            "iq_finescan_filename": f"iq_fine_z_2dB_below_pcrit-{config_run}.npy",
+            "iq_widescan_dir": base_folder,
+            "iq_widescan_filename": f"iq_wide_z_2dB_below_pcrit-{config_run}.npy",
+            "resonant_frequency_dir": base_folder,
+            "resonant_frequency_filename": f"fres_2dB-{config_run}.npy",
+        }
+        configs.update(config_override)
+        run_str = str(run)
+
+        if make:
+            st.make(run_str, targets, config=configs, progress_bar=False)
+            continue
+
+        if not load_only:
+            results.append(
+                st.get_array(
+                    run_str,
+                    targets,
+                    config=configs,
+                    progress_bar=False,
+                    keep_columns=keep_columns,
+                )
+            )
+            continue
+
+        if not st.is_stored(run_str, check_available, config=configs):
+            continue
+        result = st.get_array(
+            run_str,
+            targets,
+            config=configs,
+            progress_bar=False,
+            keep_columns=keep_columns,
+        )
+        if energy_range is not None:
+            energy = result["best_aOF"] * PHOTON_25um_meV
+            result = result[(energy > energy_range[0]) & (energy < energy_range[1])]
+        results.append(result)
+        loaded_runlist.append(run)
+        if max_count is not None and sum(len(r) for r in results) > max_count:
+            break
+
+    print(f"Loaded {len(loaded_runlist)} runs!")
+    if make:
+        return None
+
+    final_result = np.concatenate(results) if results else np.array([])
+    if exclude_mirror and len(final_result):
+        keep = ~np.isin(final_result["channel"], MIRROR_CHANNELS)
+        final_result = final_result[keep]
+    return final_result, loaded_runlist

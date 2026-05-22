@@ -44,3 +44,13 @@ NOISE_PSD_38kHz = np.load(Path(__file__).parent / "msc" / "noise_psd_38kHz.npy")
 # This constructs path relative to this module's location
 DEFAULT_TEMPLATE_INTERP_PATH = str(Path(__file__).parent / "msc" / "template_interp.pkl")
 TEMPLATE_INTERP_FOLDER = str(Path(__file__).parent / "msc" / "sr2_pt2_templates")
+
+# QUALIPHIDE mirror channels (peripheral KIDs excluded from physics analysis).
+MIRROR_CHANNELS = (1, 16, 27, 36)
+
+# Server-side base folders for QUALIPHIDE science runs (Windows analysis server).
+QUALIPHIDE_BASE_FOLDERS = {
+    "SR1": r"D:\QUALIPHIDE_20250821",
+    "SR2": r"D:\QUALIPHIDE_20251004",
+    "SR3": r"D:\QUALIPHIDE_20251127",
+}
