@@ -1531,3 +1531,93 @@ class HitClassification(strax.Plugin):
         self.is_symmetric_spike_hit(hits, hit_classification)
 
         return hit_classification
+
+
+@export
+def apply_optimal_filter_fixed_shift(
+    St_full,
+    peak_index,
+    tau=0,
+    fs=38_000,
+    of_window_left=100,
+    of_window_right=300,
+    template_path=None,
+    At_interp=None,
+    t_max_template=None,
+    noise_psd=None,
+):
+    """Apply the optimal filter to a single waveform slice at a fixed time shift.
+
+    This is a thin wrapper around the static helpers of ``DxHitClassification``
+    for ad-hoc / offline analysis: pick a chunk of ``data_dx`` for one channel,
+    tell the function where the peak is (as an integer sample index inside that
+    chunk), and get back the optimal-filter amplitude and reduced chi-squared at
+    a user-specified fixed template shift ``tau``. No coarse scan is performed.
+
+    Args:
+        St_full (np.ndarray): 1D waveform slice (e.g. ``dx = df/f0``) for one
+            channel. Length must be at least ``of_window_left + of_window_right``.
+        peak_index (int): Sample index of the expected peak within ``St_full``.
+            Must satisfy ``of_window_left <= peak_index <= len(St_full) - of_window_right``.
+        tau (int): Fixed template time shift in samples. Default 0.
+        fs (int): Sampling frequency in Hz. Default 38_000 (qualiphide_thz_offline).
+        of_window_left (int): Left window size in samples. Default 100.
+        of_window_right (int): Right window size in samples. Default 300.
+        template_path (str, optional): Path to a template interpolation pickle
+            (e.g. ``chXX_template_interp.pkl``). Used only if ``At_interp`` is None.
+        At_interp (scipy.interpolate.interp1d, optional): Pre-loaded template
+            interpolation function. If provided, ``template_path`` is ignored.
+        t_max_template (float, optional): Time of the template peak in seconds,
+            as returned by :func:`load_interpolation`. Required when ``At_interp``
+            is provided.
+        noise_psd (np.ndarray, optional): Noise PSD of length
+            ``of_window_left + of_window_right``. Defaults to ``NOISE_PSD_38kHz``.
+
+    Returns:
+        tuple:
+            - ahatOF (float): Optimal-filter amplitude at the given fixed shift.
+            - chisq (float): Reduced chi-squared at the given fixed shift.
+
+    Raises:
+        ValueError: If neither ``At_interp`` nor ``template_path`` is provided,
+            if ``At_interp`` is given without ``t_max_template``, if ``noise_psd``
+            has the wrong length, or if ``peak_index`` does not leave room for
+            the window inside ``St_full``.
+    """
+    dt_seconds = 1.0 / fs
+
+    if At_interp is None:
+        if template_path is None:
+            raise ValueError("Provide either At_interp or template_path.")
+        At_interp, t_max_template = load_interpolation(template_path)
+    elif t_max_template is None:
+        raise ValueError("Provide t_max_template alongside At_interp.")
+
+    Jf = np.asarray(NOISE_PSD_38kHz if noise_psd is None else noise_psd)
+    expected = of_window_left + of_window_right
+    if len(Jf) != expected:
+        raise ValueError(
+            f"noise_psd length {len(Jf)} does not match window size "
+            f"of_window_left + of_window_right = {expected}."
+        )
+
+    if not (of_window_left <= peak_index <= len(St_full) - of_window_right):
+        raise ValueError(
+            f"peak_index {peak_index} does not fit window "
+            f"[{of_window_left}, {len(St_full) - of_window_right}] in St_full of "
+            f"length {len(St_full)}."
+        )
+
+    # Signal window: exactly [peak_index - of_window_left, peak_index + of_window_right].
+    St_windowed = np.asarray(St_full)[peak_index - of_window_left : peak_index + of_window_right]
+
+    # Build a template whose peak sits at sample (peak_index + tau) in St_full,
+    # then take the same window. We cannot reuse DxHitClassification.modify_template
+    # here because it anchors the template peak to round(t_max_template / dt_seconds)
+    # in St_full's timeline rather than to the caller-supplied peak_index.
+    n = len(St_full)
+    t_axis = np.arange(n) * dt_seconds
+    At_full = At_interp(t_axis - (peak_index + tau) * dt_seconds + t_max_template)
+    At_windowed = At_full[peak_index - of_window_left : peak_index + of_window_right]
+
+    return DxHitClassification._optimal_filter(St_windowed, Jf, At_windowed)
