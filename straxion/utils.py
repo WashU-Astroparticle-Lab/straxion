@@ -9,6 +9,7 @@ from .constants import (
     CHANNEL_DTYPE,
     MIRROR_CHANNELS,
     QUALIPHIDE_BASE_FOLDERS,
+    PHOTON_25um_meV,
 )
 from .constants import *  # noqa: F401, F403
 
@@ -395,7 +396,7 @@ def _wrapped_get_array(
             keep_columns=keep_columns,
         )
         if energy_range is not None:
-            energy = result["best_aOF"] * 49.64
+            energy = result["best_aOF"] * PHOTON_25um_meV
             result = result[(energy > energy_range[0]) & (energy < energy_range[1])]
         results.append(result)
         loaded_runlist.append(run)
