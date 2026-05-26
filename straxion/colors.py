@@ -355,3 +355,119 @@ def plot_channels(
         fig.savefig(save_pdf_at, format="pdf", bbox_inches="tight")
 
     return fig, ax, sc
+
+
+def plot_staggered_traces(
+    records,
+    zooml,
+    zoomr,
+    num_channels=41,
+    sampling_rate=38e3,
+    trace_color="xenon_jet",
+    no_hit_far_channels=None,
+    color_no_hit="xenon_red",
+    single_si_phonon_hits_channels=None,
+    color_single_hit="xenon_blue",
+    time_offset=3e-4,
+    amp_offset=5e-7,
+    ax=None,
+    figsize=(3.5, 2.5),
+    xlim=(0.0, 0.032),
+):
+    """Plot per-channel traces stacked with a staggered time/amplitude offset.
+
+    Channels are ordered left-to-right by their physical x position in the
+    QUALIPHIDE-FIR KID array layout (see :func:`get_channel_position`), so the
+    rank used for the staggered offset reflects detector geometry rather than
+    pulse amplitude.
+
+    Parameters
+    ----------
+    records : dict or structured array
+        Must support indexing ``records["data_dx"][ch][zooml:zoomr]``.
+    zooml, zoomr : int
+        Left/right indices used to slice each trace.
+    num_channels : int, optional
+        Number of channels to iterate over (default 41).
+    sampling_rate : float, optional
+        Sampling rate in Hz used to build the time axis (default 38e3).
+    trace_color : str, optional
+        Color for standard traces (default "xenon_jet").
+    no_hit_far_channels : list or array, optional
+        Channel indices highlighted with ``color_no_hit``.
+    color_no_hit : str, optional
+        Color for no-hit far channels (default "xenon_red").
+    single_si_phonon_hits_channels : int, list, or array, optional
+        Channel index/indices highlighted with ``color_single_hit``.
+    color_single_hit : str, optional
+        Color for single Si phonon hit channels (default "xenon_blue").
+    time_offset : float, optional
+        Time shift added per rank, in seconds (default 3e-4).
+    amp_offset : float, optional
+        Amplitude shift added per rank (default 5e-7).
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If None, a new figure is created.
+    figsize : tuple, optional
+        Figure size if creating new axes (default (3.5, 2.5)).
+    xlim : tuple, optional
+        x-axis limits (default (0.0, 0.032)).
+
+    Returns
+    -------
+    fig, ax
+        Figure and axes objects.
+    """
+    import matplotlib.pyplot as plt
+
+    if no_hit_far_channels is None:
+        no_hit_far_channels = []
+    if single_si_phonon_hits_channels is None:
+        single_si_phonon_hits_channels = []
+    if isinstance(single_si_phonon_hits_channels, (int, np.integer)):
+        single_si_phonon_hits_channels = [single_si_phonon_hits_channels]
+
+    no_hit_far_channels = set(int(c) for c in no_hit_far_channels)
+    single_si_phonon_hits_channels = set(int(c) for c in single_si_phonon_hits_channels)
+
+    traces = []
+    for ch in range(num_channels):
+        rch = records["data_dx"][ch][zooml:zoomr].copy()
+        traces.append(rch)
+
+    channels = np.arange(num_channels)
+    x_positions = get_channel_position(channels)[:, 0]
+    order = np.argsort(x_positions, kind="stable")
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
+
+    for rank, ch in enumerate(order):
+        rch = traces[ch]
+        t = np.arange(len(rch)) / sampling_rate
+
+        if ch in single_si_phonon_hits_channels:
+            current_color = color_single_hit
+            current_alpha = 0.6
+            z_order = 3
+        elif ch in no_hit_far_channels:
+            current_color = color_no_hit
+            current_alpha = 0.6
+            z_order = 2
+        else:
+            current_color = trace_color
+            current_alpha = 0.2
+            z_order = 1
+
+        ax.plot(
+            t + time_offset * rank,
+            rch + amp_offset * rank,
+            color=current_color,
+            alpha=current_alpha,
+            lw=0.5,
+            zorder=z_order,
+        )
+
+    ax.set_xlim(xlim)
+    return fig, ax
