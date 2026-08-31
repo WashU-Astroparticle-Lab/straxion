@@ -1119,6 +1119,109 @@ class TestDxRecordsCompute:
         results = self.dx_records.compute(raw_records, truth)
         assert len(results) == 0
 
+    def _prepare_plugin_for_compute(self):
+        """Set up calibration, kernels and templates so compute() can run."""
+        self.dx_records._setup_iq_correction_and_calibration()
+        self.dx_records._setup_frequency_interpolation_models()
+
+        self.dx_records.kernel = DxRecords.pulse_kernel(
+            self.record_length,
+            self.dx_records.config["fs"],
+            self.dx_records.config["pulse_kernel_start_time"],
+            self.dx_records.config["pulse_kernel_decay_time"],
+            self.dx_records.config["pulse_kernel_gaussian_smearing_width"],
+            self.dx_records.config["pulse_kernel_truncation_factor"],
+        )
+
+        moving_average_kernel_width = int(
+            self.dx_records.config["moving_average_width"] / self.dx_records.dt_exact
+        )
+        self.dx_records.moving_average_kernel = (
+            np.ones(moving_average_kernel_width) / moving_average_kernel_width
+        )
+
+        self.dx_records.At_interp, self.dx_records.t_max = load_interpolation(
+            self.dx_records.config["template_interp_path"]
+        )
+        self.dx_records.At_interp_dict = {}
+        self.dx_records.t_max_dict = {}
+        self.dx_records.interpolated_template_dict = {}
+
+        dt_seconds = 1.0 / self.dx_records.config["fs"]
+        t_seconds = np.arange(PULSE_TEMPLATE_LENGTH) * dt_seconds
+        t_max_target = PULSE_TEMPLATE_ARGMAX * dt_seconds
+        time_shift = t_max_target - self.dx_records.t_max
+        timeshifted_seconds = t_seconds - time_shift
+        self.dx_records.interpolated_template = self.dx_records.At_interp(timeshifted_seconds)
+
+    def _make_mock_raw_records_and_truth(self):
+        """Create two mock raw records (one per channel) and an empty truth array."""
+        raw_records = np.zeros(
+            2,
+            dtype=[
+                ("time", np.int64),
+                ("endtime", np.int64),
+                ("length", np.int64),
+                ("dt", np.int64),
+                ("channel", np.int16),
+                ("data_i", np.float32, self.record_length),
+                ("data_q", np.float32, self.record_length),
+            ],
+        )
+        for i in range(2):
+            raw_records[i]["time"] = i * self.record_length * int(self.dx_records.dt_exact)
+            raw_records[i]["length"] = self.record_length
+            raw_records[i]["dt"] = int(self.dx_records.dt_exact)
+            raw_records[i]["endtime"] = (
+                raw_records[i]["time"] + raw_records[i]["length"] * raw_records[i]["dt"]
+            )
+            raw_records[i]["channel"] = i
+            raw_records[i]["data_i"] = np.random.randn(self.record_length)
+            raw_records[i]["data_q"] = np.random.randn(self.record_length)
+
+        truth = np.zeros(
+            0,
+            dtype=[
+                ("time", np.int64),
+                ("endtime", np.int64),
+                ("energy_true", np.float32),
+                ("dx_true", np.float32),
+                ("channel", np.int16),
+            ],
+        )
+        return raw_records, truth
+
+    def test_compute_data_dr_baseline_corrected(self):
+        """Test that data_dr is finite, varying, and baseline-corrected to zero mean."""
+        self._prepare_plugin_for_compute()
+        raw_records, truth = self._make_mock_raw_records_and_truth()
+
+        results = self.dx_records.compute(raw_records, truth)
+
+        for result in results:
+            assert np.all(np.isfinite(result["data_dr"]))
+            # Random IQ data must produce a non-constant radius timestream
+            assert np.std(result["data_dr"]) > 0
+            # data_dr is corrected by its own record mean
+            np.testing.assert_allclose(np.mean(result["data_dr"]), 0.0, atol=1e-6)
+
+    def test_compute_with_degenerate_loop_radius(self):
+        """Test that a non-positive loop radius falls back to data_dr = 0 with a warning."""
+        self._prepare_plugin_for_compute()
+        raw_records, truth = self._make_mock_raw_records_and_truth()
+
+        # Force degenerate circle-fit radii
+        self.dx_records.loop_radii[:] = 0.0
+
+        with pytest.warns(UserWarning, match="IQ-loop radius"):
+            results = self.dx_records.compute(raw_records, truth)
+
+        for result in results:
+            # data_dr set to zero (and stays zero after mean subtraction)
+            assert np.all(result["data_dr"] == 0.0)
+            # The phase-direction outputs are unaffected by the fallback
+            assert np.all(np.isfinite(result["data_dx"]))
+
 
 def clean_strax_data():
     """Clean up strax data directory."""

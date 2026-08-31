@@ -1530,6 +1530,55 @@ def test_fit_tau_empty_window():
     assert np.isnan(tau)
 
 
+def test_fit_tau_nonconvergence():
+    """Test that _fit_tau fails gracefully when curve_fit does not converge."""
+    fs = 38_000
+    t = np.arange(800) / fs
+    waveform = 2.7 * DxHitClassification._exponential_step_model_fixed_a(t, 1.5e-3, 5.3e-3)
+    np.random.seed(42)
+    waveform += np.random.normal(0, 0.01, len(waveform))
+
+    # maxfev=1 forces curve_fit to raise RuntimeError (maximum evaluations reached)
+    tau, tau_err, t0, t0_err, fit_ok = DxHitClassification._fit_tau(
+        waveform, fs, 5.6e-3, 7.5e-3, 1.0e-3, 5.5e-3, maxfev=1
+    )
+
+    assert not fit_ok, "Fit should fail when curve_fit does not converge"
+    assert np.isnan(tau) and np.isnan(tau_err) and np.isnan(t0) and np.isnan(t0_err)
+
+
+def test_compute_tau_fits_driver():
+    """Test the compute_tau_fits driver on a mix of good and pathological hits."""
+    st = straxion.qualiphide_thz_offline()
+    plugin = st.get_single_plugin("1756824965", "hit_classification")
+
+    fs = plugin.config["fs"]
+    true_tau = 1.5e-3
+    t = np.arange(800) / fs
+
+    hits = np.zeros(3, dtype=[("data_dx", np.float32, 800)])
+    # Hit 0: clean synthetic pulse (climax before the fit window, as in real hits)
+    hits["data_dx"][0] = 2.7 * DxHitClassification._exponential_step_model_fixed_a(
+        t, true_tau, 5.3e-3
+    )
+    # Hit 1: all zeros (fully truncated / empty)
+    # Hit 2: all NaN
+    hits["data_dx"][2] = np.nan
+
+    hit_classification = np.zeros(3, dtype=plugin.infer_dtype())
+    plugin.compute_tau_fits(hit_classification, hits)
+
+    assert hit_classification["tau_fit_success"][0], "Clean pulse should fit successfully"
+    assert np.isclose(hit_classification["tau"][0], true_tau, rtol=0.2)
+    assert np.isfinite(hit_classification["tau_t0"][0])
+
+    assert not hit_classification["tau_fit_success"][1], "Zero waveform should fail"
+    assert np.isnan(hit_classification["tau"][1])
+
+    assert not hit_classification["tau_fit_success"][2], "All-NaN waveform should fail"
+    assert np.isnan(hit_classification["tau"][2])
+
+
 # =============================================================================
 # Test: determine_spike_threshold mutual exclusivity
 # =============================================================================

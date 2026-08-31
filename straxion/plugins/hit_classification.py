@@ -628,7 +628,10 @@ class DxHitClassification(strax.Plugin):
         if not np.any(fit_mask):
             return failure
 
-        amp = np.nanmax(np.abs(wf)) if len(wf) > 0 else np.nan
+        # Guard against empty or all-NaN waveforms (np.nanmax would warn on the latter)
+        if len(wf) == 0 or not np.any(np.isfinite(wf)):
+            return failure
+        amp = np.nanmax(np.abs(wf))
         if not np.isfinite(amp) or amp <= 0:
             return failure
 
