@@ -133,14 +133,14 @@ def _profile_fit_numba(x, amplitude, center, kappa):
         type=int,
         default=1,
         track=True,
-        help=("Maximum number of spikes that can be coincident with a photon candidate hit."),
+        help="Maximum number of spikes that can be coincident with a photon candidate hit.",
     ),
     strax.Option(
         "spike_coincidence_window",
         type=float,
         default=0.131e-3,
         track=True,
-        help=("Window length for checking spike coincidence, in unit of seconds."),
+        help="Window length for checking spike coincidence, in unit of seconds.",
     ),
     strax.Option(
         "spike_threshold_dx",
@@ -172,8 +172,7 @@ def _profile_fit_numba(x, amplitude, center, kappa):
         default=25,
         track=True,
         help=(
-            "Length of the inspection window for identifying symmetric spikes, "
-            "in unit of samples."
+            "Length of the inspection window for identifying symmetric spikes, in unit of samples."
         ),
     ),
     strax.Option(
@@ -226,9 +225,7 @@ def _profile_fit_numba(x, amplitude, center, kappa):
         type=list,
         default=NOISE_PSD_38kHz,
         track=True,
-        help=(
-            "Noise power spectral density (PSD) array. " "The same PSD is used for all channels."
-        ),
+        help="Noise power spectral density (PSD) array. The same PSD is used for all channels.",
     ),
     strax.Option(
         "of_window_left",
@@ -256,8 +253,10 @@ def _profile_fit_numba(x, amplitude, center, kappa):
         default=25,
         track=True,
         help=(
-            "Half band width around best shift for kappa fitting (in samples). "
-            "This should not go beyond the bandwidth of of shift range.",
+            (
+                "Half band width around best shift for kappa fitting (in samples). "
+                "This should not go beyond the bandwidth of of shift range."
+            ),
         ),
     ),
     strax.Option(
@@ -288,11 +287,49 @@ def _profile_fit_numba(x, amplitude, center, kappa):
         track=True,
         help="Tolerance for center position bounds in kappa curve fitting (in samples).",
     ),
+    strax.Option(
+        "tau_fit_window_start",
+        type=float,
+        default=5.6e-3,
+        track=True,
+        help="Start of the exponential tau fit window, in seconds from the hit-window start.",
+    ),
+    strax.Option(
+        "tau_fit_window_end",
+        type=float,
+        default=7.5e-3,
+        track=True,
+        help=(
+            "End (inclusive) of the exponential tau fit window, "
+            "in seconds from the hit-window start."
+        ),
+    ),
+    strax.Option(
+        "tau_fit_initial_tau",
+        type=float,
+        default=1.0e-3,
+        track=True,
+        help="Initial guess for the exponential decay time constant tau, in seconds.",
+    ),
+    strax.Option(
+        "tau_fit_initial_t0",
+        type=float,
+        default=5.5e-3,
+        track=True,
+        help="Initial guess for the pulse start time t0, in seconds from the hit-window start.",
+    ),
+    strax.Option(
+        "tau_fit_maxfev",
+        type=int,
+        default=10000,
+        track=True,
+        help="Maximum number of function evaluations for the exponential tau curve fit.",
+    ),
 )
 class DxHitClassification(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.3.3"
+    __version__ = "0.4.0"
 
     depends_on = ("hits", "records", "noises")
     provides = "hit_classification"
@@ -345,8 +382,42 @@ class DxHitClassification(strax.Plugin):
             (
                 (
                     (
-                        "Width of the hit waveform (length above the hit threshold) "
-                        "in unit of samples.",
+                        "Exponential decay time constant fitted to the normalized dx hit "
+                        "waveform, in seconds"
+                    ),
+                    "tau",
+                ),
+                DATA_DTYPE,
+            ),
+            (
+                ("1-sigma uncertainty on tau from the fit covariance, in seconds", "tau_err"),
+                DATA_DTYPE,
+            ),
+            (
+                (
+                    "Fitted pulse start time t0, in seconds from the hit-window start",
+                    "tau_t0",
+                ),
+                DATA_DTYPE,
+            ),
+            (
+                ("1-sigma uncertainty on t0 from the fit covariance, in seconds", "tau_t0_err"),
+                DATA_DTYPE,
+            ),
+            (
+                (
+                    "Whether the exponential tau fit converged with finite parameters",
+                    "tau_fit_success",
+                ),
+                bool,
+            ),
+            (
+                (
+                    (
+                        (
+                            "Width of the hit waveform (length above the hit threshold) "
+                            "in unit of samples."
+                        ),
                     ),
                     "width",
                 ),
@@ -370,6 +441,13 @@ class DxHitClassification(strax.Plugin):
                 (
                     "Maximum amplitude of the dx hit waveform further smoothed by pulse kernel",
                     "amplitude_convolved",
+                ),
+                DATA_DTYPE,
+            ),
+            (
+                (
+                    "Signed extremum of the dissipation-direction (data_dr) hit waveform",
+                    "amplitude_dr",
                 ),
                 DATA_DTYPE,
             ),
@@ -500,6 +578,83 @@ class DxHitClassification(strax.Plugin):
         return amplitude * np.exp(-np.abs(x - center) / kappa)
 
     @staticmethod
+    def _exponential_step_model_fixed_a(t, tau, t0):
+        """Unit-amplitude exponential decay starting at t0.
+
+        f(t) = exp(-(t - t0) / tau) * H(t - t0), where H is the Heaviside step.
+
+        Args:
+            t (np.ndarray): Time values in seconds.
+            tau (float): Exponential decay time constant in seconds.
+            t0 (float): Pulse start time in seconds.
+
+        Returns:
+            np.ndarray: The model values.
+
+        """
+        step = np.where(t >= t0, 1.0, 0.0)
+        return np.exp(-np.maximum(0.0, t - t0) / tau) * step
+
+    @staticmethod
+    def _fit_tau(waveform, fs, fit_window_start, fit_window_end, p0_tau, p0_t0, maxfev):
+        """Fit a unit-amplitude exponential-step model to a hit waveform.
+
+        The waveform is normalized by the maximum of its absolute value before fitting,
+        so only the decay time constant tau and the pulse start time t0 are fitted.
+
+        Note that for truncated hits the zero-padded samples enter the fit window, so a
+        converged fit can still yield a meaningless tau; downstream analysis should cut
+        on is_truncated_hit.
+
+        Args:
+            waveform (np.ndarray): The hit waveform (e.g. data_dx), any real dtype.
+            fs (int): Sampling frequency in Hz.
+            fit_window_start (float): Start of fit window in seconds from waveform start.
+            fit_window_end (float): End (inclusive) of fit window in seconds.
+            p0_tau (float): Initial guess for tau in seconds.
+            p0_t0 (float): Initial guess for t0 in seconds.
+            maxfev (int): Maximum number of function evaluations for curve_fit.
+
+        Returns:
+            tuple: (tau, tau_err, t0, t0_err, fit_ok), all times in seconds.
+                (nan, nan, nan, nan, False) if the fit is not possible or fails.
+
+        """
+        failure = (np.nan, np.nan, np.nan, np.nan, False)
+
+        wf = np.asarray(waveform, dtype=np.float64)
+        t = np.arange(len(wf)) / fs
+        fit_mask = (t >= fit_window_start) & (t <= fit_window_end)
+        if not np.any(fit_mask):
+            return failure
+
+        # Guard against empty or all-NaN waveforms (np.nanmax would warn on the latter)
+        if len(wf) == 0 or not np.any(np.isfinite(wf)):
+            return failure
+        amp = np.nanmax(np.abs(wf))
+        if not np.isfinite(amp) or amp <= 0:
+            return failure
+
+        y_fit = (wf / amp)[fit_mask]
+        if not np.all(np.isfinite(y_fit)):
+            return failure
+
+        try:
+            popt, pcov = curve_fit(
+                DxHitClassification._exponential_step_model_fixed_a,
+                t[fit_mask],
+                y_fit,
+                p0=[p0_tau, p0_t0],
+                maxfev=maxfev,
+            )
+        except (RuntimeError, ValueError):
+            return failure
+
+        perr = np.sqrt(np.diag(pcov))
+        fit_ok = bool(np.all(np.isfinite(popt)))
+        return popt[0], perr[0], popt[1], perr[1], fit_ok
+
+    @staticmethod
     def modify_template(
         St,
         dt_seconds,
@@ -566,8 +721,7 @@ class DxHitClassification(strax.Plugin):
         if apply_window:
             if of_window_left is None or of_window_right is None:
                 raise ValueError(
-                    "of_window_left and of_window_right must be "
-                    "provided when apply_window is True"
+                    "of_window_left and of_window_right must be provided when apply_window is True"
                 )
             window_start = max_index - of_window_left
             window_end = max_index + of_window_right
@@ -1282,9 +1436,7 @@ class DxHitClassification(strax.Plugin):
             # Get channel-specific PSD or use placeholder
             if channel_noise_psds[ch] is None:
                 # No noise windows for this channel, use placeholder
-                self.log.warning(
-                    f"No noise windows found for channel {ch}, " f"using placeholder PSD"
-                )
+                self.log.warning(f"No noise windows found for channel {ch}, using placeholder PSD")
                 Jf = placeholder_psd
             else:
                 Jf = channel_noise_psds[ch]
@@ -1324,6 +1476,34 @@ class DxHitClassification(strax.Plugin):
             hit_classification["best_OF_shift"][i] = best_OF_shift
             hit_classification["kappa"][i] = kappa
 
+    def compute_tau_fits(self, hit_classification, hits):
+        """Fit an exponential-step decay model to every hit's data_dx waveform.
+
+        Every hit is fitted, including truncated ones; downstream analysis is expected
+        to cut on is_truncated_hit and tau_fit_success.
+
+        Args:
+            hit_classification (np.ndarray): Array to store classification results.
+            hits (np.ndarray): Array of hits.
+
+        """
+        fs = self.config["fs"]
+        for i, hit in enumerate(hits):
+            tau, tau_err, t0, t0_err, fit_ok = self._fit_tau(
+                hit["data_dx"],
+                fs,
+                self.config["tau_fit_window_start"],
+                self.config["tau_fit_window_end"],
+                self.config["tau_fit_initial_tau"],
+                self.config["tau_fit_initial_t0"],
+                self.config["tau_fit_maxfev"],
+            )
+            hit_classification["tau"][i] = tau
+            hit_classification["tau_err"][i] = tau_err
+            hit_classification["tau_t0"][i] = t0
+            hit_classification["tau_t0_err"][i] = t0_err
+            hit_classification["tau_fit_success"][i] = fit_ok
+
     def compute(self, hits, records, noises):
         spike_threshold_dx = self.determine_spike_threshold(records)
 
@@ -1339,6 +1519,7 @@ class DxHitClassification(strax.Plugin):
         hit_classification["amplitude"] = hits["amplitude"]
         hit_classification["amplitude_moving_average"] = hits["amplitude_moving_average"]
         hit_classification["amplitude_convolved"] = hits["amplitude_convolved"]
+        hit_classification["amplitude_dr"] = hits["amplitude_dr"]
         hit_classification["hit_threshold"] = hits["hit_threshold"]
 
         self.compute_rise_edge_slope(hits, hit_classification)
@@ -1348,6 +1529,9 @@ class DxHitClassification(strax.Plugin):
 
         # Compute optimal filter parameters with per-channel PSDs
         self.compute_optimal_filter_parameters(hit_classification, hits, channel_noise_psds)
+
+        # Fit the exponential decay time constant of every hit
+        self.compute_tau_fits(hit_classification, hits)
 
         hit_classification["is_coincident_with_spikes"] = (
             hit_classification["n_spikes_coinciding"] > self.max_spike_coincidence
@@ -1391,9 +1575,7 @@ class DxHitClassification(strax.Plugin):
         "cr_min_ma_amplitude",
         type=list,
         default=[1.0 for _ in range(41)],
-        help=(
-            "Minimum amplitude of the moving averaged signal's " "for identifying cosmic ray hits."
-        ),
+        help="Minimum amplitude of the moving averaged signal's for identifying cosmic ray hits.",
     ),
     strax.Option(
         "symmetric_spike_min_slope",
@@ -1409,8 +1591,7 @@ class DxHitClassification(strax.Plugin):
         type=int,
         default=25,
         help=(
-            "Length of the inspection window for identifying symmetric spikes, "
-            "in unit of samples."
+            "Length of the inspection window for identifying symmetric spikes, in unit of samples."
         ),
     ),
 )

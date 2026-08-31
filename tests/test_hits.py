@@ -554,6 +554,8 @@ class TestHitsWithRealDataOffline:
                 "amplitude_convolved_max_record_i",
                 "amplitude_moving_average_max_record_i",
                 "amplitude_max_record_i",
+                "data_dr",
+                "amplitude_dr",
                 "hit_threshold",
             ]
             for field in required_fields:
@@ -575,6 +577,8 @@ class TestHitsWithRealDataOffline:
             assert hits["amplitude_convolved_max_record_i"].dtype == np.int32
             assert hits["amplitude_moving_average_max_record_i"].dtype == np.int32
             assert hits["amplitude_max_record_i"].dtype == np.int32
+            assert hits["data_dr"].dtype == np.float32
+            assert hits["amplitude_dr"].dtype == np.float32
             assert hits["hit_threshold"].dtype == np.float32
 
             # Check that all hits have reasonable lengths and dt
@@ -591,6 +595,7 @@ class TestHitsWithRealDataOffline:
                     assert hit["data_dx"].shape == (expected_waveform_length,)
                     assert hit["data_dx_moving_average"].shape == (expected_waveform_length,)
                     assert hit["data_dx_convolved"].shape == (expected_waveform_length,)
+                    assert hit["data_dr"].shape == (expected_waveform_length,)
 
                 # Check that timing information is consistent
                 for h_i, hit in enumerate(hits):
@@ -976,3 +981,87 @@ class TestDxHitsFindHitCandidatesMethod:
 
         assert len(starts) == 1
         assert starts[0] == 100
+
+
+class TestDxHitsComputeSynthetic:
+    """Test DxHits.compute end-to-end on synthetic records (no real data needed)."""
+
+    @staticmethod
+    def _make_record(plugin, record_length=1000):
+        """Create one synthetic record with a positive dx pulse and a negative dr pulse."""
+        record = np.zeros(
+            1,
+            dtype=[
+                ("time", np.int64),
+                ("endtime", np.int64),
+                ("length", np.int64),
+                ("dt", np.int64),
+                ("channel", np.int16),
+                ("data_dx", np.float32, record_length),
+                ("data_dx_moving_average", np.float32, record_length),
+                ("data_dx_convolved", np.float32, record_length),
+                ("data_dr", np.float32, record_length),
+            ],
+        )
+        record["time"] = 0
+        record["length"] = record_length
+        record["dt"] = int(plugin.dt_exact)
+        record["endtime"] = record_length * int(plugin.dt_exact)
+        record["channel"] = 0
+
+        # Positive-going pulse in the dx signals, climax at sample 500
+        dx = np.zeros(record_length, dtype=np.float32)
+        dx[490:510] = 1.0
+        dx[500] = 2.0
+        record["data_dx"] = dx
+        record["data_dx_moving_average"] = dx
+        record["data_dx_convolved"] = dx
+
+        # Negative-going dissipation pulse at the same location
+        dr = np.zeros(record_length, dtype=np.float32)
+        dr[495:505] = -0.5
+        dr[500] = -1.5
+        record["data_dr"] = dr
+
+        return record
+
+    def test_amplitude_dr_signed_extremum_and_alignment(self):
+        """amplitude_dr keeps the sign of a negative-going dissipation pulse."""
+        st = straxion.qualiphide_thz_offline()
+        plugin = st.get_single_plugin("1756824965", "hits")
+        record = self._make_record(plugin)
+
+        hits = plugin.compute(record)
+
+        assert len(hits) == 1
+        hit = hits[0]
+
+        # The dx amplitude is the maximum of the raw dx waveform in the window
+        assert hit["amplitude"] == np.float32(2.0)
+
+        # The dr amplitude is the SIGNED value at the extremum of |data_dr|
+        assert hit["amplitude_dr"] == np.float32(-1.5)
+
+        # The dr waveform is aligned at the convolved-dx climax (index 200)
+        assert hit["data_dr"][HIT_WINDOW_LENGTH_LEFT] == np.float32(-1.5)
+
+    def test_data_dr_zero_padding_for_truncated_hit(self):
+        """A hit near the record edge zero-pads data_dr past the valid window."""
+        st = straxion.qualiphide_thz_offline()
+        plugin = st.get_single_plugin("1756824965", "hits")
+        record = self._make_record(plugin)
+
+        hits = plugin.compute(record)
+
+        assert len(hits) == 1
+        hit = hits[0]
+
+        # Climax at sample 500 of a 1000-sample record: the right window is
+        # truncated at the record edge, so length = 200 + (1000 - 500) = 700 < 800
+        expected_length = HIT_WINDOW_LENGTH_LEFT + (1000 - 500)
+        assert hit["length"] == expected_length
+        assert expected_length < HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
+
+        # Samples beyond the truncated window are zero-padded in all waveforms
+        assert np.all(hit["data_dr"][expected_length:] == 0.0)
+        assert np.all(hit["data_dx"][expected_length:] == 0.0)

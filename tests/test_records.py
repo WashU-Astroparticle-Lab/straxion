@@ -281,6 +281,7 @@ class TestDxRecordsStaticMethods:
             "data_dx",
             "data_dx_moving_average",
             "data_dx_convolved",
+            "data_dr",
         ]
         for field in required_fields:
             assert field in dtype.names, f"Field '{field}' missing from dtype"
@@ -290,6 +291,7 @@ class TestDxRecordsStaticMethods:
         assert dtype["data_dx"].shape == (1000,)
         assert dtype["data_dx_moving_average"].shape == (1000,)
         assert dtype["data_dx_convolved"].shape == (1000,)
+        assert dtype["data_dr"].shape == (1000,)
 
     def test_iq_gain_correction_model_basic(self):
         """Test basic IQ gain correction model generation."""
@@ -563,6 +565,7 @@ class TestDxRecordsSetupMethods:
         assert hasattr(self.dx_records, "i_models")
         assert hasattr(self.dx_records, "q_models")
         assert hasattr(self.dx_records, "iq_centers")
+        assert hasattr(self.dx_records, "loop_radii")
         assert hasattr(self.dx_records, "phis")
         assert hasattr(self.dx_records, "fine_z_corrected")
 
@@ -570,6 +573,7 @@ class TestDxRecordsSetupMethods:
         assert len(self.dx_records.i_models) == self.n_channels
         assert len(self.dx_records.q_models) == self.n_channels
         assert len(self.dx_records.iq_centers) == self.n_channels
+        assert len(self.dx_records.loop_radii) == self.n_channels
         assert len(self.dx_records.phis) == self.n_channels
 
         # Verify that models are callable
@@ -841,6 +845,7 @@ class TestDxRecordsCompute:
             "data_dx",
             "data_dx_moving_average",
             "data_dx_convolved",
+            "data_dr",
         ]
         for field in required_fields:
             assert field in results.dtype.names
@@ -851,12 +856,14 @@ class TestDxRecordsCompute:
             assert result["data_dx"].shape == (self.record_length,)
             assert result["data_dx_moving_average"].shape == (self.record_length,)
             assert result["data_dx_convolved"].shape == (self.record_length,)
+            assert result["data_dr"].shape == (self.record_length,)
 
             # Check that data is finite
             assert np.all(np.isfinite(result["data_dtheta"]))
             assert np.all(np.isfinite(result["data_dx"]))
             assert np.all(np.isfinite(result["data_dx_moving_average"]))
             assert np.all(np.isfinite(result["data_dx_convolved"]))
+            assert np.all(np.isfinite(result["data_dr"]))
 
     def test_compute_with_pca_disabled(self):
         """Test compute with PCA disabled (pca_n_components=0)."""
@@ -1111,6 +1118,109 @@ class TestDxRecordsCompute:
 
         results = self.dx_records.compute(raw_records, truth)
         assert len(results) == 0
+
+    def _prepare_plugin_for_compute(self):
+        """Set up calibration, kernels and templates so compute() can run."""
+        self.dx_records._setup_iq_correction_and_calibration()
+        self.dx_records._setup_frequency_interpolation_models()
+
+        self.dx_records.kernel = DxRecords.pulse_kernel(
+            self.record_length,
+            self.dx_records.config["fs"],
+            self.dx_records.config["pulse_kernel_start_time"],
+            self.dx_records.config["pulse_kernel_decay_time"],
+            self.dx_records.config["pulse_kernel_gaussian_smearing_width"],
+            self.dx_records.config["pulse_kernel_truncation_factor"],
+        )
+
+        moving_average_kernel_width = int(
+            self.dx_records.config["moving_average_width"] / self.dx_records.dt_exact
+        )
+        self.dx_records.moving_average_kernel = (
+            np.ones(moving_average_kernel_width) / moving_average_kernel_width
+        )
+
+        self.dx_records.At_interp, self.dx_records.t_max = load_interpolation(
+            self.dx_records.config["template_interp_path"]
+        )
+        self.dx_records.At_interp_dict = {}
+        self.dx_records.t_max_dict = {}
+        self.dx_records.interpolated_template_dict = {}
+
+        dt_seconds = 1.0 / self.dx_records.config["fs"]
+        t_seconds = np.arange(PULSE_TEMPLATE_LENGTH) * dt_seconds
+        t_max_target = PULSE_TEMPLATE_ARGMAX * dt_seconds
+        time_shift = t_max_target - self.dx_records.t_max
+        timeshifted_seconds = t_seconds - time_shift
+        self.dx_records.interpolated_template = self.dx_records.At_interp(timeshifted_seconds)
+
+    def _make_mock_raw_records_and_truth(self):
+        """Create two mock raw records (one per channel) and an empty truth array."""
+        raw_records = np.zeros(
+            2,
+            dtype=[
+                ("time", np.int64),
+                ("endtime", np.int64),
+                ("length", np.int64),
+                ("dt", np.int64),
+                ("channel", np.int16),
+                ("data_i", np.float32, self.record_length),
+                ("data_q", np.float32, self.record_length),
+            ],
+        )
+        for i in range(2):
+            raw_records[i]["time"] = i * self.record_length * int(self.dx_records.dt_exact)
+            raw_records[i]["length"] = self.record_length
+            raw_records[i]["dt"] = int(self.dx_records.dt_exact)
+            raw_records[i]["endtime"] = (
+                raw_records[i]["time"] + raw_records[i]["length"] * raw_records[i]["dt"]
+            )
+            raw_records[i]["channel"] = i
+            raw_records[i]["data_i"] = np.random.randn(self.record_length)
+            raw_records[i]["data_q"] = np.random.randn(self.record_length)
+
+        truth = np.zeros(
+            0,
+            dtype=[
+                ("time", np.int64),
+                ("endtime", np.int64),
+                ("energy_true", np.float32),
+                ("dx_true", np.float32),
+                ("channel", np.int16),
+            ],
+        )
+        return raw_records, truth
+
+    def test_compute_data_dr_baseline_corrected(self):
+        """Test that data_dr is finite, varying, and baseline-corrected to zero mean."""
+        self._prepare_plugin_for_compute()
+        raw_records, truth = self._make_mock_raw_records_and_truth()
+
+        results = self.dx_records.compute(raw_records, truth)
+
+        for result in results:
+            assert np.all(np.isfinite(result["data_dr"]))
+            # Random IQ data must produce a non-constant radius timestream
+            assert np.std(result["data_dr"]) > 0
+            # data_dr is corrected by its own record mean
+            np.testing.assert_allclose(np.mean(result["data_dr"]), 0.0, atol=1e-6)
+
+    def test_compute_with_degenerate_loop_radius(self):
+        """Test that a non-positive loop radius falls back to data_dr = 0 with a warning."""
+        self._prepare_plugin_for_compute()
+        raw_records, truth = self._make_mock_raw_records_and_truth()
+
+        # Force degenerate circle-fit radii
+        self.dx_records.loop_radii[:] = 0.0
+
+        with pytest.warns(UserWarning, match="IQ-loop radius"):
+            results = self.dx_records.compute(raw_records, truth)
+
+        for result in results:
+            # data_dr set to zero (and stays zero after mean subtraction)
+            assert np.all(result["data_dr"] == 0.0)
+            # The phase-direction outputs are unaffected by the fallback
+            assert np.all(np.isfinite(result["data_dx"]))
 
 
 def clean_strax_data():
@@ -1525,6 +1635,7 @@ class TestRecordsWithRealDataOffline:
                 "data_dx",
                 "data_dx_moving_average",
                 "data_dx_convolved",
+                "data_dr",
             ]
             for field in required_fields:
                 assert (
@@ -1541,6 +1652,7 @@ class TestRecordsWithRealDataOffline:
             assert records["data_dx"].dtype == np.float32
             assert records["data_dx_moving_average"].dtype == np.float32
             assert records["data_dx_convolved"].dtype == np.float32
+            assert records["data_dr"].dtype == np.float32
 
             # Check that all records have reasonable lengths
             assert all(records["length"] > 0)
@@ -1552,6 +1664,7 @@ class TestRecordsWithRealDataOffline:
                 assert record["data_dx"].shape == (record["length"],)
                 assert record["data_dx_moving_average"].shape == (record["length"],)
                 assert record["data_dx_convolved"].shape == (record["length"],)
+                assert record["data_dr"].shape == (record["length"],)
 
             print(
                 f"Successfully processed {len(records)} records "
@@ -1731,10 +1844,9 @@ class TestRecordsWithRealDataOffline:
 
                         break
 
-            assert found_injection, (
-                "No pulse injection detected in any record. "
-                f"Generated {len(truth)} truth events."
-            )
+            assert (
+                found_injection
+            ), f"No pulse injection detected in any record. Generated {len(truth)} truth events."
 
             # Verify all data is still finite
             assert np.all(np.isfinite(records_with_truth["data_dx"]))
@@ -1854,7 +1966,7 @@ class TestApplyIQCorrectionNumba:
         phi = 0.0
         theta_at_fres = 0.0
 
-        dtheta, theta = _apply_iq_correction_numba(
+        dtheta, theta, radius = _apply_iq_correction_numba(
             data_i,
             data_q,
             i_model_val,
@@ -1867,8 +1979,10 @@ class TestApplyIQCorrectionNumba:
 
         assert len(dtheta) == n_samples
         assert len(theta) == n_samples
+        assert len(radius) == n_samples
         assert np.all(np.isfinite(dtheta))
         assert np.all(np.isfinite(theta))
+        assert np.all(np.isfinite(radius))
 
     def test_iq_correction_with_rotation(self):
         """Test IQ correction with non-zero rotation angle."""
@@ -1886,12 +2000,13 @@ class TestApplyIQCorrectionNumba:
         q_model_val = 0.2
         phi = 0.1  # Small rotation angle
 
-        dtheta, theta = _apply_iq_correction_numba(
+        dtheta, theta, radius = _apply_iq_correction_numba(
             data_i, data_q, i_model_val, q_model_val, 0.0, 0.0, phi, 0.0
         )
 
         assert len(dtheta) == n_samples
         assert np.all(np.isfinite(dtheta))
+        assert np.all(np.isfinite(radius))
 
     def test_iq_correction_centering(self):
         """Test that IQ centering shifts the data correctly."""
@@ -1908,12 +2023,33 @@ class TestApplyIQCorrectionNumba:
         iq_center_real = 2.0
         iq_center_imag = 3.0
 
-        dtheta, theta = _apply_iq_correction_numba(
+        dtheta, theta, radius = _apply_iq_correction_numba(
             data_i, data_q, i_model_val, q_model_val, iq_center_real, iq_center_imag, 0.0, 0.0
         )
 
         # Should be centered around small values
         assert np.all(np.isfinite(dtheta))
+        assert np.all(np.isfinite(radius))
+
+    def test_iq_correction_radius(self):
+        """Radius output equals the distance from the IQ center for circular data."""
+        from straxion.plugins.records import _apply_iq_correction_numba
+
+        n_samples = 60
+        expected_radius = 1.7
+        iq_center_real = 0.4
+        iq_center_imag = -0.3
+        angles = np.linspace(0, 2 * np.pi, n_samples, endpoint=False)
+        # Points on a circle of radius expected_radius around the IQ center,
+        # with unit gain model (division is a no-op) and phi=0 (rotation is a no-op).
+        data_i = (iq_center_real + expected_radius * np.cos(angles)).astype(np.float64)
+        data_q = (iq_center_imag + expected_radius * np.sin(angles)).astype(np.float64)
+
+        dtheta, theta, radius = _apply_iq_correction_numba(
+            data_i, data_q, 1.0, 0.0, iq_center_real, iq_center_imag, 0.0, 0.0
+        )
+
+        np.testing.assert_allclose(radius, expected_radius, rtol=1e-10)
 
 
 class TestConvolveSameNumba:
@@ -2118,7 +2254,7 @@ class TestDxRecordsNumbaIntegration:
 
         # Apply correction with non-zero model values
         # In practice, i_model_val and q_model_val come from IQ gain correction
-        dtheta, theta = _apply_iq_correction_numba(
+        dtheta, theta, radius_out = _apply_iq_correction_numba(
             data_i,
             data_q,
             i_model_val=1.0,
@@ -2132,6 +2268,9 @@ class TestDxRecordsNumbaIntegration:
         # Output should be finite
         assert np.all(np.isfinite(dtheta))
         assert np.all(np.isfinite(theta))
+        assert np.all(np.isfinite(radius_out))
+        # Radius should recover the circle radius up to the injected noise
+        np.testing.assert_allclose(np.mean(radius_out), radius, atol=0.01)
 
         # dtheta should have variation (we input circular data)
         assert np.std(dtheta) > 0, "dtheta should have variation"

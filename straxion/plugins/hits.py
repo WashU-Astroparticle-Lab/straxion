@@ -233,7 +233,7 @@ class DxHits(strax.Plugin):
     The hit-finding algorithm is based on the kernel convolved signal.
     """
 
-    __version__ = "0.0.3"
+    __version__ = "0.1.0"
 
     # Inherited from straxen. Not optimized outside XENONnT.
     rechunk_on_save = False
@@ -256,8 +256,10 @@ class DxHits(strax.Plugin):
             (
                 (
                     (
-                        "Width of the hit waveform (length above the hit threshold) "
-                        "in unit of samples.",
+                        (
+                            "Width of the hit waveform (length above the hit threshold) "
+                            "in unit of samples."
+                        ),
                     ),
                     "width",
                 ),
@@ -331,7 +333,7 @@ class DxHits(strax.Plugin):
         dtype.append(
             (
                 (
-                    ("Record index of the maximum amplitude of " "the dx hit waveform."),
+                    "Record index of the maximum amplitude of the dx hit waveform.",
                     "amplitude_max_record_i",
                 ),
                 INDEX_DTYPE,
@@ -353,12 +355,40 @@ class DxHits(strax.Plugin):
         dtype.append(
             (
                 (
-                    "Hit waveform of dx=df/f0 further smoothed by pulse kernel, "
-                    "aligned at the maximum of the dx=df/f0 waveform.",
+                    (
+                        "Hit waveform of dx=df/f0 further smoothed by pulse kernel, "
+                        "aligned at the maximum of the dx=df/f0 waveform."
+                    ),
                     "data_dx_convolved",
                 ),
                 DATA_DTYPE,
                 self.hit_waveform_length,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    (
+                        "Hit waveform of fractional IQ-loop radius change (dissipation "
+                        "direction), aligned at the maximum of the kernel-convolved dx "
+                        "waveform, zero-padded if truncated."
+                    ),
+                    "data_dr",
+                ),
+                DATA_DTYPE,
+                self.hit_waveform_length,
+            )
+        )
+        dtype.append(
+            (
+                (
+                    (
+                        "Signed value of data_dr at the extremum of |data_dr| within "
+                        "the hit window (dissipation pulses may be negative-going)."
+                    ),
+                    "amplitude_dr",
+                ),
+                DATA_DTYPE,
             )
         )
         dtype.append(
@@ -518,6 +548,7 @@ class DxHits(strax.Plugin):
         signal_convolved = np.asarray(record["data_dx_convolved"], dtype=np.float64)
         signal_ma = np.asarray(record["data_dx_moving_average"], dtype=np.float64)
         signal_raw = np.asarray(record["data_dx"], dtype=np.float64)
+        signal_dr = np.asarray(record["data_dr"], dtype=np.float64)
         signal_length = len(signal_convolved)
 
         # OPTIMIZATION: Use numba batch processing for boundaries and amplitudes
@@ -571,6 +602,12 @@ class DxHits(strax.Plugin):
             hits[i]["data_dx_convolved"][target_start:target_end] = signal_convolved[left_i:right_i]
             hits[i]["data_dx_moving_average"][target_start:target_end] = signal_ma[left_i:right_i]
             hits[i]["data_dx"][target_start:target_end] = signal_raw[left_i:right_i]
+            hits[i]["data_dr"][target_start:target_end] = signal_dr[left_i:right_i]
+
+            # Signed extremum of the dissipation-direction waveform in the hit window
+            dr_segment = signal_dr[left_i:right_i]
+            if len(dr_segment) > 0:
+                hits[i]["amplitude_dr"] = dr_segment[np.argmax(np.abs(dr_segment))]
 
             # Calculate time and endtime
             hits[i]["time"] = np.int64(start_time + np.int64(left_i * self.dt_exact))
@@ -827,8 +864,10 @@ class Hits(strax.Plugin):
             (
                 (
                     (
-                        "Width of the hit waveform (length above the hit threshold) "
-                        "in unit of samples.",
+                        (
+                            "Width of the hit waveform (length above the hit threshold) "
+                            "in unit of samples."
+                        ),
                     ),
                     "width",
                 ),
@@ -893,8 +932,10 @@ class Hits(strax.Plugin):
             (
                 (
                     (
-                        "Maximum amplitude of the convolved hit waveform (within the "
-                        "hit window) in unit of rad.",
+                        (
+                            "Maximum amplitude of the convolved hit waveform (within the "
+                            "hit window) in unit of rad."
+                        ),
                     ),
                     "amplitude_convolved_max",
                 ),
@@ -905,8 +946,10 @@ class Hits(strax.Plugin):
             (
                 (
                     (
-                        "Minimum amplitude of the convolved hit waveform (within the "
-                        "hit window) in unit of rad.",
+                        (
+                            "Minimum amplitude of the convolved hit waveform (within the "
+                            "hit window) in unit of rad."
+                        ),
                     ),
                     "amplitude_convolved_min",
                 ),
@@ -917,8 +960,10 @@ class Hits(strax.Plugin):
             (
                 (
                     (
-                        "Maximum amplitude of the convolved hit waveform (within the "
-                        "extended hit window) in unit of rad.",
+                        (
+                            "Maximum amplitude of the convolved hit waveform (within the "
+                            "extended hit window) in unit of rad."
+                        ),
                     ),
                     "amplitude_convolved_max_ext",
                 ),
@@ -929,8 +974,10 @@ class Hits(strax.Plugin):
             (
                 (
                     (
-                        "Minimum amplitude of the convolved hit waveform (within the "
-                        "extended hit window) in unit of rad.",
+                        (
+                            "Minimum amplitude of the convolved hit waveform (within the "
+                            "extended hit window) in unit of rad."
+                        ),
                     ),
                     "amplitude_convolved_min_ext",
                 ),
@@ -941,8 +988,10 @@ class Hits(strax.Plugin):
             (
                 (
                     (
-                        "Maximum amplitude of the moving averaged hit waveform (within the "
-                        "hit window) in unit of rad.",
+                        (
+                            "Maximum amplitude of the moving averaged hit waveform (within the "
+                            "hit window) in unit of rad."
+                        ),
                     ),
                     "amplitude_ma_max",
                 ),
@@ -953,8 +1002,10 @@ class Hits(strax.Plugin):
             (
                 (
                     (
-                        "Minimum amplitude of the moving averaged hit waveform (within the "
-                        "hit window) in unit of rad.",
+                        (
+                            "Minimum amplitude of the moving averaged hit waveform (within the "
+                            "hit window) in unit of rad."
+                        ),
                     ),
                     "amplitude_ma_min",
                 ),
@@ -965,8 +1016,10 @@ class Hits(strax.Plugin):
             (
                 (
                     (
-                        "Maximum amplitude of the moving averaged hit waveform (within the "
-                        "extended hit window) in unit of rad.",
+                        (
+                            "Maximum amplitude of the moving averaged hit waveform (within the "
+                            "extended hit window) in unit of rad."
+                        ),
                     ),
                     "amplitude_ma_max_ext",
                 ),
@@ -977,8 +1030,10 @@ class Hits(strax.Plugin):
             (
                 (
                     (
-                        "Minimum amplitude of the moving averaged hit waveform (within the "
-                        "extended hit window) in unit of rad.",
+                        (
+                            "Minimum amplitude of the moving averaged hit waveform (within the "
+                            "extended hit window) in unit of rad."
+                        ),
                     ),
                     "amplitude_ma_min_ext",
                 ),

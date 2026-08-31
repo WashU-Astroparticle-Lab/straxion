@@ -14,6 +14,7 @@ from straxion.utils import base_waveform_dtype, circfit, load_interpolation
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import fftconvolve
 import os
+import warnings
 
 export, __all__ = strax.exporter()
 
@@ -101,12 +102,14 @@ def _apply_iq_correction_numba(
         theta_at_fres (float): Theta value at resonant frequency.
 
     Returns:
-        tuple: (dtheta, theta) arrays
+        tuple: (dtheta, theta, radius) arrays. The radius is the magnitude of the
+            corrected, centered and rotated IQ point (dissipation direction).
 
     """
     n = len(data_i)
     dtheta = np.empty(n, dtype=np.float64)
     theta = np.empty(n, dtype=np.float64)
+    radius = np.empty(n, dtype=np.float64)
 
     # Pre-compute correction divisor
     divisor_real = i_model_val
@@ -133,6 +136,9 @@ def _apply_iq_correction_numba(
         rotated_real = centered_real * cos_phi - centered_imag * sin_phi
         rotated_imag = centered_real * sin_phi + centered_imag * cos_phi
 
+        # Magnitude of the rotated IQ point (dissipation direction)
+        radius[i] = np.sqrt(rotated_real * rotated_real + rotated_imag * rotated_imag)
+
         # Compute angle and apply mod 2*pi
         angle = np.arctan2(rotated_imag, rotated_real)
         if angle < 0:
@@ -142,7 +148,7 @@ def _apply_iq_correction_numba(
         # Compute dtheta
         dtheta[i] = angle - theta_at_fres
 
-    return dtheta, theta
+    return dtheta, theta, radius
 
 
 @numba.njit(cache=True)
@@ -266,27 +272,29 @@ PULSE_KERNEL_OPTIONS = (
         "iq_finescan_dir",
         track=False,
         type=str,
-        help=("Direcotry to fine frequency scan (IQ loop) of resonatorm."),
+        help="Direcotry to fine frequency scan (IQ loop) of resonatorm.",
     ),
     strax.Option(
         "iq_widescan_dir",
         track=False,
         type=str,
-        help=("Direcotry to wide frequency scan (IQ loop) of resonatorm."),
+        help="Direcotry to wide frequency scan (IQ loop) of resonatorm.",
     ),
     strax.Option(
         "resonant_frequency_dir",
         track=False,
         type=str,
-        help=("Direcotry to resonant frequency npy file."),
+        help="Direcotry to resonant frequency npy file.",
     ),
     strax.Option(
         "iq_finescan_filename",
         track=True,
         type=str,
         help=(
-            "Filename of the fine frequency scan (IQ loop) of resonator npy file, "
-            "just the filename. Assumed the filename starts with iq_fine_<f/z>_*-<TIME>",
+            (
+                "Filename of the fine frequency scan (IQ loop) of resonator npy file, "
+                "just the filename. Assumed the filename starts with iq_fine_<f/z>_*-<TIME>"
+            ),
         ),
     ),
     strax.Option(
@@ -294,8 +302,10 @@ PULSE_KERNEL_OPTIONS = (
         track=True,
         type=str,
         help=(
-            "Filename of the fine frequency scan (IQ loop) of resonator npy file, "
-            "just the filename. Assumed the filename starts with iq_wide_<f/z>_*-<TIME>",
+            (
+                "Filename of the fine frequency scan (IQ loop) of resonator npy file, "
+                "just the filename. Assumed the filename starts with iq_wide_<f/z>_*-<TIME>"
+            ),
         ),
     ),
     strax.Option(
@@ -303,8 +313,10 @@ PULSE_KERNEL_OPTIONS = (
         track=True,
         type=str,
         help=(
-            "Filename of the resonant frequency npy file, "
-            "just the filename, not the path. Assumed the filename starts with fres_*-<TIME>",
+            (
+                "Filename of the resonant frequency npy file, "
+                "just the filename, not the path. Assumed the filename starts with fres_*-<TIME>"
+            ),
         ),
     ),
     strax.Option(
@@ -320,8 +332,10 @@ PULSE_KERNEL_OPTIONS = (
         default=1000.0,
         type=float,
         help=(
-            "Wide scan within fr +/- widescan_resolution/2*fr outside the fine scan range will "
-            "be used to correct for cable delay",
+            (
+                "Wide scan within fr +/- widescan_resolution/2*fr outside the fine scan range will "
+                "be used to correct for cable delay"
+            ),
         ),
     ),
     strax.Option(
@@ -355,7 +369,7 @@ PULSE_KERNEL_OPTIONS = (
     ),
 )
 class DxRecords(strax.Plugin):
-    __version__ = "0.3.0"
+    __version__ = "0.4.0"
     rechunk_on_save = False
     compressor = "zstd"  # Inherited from straxen. Not optimized outside XENONnT.
 
@@ -415,6 +429,21 @@ class DxRecords(strax.Plugin):
                 record_length,
             )
         )
+        dtype.append(
+            (
+                (
+                    (
+                        "Waveform data of fractional IQ-loop radius change (dissipation "
+                        "direction), dr = radius/loop_radius - 1, baseline-corrected by "
+                        "subtracting its own record mean. Not truth-injected and not "
+                        "PCA-corrected (both apply only to data_dx)"
+                    ),
+                    "data_dr",
+                ),
+                DATA_DTYPE,
+                record_length,
+            )
+        )
 
         return np.dtype(dtype)
 
@@ -434,9 +463,11 @@ class DxRecords(strax.Plugin):
             and iq_widescan_filename.endswith(".npy")
             and fr_filename.endswith(".npy")
         ), (
-            "Filename of the fine frequency scan (IQ loop) of resonator npy file, "
-            "the wide frequency scan (IQ loop) of resonator npy file, "
-            "and the resonant frequency npy file should end with .npy",
+            (
+                "Filename of the fine frequency scan (IQ loop) of resonator npy file, "
+                "the wide frequency scan (IQ loop) of resonator npy file, "
+                "and the resonant frequency npy file should end with .npy"
+            ),
         )
 
         assert (
@@ -444,10 +475,12 @@ class DxRecords(strax.Plugin):
             and iq_widescan_filename.startswith("iq_wide_z")
             and fr_filename.startswith("fres_")
         ), (
-            "Filename of the fine frequency scan (IQ loop) of resonator npy file should "
-            "start with iq_fine_z, and the wide frequency scan (IQ loop) of resonator npy "
-            "file should start with iq_wide_z. The resonant frequency npy file should "
-            "start with fres_",
+            (
+                "Filename of the fine frequency scan (IQ loop) of resonator npy file should "
+                "start with iq_fine_z, and the wide frequency scan (IQ loop) of resonator npy "
+                "file should start with iq_wide_z. The resonant frequency npy file should "
+                "start with fres_"
+            ),
         )
 
         # Check if filenames have the expected format with timestamps
@@ -458,9 +491,11 @@ class DxRecords(strax.Plugin):
         # Only check timestamp consistency if all filenames have the expected format
         if len(finescan_parts) >= 2 and len(widescan_parts) >= 2 and len(fr_parts) >= 2:
             assert finescan_parts[1] == widescan_parts[1] == fr_parts[1], (
-                "The time of the fine frequency scan (IQ loop) of resonator npy file, "
-                "the wide frequency scan (IQ loop) of resonator npy file, "
-                "and the resonant frequency npy file should be the same",
+                (
+                    "The time of the fine frequency scan (IQ loop) of resonator npy file, "
+                    "the wide frequency scan (IQ loop) of resonator npy file, "
+                    "and the resonant frequency npy file should be the same"
+                ),
                 f"finescan: {finescan_parts[1]}, widescan: {widescan_parts[1]}, fr: {fr_parts[1]}",
             )
 
@@ -542,7 +577,7 @@ class DxRecords(strax.Plugin):
         1. Loads fine and wide scan files, as well as resonant frequency file
         2. Creates IQ gain correction models for each channel
         3. Applies corrections to fine scan data
-        4. Calculates IQ loop centers using circle fitting
+        4. Calculates IQ loop centers and radii using circle fitting
         5. Computes phi values for each channel
         6. Corrects the fine scan data by rotating back the centered IQ by the phi values.
         7. Corrects the fine scan data by the mean of the kernel-convolved dx.
@@ -564,6 +599,7 @@ class DxRecords(strax.Plugin):
         self._fine_z_corrected = self.fine_z.copy()
         self.fine_z_corrected = self.fine_z.copy()
         self.iq_centers = np.zeros(len(self.fres), dtype=np.complex128)
+        self.loop_radii = np.zeros(len(self.fres))
         self.phis = np.zeros(len(self.fres))
 
         # Process each channel.
@@ -574,11 +610,12 @@ class DxRecords(strax.Plugin):
                 + 1j * self.q_models[ch](self.fine_f[ch] - self.fres[ch])
             )
 
-            # Calculate IQ loop center using circle fitting.
-            i_center, q_center, _, _ = circfit(
+            # Calculate IQ loop center and radius using circle fitting.
+            i_center, q_center, loop_radius, _ = circfit(
                 self._fine_z_corrected[ch].real, self._fine_z_corrected[ch].imag
             )
             self.iq_centers[ch] = i_center + 1j * q_center
+            self.loop_radii[ch] = loop_radius
 
             # Center the centered IQ fine scan data
             fine_z_centered = self._fine_z_corrected[ch] - self.iq_centers[ch]
@@ -886,7 +923,7 @@ class DxRecords(strax.Plugin):
             data_i = np.asarray(rr["data_i"], dtype=np.float64)
             data_q = np.asarray(rr["data_q"], dtype=np.float64)
 
-            dtheta, theta = _apply_iq_correction_numba(
+            dtheta, theta, radius = _apply_iq_correction_numba(
                 data_i,
                 data_q,
                 self.i_model_vals[ch],
@@ -897,6 +934,17 @@ class DxRecords(strax.Plugin):
                 self.thetas_at_fres[ch],
             )
             r["data_dtheta"] = dtheta
+
+            # Fractional IQ-loop radius change (dissipation direction)
+            loop_r = self.loop_radii[ch]
+            if np.isfinite(loop_r) and loop_r > 0:
+                r["data_dr"] = radius / loop_r - 1.0
+            else:
+                warnings.warn(
+                    f"Non-positive or non-finite IQ-loop radius {loop_r} for channel "
+                    f"{ch}; setting data_dr to zero for this record."
+                )
+                r["data_dr"] = 0.0
 
             # OPTIMIZATION 2: Use numba-accelerated linear interpolation
             interp_freq = _linear_interp_numba(
@@ -951,6 +999,9 @@ class DxRecords(strax.Plugin):
             r["data_dx_moving_average"] = r["data_dx_moving_average"] - dx_convolved_mean
             r["data_dx_convolved"] = r["data_dx_convolved"] - dx_convolved_mean
 
+            # Correct dr by its own record mean (no kernel-convolved variant exists)
+            r["data_dr"] = r["data_dr"] - np.mean(r["data_dr"])
+
         return results
 
 
@@ -960,16 +1011,18 @@ class DxRecords(strax.Plugin):
         "iq_finescan_dir",
         track=False,
         type=str,
-        help=("Direcotry to fine frequency scan (IQ loop) of resonatorm."),
+        help="Direcotry to fine frequency scan (IQ loop) of resonatorm.",
     ),
     strax.Option(
         "iq_finescan_filename",
         track=True,
         type=str,
         help=(
-            "Filename of the fine frequency scan (IQ loop) of resonator (txt, csv or similar), "
-            "just the filename, not the path. If not provided, the plugin will try to find the file"
-            " in the iq_finescan_dir directory.",
+            (
+                "Filename of the fine frequency scan (IQ loop) of resonator (txt, csv or similar),"
+                " just the filename, not the path. If not provided, the plugin will try to find the"
+                " file in the iq_finescan_dir directory."
+            ),
         ),
     ),
     strax.Option(
