@@ -1017,16 +1017,19 @@ class TestDxHitsComputeSynthetic:
         record["data_dx_moving_average"] = dx
         record["data_dx_convolved"] = dx
 
-        # Negative-going dissipation pulse at the same location
+        # Negative-going dissipation pulse at the same location. The largest
+        # |dr| excursion is deliberately placed AWAY from the dx maximum
+        # (at sample 505) so the test discriminates the sampled-at-dx-max
+        # definition from a window-extremum definition.
         dr = np.zeros(record_length, dtype=np.float32)
         dr[495:505] = -0.5
-        dr[500] = -1.5
+        dr[505] = -1.5
         record["data_dr"] = dr
 
         return record
 
-    def test_amplitude_dr_signed_extremum_and_alignment(self):
-        """amplitude_dr keeps the sign of a negative-going dissipation pulse."""
+    def test_amplitude_dr_sampled_at_dx_maximum(self):
+        """amplitude_dr is data_dr sampled at the maximum of the raw dx waveform."""
         st = straxion.qualiphide_thz_offline()
         plugin = st.get_single_plugin("1756824965", "hits")
         record = self._make_record(plugin)
@@ -1038,12 +1041,14 @@ class TestDxHitsComputeSynthetic:
 
         # The dx amplitude is the maximum of the raw dx waveform in the window
         assert hit["amplitude"] == np.float32(2.0)
+        assert hit["amplitude_max_record_i"] == 500
 
-        # The dr amplitude is the SIGNED value at the extremum of |data_dr|
-        assert hit["amplitude_dr"] == np.float32(-1.5)
+        # amplitude_dr is dr at the dx maximum (sample 500), keeping its sign --
+        # NOT the window extremum of |dr| (-1.5 at sample 505)
+        assert hit["amplitude_dr"] == np.float32(-0.5)
 
         # The dr waveform is aligned at the convolved-dx climax (index 200)
-        assert hit["data_dr"][HIT_WINDOW_LENGTH_LEFT] == np.float32(-1.5)
+        assert hit["data_dr"][HIT_WINDOW_LENGTH_LEFT] == np.float32(-0.5)
 
     def test_data_dr_zero_padding_for_truncated_hit(self):
         """A hit near the record edge zero-pads data_dr past the valid window."""

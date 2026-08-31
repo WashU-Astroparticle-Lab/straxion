@@ -233,7 +233,7 @@ class DxHits(strax.Plugin):
     The hit-finding algorithm is based on the kernel convolved signal.
     """
 
-    __version__ = "0.1.0"
+    __version__ = "0.2.0"
 
     # Inherited from straxen. Not optimized outside XENONnT.
     rechunk_on_save = False
@@ -383,8 +383,9 @@ class DxHits(strax.Plugin):
             (
                 (
                     (
-                        "Signed value of data_dr at the extremum of |data_dr| within "
-                        "the hit window (dissipation pulses may be negative-going)."
+                        "Signed value of data_dr sampled at the maximum of the raw dx "
+                        "waveform within the hit window (amplitude_max_record_i). "
+                        "Dissipation pulses may be negative-going."
                     ),
                     "amplitude_dr",
                 ),
@@ -604,10 +605,8 @@ class DxHits(strax.Plugin):
             hits[i]["data_dx"][target_start:target_end] = signal_raw[left_i:right_i]
             hits[i]["data_dr"][target_start:target_end] = signal_dr[left_i:right_i]
 
-            # Signed extremum of the dissipation-direction waveform in the hit window
-            dr_segment = signal_dr[left_i:right_i]
-            if len(dr_segment) > 0:
-                hits[i]["amplitude_dr"] = dr_segment[np.argmax(np.abs(dr_segment))]
+            # Dissipation-direction amplitude sampled at the maximum of the raw dx waveform
+            hits[i]["amplitude_dr"] = signal_dr[amp_raw_max_i[i]]
 
             # Calculate time and endtime
             hits[i]["time"] = np.int64(start_time + np.int64(left_i * self.dt_exact))

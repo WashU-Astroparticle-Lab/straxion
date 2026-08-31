@@ -446,7 +446,10 @@ class DxHitClassification(strax.Plugin):
             ),
             (
                 (
-                    "Signed extremum of the dissipation-direction (data_dr) hit waveform",
+                    (
+                        "Signed value of the dissipation-direction (data_dr) waveform at "
+                        "the maximum of the raw dx waveform"
+                    ),
                     "amplitude_dr",
                 ),
                 DATA_DTYPE,
