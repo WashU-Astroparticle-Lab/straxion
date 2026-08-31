@@ -554,6 +554,8 @@ class TestHitsWithRealDataOffline:
                 "amplitude_convolved_max_record_i",
                 "amplitude_moving_average_max_record_i",
                 "amplitude_max_record_i",
+                "data_dr",
+                "amplitude_dr",
                 "hit_threshold",
             ]
             for field in required_fields:
@@ -575,6 +577,8 @@ class TestHitsWithRealDataOffline:
             assert hits["amplitude_convolved_max_record_i"].dtype == np.int32
             assert hits["amplitude_moving_average_max_record_i"].dtype == np.int32
             assert hits["amplitude_max_record_i"].dtype == np.int32
+            assert hits["data_dr"].dtype == np.float32
+            assert hits["amplitude_dr"].dtype == np.float32
             assert hits["hit_threshold"].dtype == np.float32
 
             # Check that all hits have reasonable lengths and dt
@@ -591,6 +595,7 @@ class TestHitsWithRealDataOffline:
                     assert hit["data_dx"].shape == (expected_waveform_length,)
                     assert hit["data_dx_moving_average"].shape == (expected_waveform_length,)
                     assert hit["data_dx_convolved"].shape == (expected_waveform_length,)
+                    assert hit["data_dr"].shape == (expected_waveform_length,)
 
                 # Check that timing information is consistent
                 for h_i, hit in enumerate(hits):

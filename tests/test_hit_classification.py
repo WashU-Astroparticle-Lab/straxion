@@ -338,10 +338,16 @@ def test_spike_coincidence_dtype_inference():
         "best_chi2",
         "best_OF_shift",
         "kappa",
+        "tau",
+        "tau_err",
+        "tau_t0",
+        "tau_t0_err",
+        "tau_fit_success",
         "width",
         "amplitude",
         "amplitude_moving_average",
         "amplitude_convolved",
+        "amplitude_dr",
         "hit_threshold",
     ]
     field_names = [name[1] for name, *_ in dtype]
@@ -470,10 +476,16 @@ class TestDxHitClassificationWithRealDataOffline:
                 "best_chi2",
                 "best_OF_shift",
                 "kappa",
+                "tau",
+                "tau_err",
+                "tau_t0",
+                "tau_t0_err",
+                "tau_fit_success",
                 "width",
                 "amplitude",
                 "amplitude_moving_average",
                 "amplitude_convolved",
+                "amplitude_dr",
                 "hit_threshold",
             ]
             for field in required_fields:
@@ -496,10 +508,16 @@ class TestDxHitClassificationWithRealDataOffline:
             assert hit_classification["best_chi2"].dtype == np.float32
             assert hit_classification["best_OF_shift"].dtype == np.int64
             assert hit_classification["kappa"].dtype == np.float32
+            assert hit_classification["tau"].dtype == np.float32
+            assert hit_classification["tau_err"].dtype == np.float32
+            assert hit_classification["tau_t0"].dtype == np.float32
+            assert hit_classification["tau_t0_err"].dtype == np.float32
+            assert hit_classification["tau_fit_success"].dtype == bool
             assert hit_classification["width"].dtype == np.int32
             assert hit_classification["amplitude"].dtype == np.float32
             assert hit_classification["amplitude_moving_average"].dtype == np.float32
             assert hit_classification["amplitude_convolved"].dtype == np.float32
+            assert hit_classification["amplitude_dr"].dtype == np.float32
             assert hit_classification["hit_threshold"].dtype == np.float32
 
             # Check that channels are within expected range (0-40 based on context config)
@@ -851,7 +869,7 @@ class TestDxHitClassificationWithRealDataOffline:
                 assert np.all(hit_classification["best_chi2"] >= 0)
 
                 print(
-                    f"Successfully verified optimal filter computation "
+                    "Successfully verified optimal filter computation "
                     f"for {len(hit_classification)} hits"
                 )
                 print(f"  Mean best_aOF: {np.mean(hit_classification['best_aOF']):.4f}")
@@ -964,9 +982,9 @@ def test_modify_template_windowing():
         St
     ), f"Expected non-windowed template length {len(St)}, got {len(At_no_window)}"
     expected_windowed_length = of_window_left + of_window_right
-    assert len(At_windowed) == expected_windowed_length, (
-        f"Expected windowed template length {expected_windowed_length}, " f"got {len(At_windowed)}"
-    )
+    assert (
+        len(At_windowed) == expected_windowed_length
+    ), f"Expected windowed template length {expected_windowed_length}, got {len(At_windowed)}"
 
 
 def test_modify_template_windowing_requires_params():
@@ -1405,6 +1423,111 @@ def test_fit_kappa_with_negative_amplitude():
     # Should not crash and should return valid kappa
     assert kappa > 0, f"Kappa should be positive, got {kappa}"
     assert len(profile) == len(ahatOF_arr), "Profile should be computed"
+
+
+# =============================================================================
+# Test: exponential-step tau fit
+# =============================================================================
+
+
+def test_exponential_step_model():
+    """Test the exponential-step model shape: zero before t0, exp decay after."""
+    tau = 1.5e-3
+    t0 = 5.0e-3
+    t = np.array([0.0, 4.9e-3, 5.0e-3, 5.0e-3 + tau, 5.0e-3 + 2 * tau])
+
+    y = DxHitClassification._exponential_step_model_fixed_a(t, tau, t0)
+
+    assert y[0] == 0.0, "Model should be zero well before t0"
+    assert y[1] == 0.0, "Model should be zero just before t0"
+    assert np.isclose(y[2], 1.0), "Model should be 1 at t0"
+    assert np.isclose(y[3], np.exp(-1.0)), "Model should decay as exp(-(t-t0)/tau)"
+    assert np.isclose(y[4], np.exp(-2.0)), "Model should decay as exp(-(t-t0)/tau)"
+
+
+def test_fit_tau_success():
+    """Test that _fit_tau recovers tau from a synthetic exponential pulse."""
+    fs = 38_000
+    true_tau = 1.5e-3
+    # In real hits the pulse climax (~sample 200, 5.26 ms) precedes the fit window,
+    # so within the window the model is a pure exponential decay.
+    true_t0 = 5.3e-3
+    t = np.arange(800) / fs
+    waveform = 2.7 * DxHitClassification._exponential_step_model_fixed_a(t, true_tau, true_t0)
+
+    np.random.seed(42)
+    waveform += np.random.normal(0, 0.01, len(waveform))
+
+    tau, tau_err, t0, t0_err, fit_ok = DxHitClassification._fit_tau(
+        waveform,
+        fs,
+        fit_window_start=5.6e-3,
+        fit_window_end=7.5e-3,
+        p0_tau=1.0e-3,
+        p0_t0=5.5e-3,
+        maxfev=10000,
+    )
+
+    assert fit_ok, "Fit should succeed on a clean synthetic pulse"
+    assert np.isclose(tau, true_tau, rtol=0.2), f"tau should be close to {true_tau}, got {tau}"
+    assert np.isfinite(tau_err), "tau_err should be finite for a well-conditioned fit"
+    assert np.isfinite(t0), "t0 should be finite"
+
+
+def test_fit_tau_zero_waveform():
+    """Test that _fit_tau fails gracefully on an all-zero waveform."""
+    fs = 38_000
+    waveform = np.zeros(800)
+
+    tau, tau_err, t0, t0_err, fit_ok = DxHitClassification._fit_tau(
+        waveform, fs, 5.6e-3, 7.5e-3, 1.0e-3, 5.5e-3, 10000
+    )
+
+    assert not fit_ok, "Fit should fail on all-zero waveform"
+    assert np.isnan(tau) and np.isnan(tau_err) and np.isnan(t0) and np.isnan(t0_err)
+
+
+def test_fit_tau_nonfinite_waveform():
+    """Test that _fit_tau fails gracefully on non-finite waveforms."""
+    fs = 38_000
+
+    # NaN inside the fit window
+    t = np.arange(800) / fs
+    waveform = DxHitClassification._exponential_step_model_fixed_a(t, 1.5e-3, 5.8e-3)
+    waveform[230] = np.nan  # 230 / 38000 s ~ 6.05e-3 s, inside the fit window
+    tau, tau_err, t0, t0_err, fit_ok = DxHitClassification._fit_tau(
+        waveform, fs, 5.6e-3, 7.5e-3, 1.0e-3, 5.5e-3, 10000
+    )
+    assert not fit_ok, "Fit should fail with NaN inside the fit window"
+    assert np.isnan(tau)
+
+    # All-NaN waveform (normalization amplitude is non-finite)
+    waveform = np.full(800, np.nan)
+    tau, tau_err, t0, t0_err, fit_ok = DxHitClassification._fit_tau(
+        waveform, fs, 5.6e-3, 7.5e-3, 1.0e-3, 5.5e-3, 10000
+    )
+    assert not fit_ok, "Fit should fail on all-NaN waveform"
+    assert np.isnan(tau)
+
+
+def test_fit_tau_empty_window():
+    """Test that _fit_tau fails gracefully when the fit window contains no samples."""
+    fs = 38_000
+    t = np.arange(800) / fs
+    waveform = DxHitClassification._exponential_step_model_fixed_a(t, 1.5e-3, 5.8e-3)
+
+    tau, tau_err, t0, t0_err, fit_ok = DxHitClassification._fit_tau(
+        waveform,
+        fs,
+        fit_window_start=7.5e-3,
+        fit_window_end=5.6e-3,
+        p0_tau=1.0e-3,
+        p0_t0=5.5e-3,
+        maxfev=10000,
+    )
+
+    assert not fit_ok, "Fit should fail when the fit window is empty"
+    assert np.isnan(tau)
 
 
 # =============================================================================
