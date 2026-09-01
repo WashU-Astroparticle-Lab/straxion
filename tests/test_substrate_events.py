@@ -4,7 +4,6 @@ import straxion
 from straxion.plugins.substrate_events import SubstrateEvents, N_CHANNELS
 from straxion.colors import get_channel_position
 
-
 HIT_DTYPE = [
     ("time", np.int64),
     ("endtime", np.int64),
