@@ -55,6 +55,7 @@ def qualiphide_thz_offline(
     st.register(straxion.plugins.records.DxRecords)
     st.register(straxion.plugins.hits.DxHits)
     st.register(straxion.plugins.hit_classification.DxHitClassification)
+    st.register(straxion.plugins.substrate_events.SubstrateEvents)
     st.register(straxion.plugins.noise_bank.NoiseBank)
     st.register(straxion.plugins.truth.Truth)
     st.register(straxion.plugins.match.Match)
