@@ -7,6 +7,7 @@ Unless you are a developer for `straxion`, please feel free to skip reading. Thi
 - `test_contexts.py`: Basic tests for the straxion context creation
 - `test_raw_records.py`: Tests for the raw_records plugin (`QUALIPHIDETHzReader`) with qualiphide_thz_offline context
 - `test_records.py`: Tests for the records plugin with both online and offline contexts
+- `test_dx_map.py`: Tests for the optional epoch-averaged theta->frequency map (`dx_map_filename`) of the `DxRecords` plugin
 - `test_baseline_monitor.py`: Tests for the baseline_monitor plugin with qualiphide_thz_online context
 - `test_hits.py`: Tests for the hits plugin with both online and offline contexts
 - `test_hit_classification.py`: Tests for hit classification plugins (HitClassification and DxHitClassification)

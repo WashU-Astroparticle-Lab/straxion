@@ -367,9 +367,55 @@ PULSE_KERNEL_OPTIONS = (
         track=False,
         help="Folder containing per-channel template interpolation files.",
     ),
+    strax.Option(
+        "dx_map_dir",
+        type=str,
+        default="",
+        track=False,
+        help="Directory holding epoch-averaged theta->frequency calibration map npz files.",
+    ),
+    strax.Option(
+        "dx_map_filename",
+        type=str,
+        default="",
+        track=True,
+        help=(
+            (
+                "Filename (not the path) of an epoch-averaged theta->frequency calibration map "
+                "npz in dx_map_dir, e.g. dx_map_sr3pt2.npz. Empty string (default) keeps the "
+                "standard per-scan interpolation table. The npz must contain 'x' "
+                "(n_channels, n_grid): dtheta [rad] relative to theta_at_fres of each scan, "
+                "sorted ascending; and 'y_med' (n_channels, n_grid): median over the epoch's "
+                "scans of (f - f(0))/f(0), the fractional frequency offset relative to each "
+                "scan's own on-resonance point, so y_med(0) = 0. Channels whose y_med contains "
+                "non-finite values fall back to the per-scan table. Other keys are ignored. "
+                "strax hashes the filename, not the file content, so include a content tag in "
+                "the filename when the map is regenerated."
+            ),
+        ),
+    ),
 )
 class DxRecords(strax.Plugin):
-    __version__ = "0.4.0"
+    """Convert raw IQ waveforms to phase (theta) and fractional frequency shift (dx = df/f).
+
+    Per scan, the plugin (1) removes the cable-delay gain with a polynomial fit to the wide scan,
+    (2) fits a circle to the fine-scan IQ loop to get its centre and radius, (3) rotates the loop by
+    phi so that theta is measured from the off-resonance point, (4) finds theta_at_fres, and
+    (5) builds a linear-interpolation table dtheta -> f from the fine scan itself. Waveform theta
+    values are converted to frequency through that table and to dx relative to the frequency at
+    dtheta = 0.
+
+    Optionally (``dx_map_filename`` non-empty) step (5) is replaced by an epoch-averaged map: the
+    per-scan table of every channel present in the map is swapped for
+    ``f0 * (1 + y_med(x))``, where ``f0`` is this scan's frequency at dtheta = 0. Everything else
+    (gain polynomial, circle fit, phi, theta_at_fres, operating point) stays per-scan. The map is
+    an npz with keys ``x`` (n_channels, n_grid), dtheta [rad] relative to theta_at_fres of each
+    scan, sorted ascending, and ``y_med`` (n_channels, n_grid), the median over the epoch's scans of
+    (f - f(0))/f(0), so ``y_med(0) = 0``. Diagnostic keys (y16, y84, S, S0_avg, configs, ...) are
+    ignored. ``avg_map_used`` (bool per channel) records which channels took the map.
+    """
+
+    __version__ = "0.5.0"
     rechunk_on_save = False
     compressor = "zstd"  # Inherited from straxen. Not optimized outside XENONnT.
 
@@ -635,6 +681,8 @@ class DxRecords(strax.Plugin):
         1. Finds the theta value at the resonant frequency for each channel
         2. Creates interpolation data arrays for numba-accelerated interpolation
         3. Validates the interpolation models for self-consistency
+        4. Optionally replaces the per-scan tables by an epoch-averaged map (see
+           ``_apply_averaged_dx_map``) when ``dx_map_filename`` is non-empty
 
         Optimized version stores sorted arrays for numba instead of scipy interp1d.
         """
@@ -676,6 +724,11 @@ class DxRecords(strax.Plugin):
                 0
             ]
 
+        # Optionally replace the per-scan tables by an epoch-averaged map.
+        self.avg_map_used = np.zeros(len(self.fres), dtype=bool)
+        if self.config.get("dx_map_filename", ""):
+            self._apply_averaged_dx_map()
+
         # Pre-compute IQ model values at f=fres for each channel (used in compute)
         self.i_model_vals = np.array(
             [self.i_models[ch](0) for ch in range(len(self.fres))], dtype=np.float64
@@ -687,6 +740,56 @@ class DxRecords(strax.Plugin):
         # Convert IQ centers to separate real/imag arrays for numba
         self.iq_centers_real = np.real(self.iq_centers).astype(np.float64)
         self.iq_centers_imag = np.imag(self.iq_centers).astype(np.float64)
+
+    def _apply_averaged_dx_map(self):
+        """Replace the per-scan dtheta -> f tables by an epoch-averaged calibration map.
+
+        The map npz (``dx_map_dir``/``dx_map_filename``) holds ``x`` (n_channels, n_grid), the
+        dtheta grid [rad] relative to each scan's theta_at_fres, sorted ascending, and ``y_med``
+        (n_channels, n_grid), the median over the epoch's scans of (f - f(0))/f(0) so that
+        ``y_med(0) = 0``. For every channel present in the map with all-finite ``y_med`` the table
+        becomes ``f0 * (1 + y_med(x))`` with ``f0`` this scan's frequency at dtheta = 0, and
+        ``interpolated_freqs[ch]`` is re-evaluated from the new table (equal to ``f0`` when the grid
+        contains 0). Channels missing from the map or with non-finite ``y_med`` keep their per-scan
+        table. ``avg_map_used[ch]`` records which channels took the map.
+
+        Raises:
+            FileNotFoundError: If the map file does not exist.
+            KeyError: If the map lacks the ``x`` or ``y_med`` keys.
+        """
+        map_path = os.path.join(self.config["dx_map_dir"], self.config["dx_map_filename"])
+        if not os.path.isfile(map_path):
+            raise FileNotFoundError(
+                f"Averaged dx map file not found: {map_path} (check dx_map_dir and dx_map_filename)"
+            )
+        M = np.load(map_path)
+        missing = [key for key in ("x", "y_med") if key not in M.files]
+        if missing:
+            raise KeyError(
+                f"Averaged dx map {map_path} lacks required key(s) {missing}; "
+                f"available keys: {list(M.files)}"
+            )
+        x_all, y_all = M["x"], M["y_med"]
+
+        for ch in range(len(self.fres)):
+            if ch >= len(x_all) or not np.all(np.isfinite(y_all[ch])):
+                continue  # keep the per-scan table for this channel
+            f0 = float(self.interpolated_freqs[ch])  # this scan's frequency at dtheta = 0
+            x = np.ascontiguousarray(x_all[ch], dtype=np.float64)
+            y = np.ascontiguousarray(f0 * (1.0 + y_all[ch]), dtype=np.float64)
+            self.interp_x_data[ch] = x
+            self.interp_y_data[ch] = y
+            self.interpolated_freqs[ch] = _linear_interp_numba(np.array([0.0]), x, y)[0]
+            self.avg_map_used[ch] = True
+
+        n_used = int(np.sum(self.avg_map_used))
+        message = (
+            f"Averaged dx map {self.config['dx_map_filename']} applied to {n_used} of "
+            f"{len(self.fres)} channels; the rest keep the per-scan table."
+        )
+        self.log.info(message)
+        if n_used < len(self.fres):
+            warnings.warn(message)
 
     @staticmethod
     def pulse_kernel(ns, fs, t0, tau, sigma, truncation_factor=5):
