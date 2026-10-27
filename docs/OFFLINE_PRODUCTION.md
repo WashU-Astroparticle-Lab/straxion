@@ -140,7 +140,7 @@ per-scan tests request that mode explicitly.
 
 ## Compatibility with PR #99
 
-This branch integrates PR #99 at `c0ac5ec38c8a8fc567f739587d54521f53c57849`.
+This branch integrates PR #99 at `9ba3145281a86a14cba5e64def5cae05057caf84`.
 Classification retains that PR's `hits`/`noises` dependencies, acquisition-wide
 PSD aggregation, native peak/support metadata, MA-peak coincidence default and
 substrate reconstruction semantics. The avgmap workflow resolves the same
