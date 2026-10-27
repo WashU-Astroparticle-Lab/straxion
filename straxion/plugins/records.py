@@ -375,6 +375,13 @@ PULSE_KERNEL_OPTIONS = (
         help="Directory holding epoch-averaged theta->frequency calibration map npz files.",
     ),
     strax.Option(
+        "dx_map_sha256",
+        default="",
+        type=str,
+        track=True,
+        help="Required SHA256 content identity when using an averaged dx map.",
+    ),
+    strax.Option(
         "dx_map_filename",
         type=str,
         default="",
@@ -415,7 +422,7 @@ class DxRecords(strax.Plugin):
     ignored. ``avg_map_used`` (bool per channel) records which channels took the map.
     """
 
-    __version__ = "0.5.0"
+    __version__ = "0.6.0"
     rechunk_on_save = False
     compressor = "zstd"  # Inherited from straxen. Not optimized outside XENONnT.
 
@@ -758,6 +765,10 @@ class DxRecords(strax.Plugin):
             KeyError: If the map lacks the ``x`` or ``y_med`` keys.
         """
         map_path = os.path.join(self.config["dx_map_dir"], self.config["dx_map_filename"])
+        from straxion.processing_provenance import file_sha256
+
+        if os.path.isfile(map_path) and file_sha256(map_path) != self.config["dx_map_sha256"]:
+            raise ValueError("Set dx_map_sha256 to the map file SHA256 before regeneration")
         if not os.path.isfile(map_path):
             raise FileNotFoundError(
                 f"Averaged dx map file not found: {map_path} (check dx_map_dir and dx_map_filename)"

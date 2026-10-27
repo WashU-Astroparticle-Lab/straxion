@@ -39,6 +39,49 @@ def test_match_plugin_registration():
     assert st._plugin_class_registry["match"] == Match
 
 
+def test_match_dtype_inference():
+    """Test that Match can infer the correct data type."""
+    st = straxion.qualiphide_thz_offline()
+    plugin = st.get_single_plugin("1756824965", "match")
+    dtype = np.dtype(plugin.infer_dtype())
+
+    # Check expected fields
+    expected_fields = [
+        "time",
+        "endtime",
+        "channel",
+        "energy_true",
+        "dx_true",
+        "destiny",
+        "hit_index",
+        "length",
+        "amplitude",
+        "amplitude_moving_average",
+        "amplitude_convolved",
+        "hit_threshold",
+        "width",
+        "rise_edge_slope",
+        "n_spikes_coinciding",
+        "is_photon_candidate",
+        "is_symmetric_spike",
+        "is_coincident_with_spikes",
+        "is_truncated_hit",
+        "is_invalid_kappa",
+        "best_aOF",
+        "best_chi2",
+        "best_OF_shift",
+        "kappa",
+    ]
+    # NumPy normalizes both plain names and (description, name) descriptors.
+    field_names = dtype.names
+    for field in expected_fields:
+        assert field in field_names
+    # Match must retain the new scalar metadata as well as the historical fields.
+    for dependency in ("hits", "hit_classification"):
+        dependency_names = np.dtype(plugin.deps[dependency].infer_dtype()).names
+        assert set(dependency_names) <= set(field_names)
+
+
 @pytest.mark.skipif(
     not os.getenv("STRAXION_TEST_DATA_DIR"),
     reason=("Test data directory not provided via " "STRAXION_TEST_DATA_DIR environment variable"),
@@ -68,47 +111,6 @@ class TestMatchWithRealData:
         # Add any additional config options
         configs.update(kwargs)
         return configs
-
-    def test_match_dtype_inference(self):
-        """Test that Match can infer the correct data type."""
-        test_data_dir = os.getenv("STRAXION_TEST_DATA_DIR")
-        if not test_data_dir:
-            pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
-
-        st = straxion.qualiphide_thz_offline()
-        plugin = st.get_single_plugin("1756824965", "match")
-        dtype = plugin.infer_dtype()
-
-        # Check expected fields
-        expected_fields = [
-            "time",
-            "endtime",
-            "channel",
-            "energy_true",
-            "dx_true",
-            "destiny",
-            "hit_index",
-            "length",
-            "amplitude",
-            "amplitude_moving_average",
-            "amplitude_convolved",
-            "hit_threshold",
-            "width",
-            "rise_edge_slope",
-            "n_spikes_coinciding",
-            "is_photon_candidate",
-            "is_symmetric_spike",
-            "is_coincident_with_spikes",
-            "is_truncated_hit",
-            "is_invalid_kappa",
-            "best_aOF",
-            "best_chi2",
-            "best_OF_shift",
-            "kappa",
-        ]
-        field_names = [name[1] for name, *_ in dtype]
-        for field in expected_fields:
-            assert field in field_names
 
     def test_match_processing(self):
         """Test Match plugin with real data."""

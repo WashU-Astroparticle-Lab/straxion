@@ -451,6 +451,10 @@ class TestDxHitClassificationWithRealDataOffline:
         st = straxion.qualiphide_thz_offline()
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
+        # These historical assertions exercise the explicit legacy comparison.
+        configs.update(
+            compute_legacy_spike_coincidence=True, classification_coincidence_mode="legacy_record"
+        )
 
         clean_strax_data()
         try:
@@ -600,6 +604,10 @@ class TestDxHitClassificationWithRealDataOffline:
         st = straxion.qualiphide_thz_offline()
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
+        # These historical assertions exercise the explicit legacy comparison.
+        configs.update(
+            compute_legacy_spike_coincidence=True, classification_coincidence_mode="legacy_record"
+        )
 
         clean_strax_data()
         try:
@@ -739,6 +747,10 @@ class TestDxHitClassificationWithRealDataOffline:
         st = straxion.qualiphide_thz_offline()
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
+        # These historical assertions exercise the explicit legacy comparison.
+        configs.update(
+            compute_legacy_spike_coincidence=True, classification_coincidence_mode="legacy_record"
+        )
 
         clean_strax_data()
         try:
@@ -796,6 +808,10 @@ class TestDxHitClassificationWithRealDataOffline:
         st = straxion.qualiphide_thz_offline()
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
+        # These historical assertions exercise the explicit legacy comparison.
+        configs.update(
+            compute_legacy_spike_coincidence=True, classification_coincidence_mode="legacy_record"
+        )
 
         clean_strax_data()
         try:
@@ -848,6 +864,10 @@ class TestDxHitClassificationWithRealDataOffline:
         st = straxion.qualiphide_thz_offline()
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
+        # These historical assertions exercise the explicit legacy comparison.
+        configs.update(
+            compute_legacy_spike_coincidence=True, classification_coincidence_mode="legacy_record"
+        )
 
         clean_strax_data()
         try:

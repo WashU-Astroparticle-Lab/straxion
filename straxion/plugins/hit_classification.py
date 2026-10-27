@@ -16,7 +16,9 @@ from straxion.constants import (
     INDEX_DTYPE,
 )
 from straxion.utils import load_interpolation
+from straxion.processing_provenance import template_sha256, DEFAULT_TEMPLATE_CONTENT_SHA256
 from .hits import DxHits
+from straxion.hit_metadata import TIMING_DTYPE, ESTIMATOR_DTYPE, psd_digest
 
 export, __all__ = strax.exporter()
 
@@ -128,6 +130,34 @@ def _profile_fit_numba(x, amplitude, center, kappa):
 
 @export
 @strax.takes_config(
+    strax.Option(
+        "classification_coincidence_mode",
+        default="hit_peaks",
+        type=str,
+        track=True,
+        help="hit_peaks (default) or explicit legacy_record photon-selection comparison.",
+    ),
+    strax.Option(
+        "max_hit_coincidence",
+        default=1,
+        type=int,
+        track=True,
+        help="Maximum actual detected MA-peak hits, including self, for photon selection.",
+    ),
+    strax.Option(
+        "hit_coincidence_window_ns",
+        default=131000,
+        type=int,
+        track=True,
+        help="MA peak coincidence half-width in ns; inclusive endpoints, includes self.",
+    ),
+    strax.Option(
+        "template_content_sha256",
+        type=str,
+        track=True,
+        default=DEFAULT_TEMPLATE_CONTENT_SHA256,
+        help="Content identity of default and per-channel templates; verify before estimation.",
+    ),
     strax.Option(
         "max_spike_coincidence",
         type=int,
@@ -329,9 +359,9 @@ def _profile_fit_numba(x, amplitude, center, kappa):
 class DxHitClassification(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.4.0"
+    __version__ = "0.5.1"
 
-    depends_on = ("hits", "records", "noises")
+    depends_on = ("hits", "noises")
     provides = "hit_classification"
     data_kind = "hits"
     save_when = strax.SaveWhen.ALWAYS
@@ -344,7 +374,14 @@ class DxHitClassification(strax.Plugin):
         ]
 
         hit_id_dtype = [
-            (("Is in coincidence with spikes", "is_coincident_with_spikes"), bool),
+            (
+                (
+                    "Legacy spike coincidence; meaningful only if legacy_spike_coincidence_valid",
+                    "is_coincident_with_spikes",
+                ),
+                bool,
+            ),
+            (("Coincident with detected MA-peak hits", "is_coincident_with_hits"), bool),
             (("Is symmetric spike hit", "is_symmetric_spike"), bool),
             (("Is truncated hit", "is_truncated_hit"), bool),
             (("Is invalid kappa (inf or nan)", "is_invalid_kappa"), bool),
@@ -460,7 +497,7 @@ class DxHitClassification(strax.Plugin):
             ),
         ]
 
-        return base_dtype + hit_id_dtype + hit_feature_dtype
+        return base_dtype + hit_id_dtype + hit_feature_dtype + TIMING_DTYPE + ESTIMATOR_DTYPE
 
     def setup(self):
         self.spike_coincidence_window = int(
@@ -471,6 +508,17 @@ class DxHitClassification(strax.Plugin):
         self.ss_window = self.config["symmetric_spike_inspection_window_length"]
         self.max_spike_coincidence = self.config["max_spike_coincidence"]
         self.dt_exact = 1 / self.config["fs"] * SECOND_TO_NANOSECOND
+
+        self.setup_optimal_filter()
+
+    def setup_optimal_filter(self):
+        actual = template_sha256(
+            self.config["template_interp_path"], self.config["template_interp_folder"]
+        )
+        if actual != self.config["template_content_sha256"]:
+            raise ValueError(
+                "Set template_content_sha256 to the current template_sha256 before regeneration"
+            )
         self.template_interp_path = self.config["template_interp_path"]
         self.template_interp_folder = self.config["template_interp_folder"]
         self.noise_psd = self.config["noise_psd_placeholder"]
@@ -1504,12 +1552,48 @@ class DxHitClassification(strax.Plugin):
             hit_classification["tau_t0_err"][i] = t0_err
             hit_classification["tau_fit_success"][i] = fit_ok
 
-    def compute(self, hits, records, noises):
-        spike_threshold_dx = self.determine_spike_threshold(records)
+    parallel = False
 
-        # Compute per-channel noise PSDs from noise windows
-        n_channels = len(records)
-        channel_noise_psds = self.compute_per_channel_noise_psd(noises, n_channels)
+    def iter(self, iters, executor=None):
+        """Keep acquisition PSD aggregation independent of cached input chunking."""
+        self._acquisition_batches = []
+        yield from super().iter(iters, executor=None)
+        batches = self._acquisition_batches
+        if not batches:
+            return
+        hits = np.concatenate([b["hits"].data for b in batches])
+        noises = np.concatenate([b["noises"].data for b in batches])
+        start, end = batches[0]["hits"].start, batches[-1]["hits"].end
+        for data in (hits, noises):
+            if np.any(data["record_time"] < start) or np.any(data["record_endtime"] > end):
+                raise ValueError(
+                    "PSD estimation requires complete acquisition coverage, not a time slice"
+                )
+        yield self.chunk(start=start, end=end, data=self.compute(hits, noises))
+        self._acquisition_batches = []
+
+    def _iter_compute(self, chunk_i, **inputs_merged):
+        if any(chunk.subruns for chunk in inputs_merged.values()):
+            raise ValueError("Classify ordinary acquisition runs before combining superruns")
+        self._acquisition_batches.append(inputs_merged)
+        return iter(())
+
+    def compute(self, hits, noises):
+        if len(np.unique(hits["run_id"])) > 1:
+            raise ValueError("Classify one ordinary run at a time")
+        if np.any(hits["sampling_frequency_hz"] != self.config["fs"]):
+            raise ValueError("Hit sampling frequency differs from classifier fs")
+        if len(np.setdiff1d(noises["record_time"], hits["record_time"])):
+            raise ValueError("Noise acquisition identities are outside the hit acquisition scope")
+        result = np.zeros(len(hits), dtype=self.infer_dtype())
+        for origin in np.unique(hits["record_time"]):
+            mask = hits["record_time"] == origin
+            result[mask] = self._compute_acquisition(
+                hits[mask], noises[noises["record_time"] == origin]
+            )
+        return result
+
+    def _compute_acquisition(self, hits, noises):
 
         hit_classification = np.zeros(len(hits), dtype=self.infer_dtype())
         hit_classification["time"] = hits["time"]
@@ -1522,13 +1606,30 @@ class DxHitClassification(strax.Plugin):
         hit_classification["amplitude_dr"] = hits["amplitude_dr"]
         hit_classification["hit_threshold"] = hits["hit_threshold"]
 
+        for name in [x[0] for x in TIMING_DTYPE] + [
+            "n_spikes_coinciding",
+            "legacy_spike_coincidence_valid",
+            "hit_coincidence",
+            "hit_coincidence_channels",
+        ]:
+            hit_classification[name] = hits[name]
+        if not len(hits):
+            return hit_classification
+        channels = np.union1d(hits["channel"], noises["channel"])
+        # Legacy PSD math is unchanged; channel enumeration no longer needs records.
+        channel_noise_psds = self.compute_per_channel_noise_psd(noises, int(channels.max()) + 1)
+        self.compute_optimal_filter_parameters(hit_classification, hits, channel_noise_psds)
+        for ch in channels:
+            mask = hits["channel"] == ch
+            psd = channel_noise_psds[ch]
+            hit_classification["noise_window_count"][mask] = np.sum(noises["channel"] == ch)
+            hit_classification["noise_psd_fallback"][mask] = psd is None
+            hit_classification["noise_psd_sha256"][mask] = psd_digest(
+                self.noise_psd if psd is None else psd
+            )
         self.compute_rise_edge_slope(hits, hit_classification)
-        self.find_spike_coincidence(hit_classification, hits, records, spike_threshold_dx)
         self.is_symmetric_spike_hit(hits, hit_classification)
         self.is_truncated_hit(hits, hit_classification)
-
-        # Compute optimal filter parameters with per-channel PSDs
-        self.compute_optimal_filter_parameters(hit_classification, hits, channel_noise_psds)
 
         # Fit the exponential decay time constant of every hit
         self.compute_tau_fits(hit_classification, hits)
@@ -1540,9 +1641,24 @@ class DxHitClassification(strax.Plugin):
         # Invalid kappa means not finite (inf or nan)
         hit_classification["is_invalid_kappa"] = ~np.isfinite(hit_classification["kappa"])
 
-        # Photon candidate must pass all quality cuts (all exclusion flags must be False)
+        hit_classification["is_coincident_with_hits"] = (
+            hit_classification["hit_coincidence"] > self.config["max_hit_coincidence"]
+        )
+        mode = self.config["classification_coincidence_mode"]
+        if mode == "legacy_record":
+            if not np.all(hits["legacy_spike_coincidence_valid"]):
+                raise ValueError(
+                    "Legacy mode requires compute_legacy_spike_coincidence=True upstream"
+                )
+            coincident = hit_classification["is_coincident_with_spikes"]
+        elif mode == "hit_peaks":
+            # Unknown MA timing must never be interpreted as isolation.
+            coincident = hit_classification["is_coincident_with_hits"] | ~hits["peak_ma_valid"]
+        else:
+            raise ValueError("Unknown classification_coincidence_mode")
+        # Explicit mode controls photon selection; OF/shape estimators are unchanged.
         hit_classification["is_photon_candidate"] = ~(
-            hit_classification["is_coincident_with_spikes"]
+            coincident
             | hit_classification["is_symmetric_spike"]
             | hit_classification["is_truncated_hit"]
             | hit_classification["is_invalid_kappa"]

@@ -8,6 +8,11 @@ from straxion.constants import (
     SECOND_TO_NANOSECOND,
 )
 from straxion.colors import get_channel_position
+from straxion.substrate_reconstruction import (
+    prompt_groups,
+    timing_valid_mask,
+    apply_veto,
+)
 
 export, __all__ = strax.exporter()
 
@@ -16,6 +21,37 @@ N_CHANNELS = 41
 
 @export
 @strax.takes_config(
+    strax.Option(
+        "substrate_time_basis",
+        default="ma",
+        type=str,
+        track=True,
+        help="Membership/veto basis: ma (default), start (legacy), raw, or convolved.",
+    ),
+    strax.Option(
+        "substrate_veto_ms",
+        default=0.0,
+        type=float,
+        track=True,
+        help="Nonextending veto after last accepted member; zero preserves legacy default.",
+    ),
+    strax.Option(
+        "substrate_seed_coincidence",
+        default="hit_peaks",
+        type=str,
+        track=True,
+        help=(
+            "hit_peaks (MA detected hits, default) or record_threshold "
+            "(explicit legacy comparison)."
+        ),
+    ),
+    strax.Option(
+        "substrate_min_peak_channels",
+        default=5,
+        type=int,
+        track=True,
+        help="Minimum distinct MA-peak-coincident channels for hit_peaks seeds.",
+    ),
     strax.Option(
         "fs",
         default=38_000,
@@ -120,43 +156,29 @@ N_CHANNELS = 41
         ),
     ),
 )
-class SubstrateEvents(strax.OverlapWindowPlugin):
-    """Cluster substrate-like hits across channels into substrate events.
+class SubstrateEvents(strax.Plugin):
+    """Cluster substrate-like seeds using MA peak times by default.
 
-    Substrate (phonon or radiation-impact) events deposit energy in the silicon
-    substrate and are seen simultaneously by many KIDs. This plugin formalizes
-    the substrate event finder used in the qualiphide_thz offline analysis
-    (lee/single_si_phonon.ipynb, producing substrate_events.npy):
+    The hit_peaks seed uses actual detected-hit channel multiplicity, kappa,
+    chi-square and shape quality; record_threshold is an explicit legacy option.
+    Consecutive gaps at or below the configured gap join, including arbitrarily
+    long chains. Group membership is retained before a nonextending optional veto.
+    No energy cut or new truncation veto is applied.
 
-    1. Select substrate-like hits from hit_classification: hits coincident with
-       spikes in at least substrate_min_spike_coincidence channels, with kappa
-       inside [substrate_kappa_min_ms, substrate_kappa_max_ms], best_chi2 above
-       substrate_min_best_chi2 (poor template fit, i.e. NOT photon-like), and
-       not flagged as symmetric spike, invalid kappa, or photon candidate.
-    2. Cluster the selected hits in time: consecutive hits (across all
-       channels) closer than substrate_coincidence_window_ms belong to the same
-       cluster; clusters with at least substrate_min_hit_coincidence hits
-       become substrate events.
-    3. Summarize each event: timing, per-channel amplitude and best_aOF
-       patterns (and their meV calibrations), summed energy, the max-energy
-       channel and its (x, y) position, and the distance from the max-energy
-       position to every channel.
-
-    If a channel contributes more than one hit to a cluster, the hit with the
-    largest raw dx amplitude represents that channel in both patterns.
-
-    Provides:
-    - substrate_events: One row per substrate event.
-
+    Framework intervals enclose original member windows, while separate fields
+    describe member peak times. Repeated-channel patterns use the largest raw
+    amplitude representative. Scalar inputs are buffered to run EOF so overlapping
+    hit windows and peak sorting cannot violate a finite-overlap assumption.
     """
 
-    __version__ = "0.0.0"
+    __version__ = "0.1.1"
 
     depends_on = ("hit_classification",)
     provides = "substrate_events"
     data_kind = "substrate_events"
     save_when = strax.SaveWhen.ALWAYS
 
+    parallel = False
     rechunk_on_save = False
     compressor = "zstd"
 
@@ -240,20 +262,54 @@ class SubstrateEvents(strax.OverlapWindowPlugin):
             ),
         ]
 
-        return base_dtype + pattern_dtype + location_dtype
+        return (
+            base_dtype
+            + pattern_dtype
+            + location_dtype
+            + [
+                ("group_id", "S64"),
+                ("first_member_time", "i8"),
+                ("last_member_time", "i8"),
+                ("brightest_member_time", "i8"),
+                ("brightest_hit_id", "S64"),
+                ("n_channels", "i4"),
+                ("n_repeated_channels", "i4"),
+                ("max_hits_per_channel", "i4"),
+            ]
+        )
 
     def setup(self):
         self.coincidence_window_ns = (
             self.config["substrate_coincidence_window_ms"] / 1e3 * SECOND_TO_NANOSECOND
         )
+        if (
+            not np.isfinite(self.coincidence_window_ns)
+            or self.coincidence_window_ns < 0
+            or not np.isfinite(self.config["substrate_veto_ms"])
+            or self.config["substrate_veto_ms"] < 0
+        ):
+            raise ValueError("Gap and veto must be finite and nonnegative")
+        self.coincidence_window_ns = int(round(self.coincidence_window_ns))
         self.min_hit_coincidence = self.config["substrate_min_hit_coincidence"]
         # All channel positions, shape (N_CHANNELS, 2), in mm.
         self.channel_positions = get_channel_position(np.arange(N_CHANNELS))
 
-    def get_window_size(self):
-        # Clusters extend at most ~min_hit_coincidence * window; a generous
-        # multiple of the coincidence window is still tiny compared to chunks.
-        return int(100 * self.coincidence_window_ns)
+    def iter(self, iters, executor=None):
+        """Buffer scalar inputs to run EOF, avoiding any finite chain-span assumption.
+
+        Acquisition keys keep groups/vetoes isolated inside the run. Full-run
+        buffering permits arbitrary chunk fragmentation and peak-order reversals.
+        """
+        chunks = list(iters["hit_classification"])
+        if not chunks:
+            return
+        if any(c.run_id != chunks[0].run_id or c.subruns for c in chunks):
+            raise ValueError("Reconstruct ordinary acquisition runs before forming superruns")
+        for before, after in zip(chunks[:-1], chunks[1:]):
+            if before.end != after.start:
+                raise ValueError("Input chunks must cover a contiguous run interval")
+        data = np.concatenate([c.data for c in chunks])
+        yield self.chunk(start=chunks[0].start, end=chunks[-1].end, data=self.compute(data))
 
     @staticmethod
     def select_substrate_hits(hits, config):
@@ -267,15 +323,45 @@ class SubstrateEvents(strax.OverlapWindowPlugin):
             np.ndarray: Boolean mask of hits passing the substrate-like selection.
 
         """
+        if "sampling_frequency_hz" in hits.dtype.names and np.any(
+            hits["sampling_frequency_hz"] != config["fs"]
+        ):
+            raise ValueError("Hit sampling frequency differs from configured fs")
         kappa_ms = hits["kappa"] / config["fs"] * 1e3
+        mode = config.get("substrate_seed_coincidence", "hit_peaks")
+        if mode == "record_threshold":
+            if "legacy_spike_coincidence_valid" in hits.dtype.names and not np.all(
+                hits["legacy_spike_coincidence_valid"]
+            ):
+                raise ValueError(
+                    "Legacy seeds require compute_legacy_spike_coincidence=True upstream"
+                )
+            coincidence = hits["n_spikes_coinciding"]
+        elif mode == "hit_peaks":
+            coincidence = hits["hit_coincidence_channels"]
+        else:
+            raise ValueError("Unknown substrate_seed_coincidence")
+        legacy_photon = hits["is_photon_candidate"]
+        if mode == "record_threshold" and "legacy_spike_coincidence_valid" in hits.dtype.names:
+            legacy_photon = ~(
+                hits["is_coincident_with_spikes"]
+                | hits["is_symmetric_spike"]
+                | hits["is_truncated_hit"]
+                | hits["is_invalid_kappa"]
+            )
+        minimum = (
+            config["substrate_min_spike_coincidence"]
+            if mode == "record_threshold"
+            else config["substrate_min_peak_channels"]
+        )
         mask = (
-            (hits["n_spikes_coinciding"] >= config["substrate_min_spike_coincidence"])
+            (coincidence >= minimum)
             & (kappa_ms > config["substrate_kappa_min_ms"])
             & (kappa_ms < config["substrate_kappa_max_ms"])
             & (hits["best_chi2"] > config["substrate_min_best_chi2"])
             & ~hits["is_symmetric_spike"]
             & ~hits["is_invalid_kappa"]
-            & ~hits["is_photon_candidate"]
+            & (~legacy_photon if mode == "record_threshold" else True)
         )
         if config["substrate_exclude_truncated_hits"]:
             mask &= ~hits["is_truncated_hit"]
@@ -325,7 +411,7 @@ class SubstrateEvents(strax.OverlapWindowPlugin):
             cluster_hits (np.ndarray): The substrate-like hits of this cluster.
 
         """
-        event["time"] = cluster_hits["time"][0]
+        event["time"] = cluster_hits["time"].min()
         event["endtime"] = cluster_hits["endtime"].max()
         event["n_hits"] = len(cluster_hits)
 
@@ -334,7 +420,10 @@ class SubstrateEvents(strax.OverlapWindowPlugin):
 
         # Per-channel patterns; if a channel fired more than once, the hit with
         # the largest dx amplitude represents it in both patterns.
-        order = np.argsort(cluster_hits["amplitude"])
+        order = np.argsort(
+            cluster_hits["amplitude"],
+            kind=("quicksort" if self.config["substrate_time_basis"] == "start" else "stable"),
+        )
         channels = cluster_hits["channel"][order]
         event["pattern_amplitude"][channels] = cluster_hits["amplitude"][order]
         event["pattern_best_aOF"][channels] = cluster_hits["best_aOF"][order]
@@ -359,18 +448,51 @@ class SubstrateEvents(strax.OverlapWindowPlugin):
             np.sum((self.channel_positions - max_energy_position) ** 2, axis=1)
         )
 
-    def compute(self, hits):
-        substrate_hits = hits[self.select_substrate_hits(hits, self.config)]
-        substrate_hits = substrate_hits[np.argsort(substrate_hits["time"], kind="stable")]
+    def reconstruct(self, hits):
+        """Return all pre-veto groups, membership links, and a separate veto view."""
+        seed_mask = self.select_substrate_hits(hits, self.config)
+        basis = self.config["substrate_time_basis"]
+        if basis in ("raw", "ma", "convolved"):
+            invalid = seed_mask & ~timing_valid_mask(hits, basis)
+            if np.any(invalid):
+                import logging
 
-        clusters = self.find_clusters(
-            substrate_hits["time"],
-            self.coincidence_window_ns,
-            self.min_hit_coincidence,
+                logging.getLogger(__name__).warning(
+                    "Excluded %d substrate seeds with invalid %s peak timing",
+                    np.count_nonzero(invalid),
+                    basis,
+                )
+            seed_mask = seed_mask & ~invalid
+        groups, members = prompt_groups(
+            hits,
+            seed_mask,
+            basis=self.config["substrate_time_basis"],
+            gap_ns=self.coincidence_window_ns,
+            min_hits=self.min_hit_coincidence,
         )
+        veto = apply_veto(groups, int(round(self.config["substrate_veto_ms"] * 1e6)))
+        return groups, members, veto
 
-        events = np.zeros(len(clusters), dtype=self.infer_dtype())
-        for event, cluster_indices in zip(events, clusters):
-            self.build_event(event, substrate_hits[cluster_indices])
-
-        return events
+    def compute(self, hits):
+        groups, members, veto = self.reconstruct(hits)
+        accepted = groups[veto["accepted"]]
+        events = np.zeros(len(accepted), dtype=self.infer_dtype())
+        membership = {}
+        for member in members:
+            membership.setdefault(member["group_id"], []).append(member["hit_index"])
+        for event, group in zip(events, accepted):
+            indices = membership[group["group_id"]]
+            self.build_event(event, hits[indices])
+            for name in (
+                "group_id",
+                "brightest_hit_id",
+                "n_channels",
+                "n_repeated_channels",
+                "max_hits_per_channel",
+            ):
+                event[name] = group[name]
+            event["first_member_time"] = group["first_time"]
+            event["last_member_time"] = group["last_time"]
+            event["brightest_member_time"] = group["brightest_time"]
+        # Framework intervals describe original window support, never peak-order position.
+        return events[np.argsort(events["time"], kind="stable")]

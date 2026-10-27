@@ -42,6 +42,9 @@ def _make_hit(time, channel, amplitude=1e-5, best_aOF=1.0, **overrides):
 
 def _get_plugin(**config_overrides):
     st = straxion.qualiphide_thz_offline()
+    st.set_config(
+        {"substrate_time_basis": "start", "substrate_seed_coincidence": "record_threshold"}
+    )
     if config_overrides:
         st.set_config(config_overrides)
     plugin = st.get_single_plugin("test_run", "substrate_events")
