@@ -41,7 +41,7 @@ def _make_hit(time, channel, amplitude=1e-5, best_aOF=1.0, **overrides):
 
 
 def _get_plugin(**config_overrides):
-    st = straxion.qualiphide_thz_offline()
+    st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
     st.set_config(
         {"substrate_time_basis": "start", "substrate_seed_coincidence": "record_threshold"}
     )
@@ -54,7 +54,7 @@ def _get_plugin(**config_overrides):
 
 def test_substrate_events_plugin_registration():
     """Test that SubstrateEvents is registered in the offline context."""
-    st = straxion.qualiphide_thz_offline()
+    st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
     assert "substrate_events" in st._plugin_class_registry
     assert st._plugin_class_registry["substrate_events"] == SubstrateEvents
 

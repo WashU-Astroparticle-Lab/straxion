@@ -9,9 +9,15 @@ from straxion.substrate_reconstruction import prompt_groups, apply_veto, hit_coi
 
 
 def context(**config):
-    st = straxion.qualiphide_thz_offline()
+    st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
     st.set_config(config)
     return st
+
+
+def plugin_context():
+    """Exercise plugin option tracking independently of offline asset verification."""
+    st = context()
+    return strax.Context(config=st.config, register=list(st._plugin_class_registry.values()))
 
 
 def records():
@@ -251,7 +257,7 @@ def test_plugin_defaults_and_fragmented_chunks():
 
 
 def test_lineage_tracks_configuration():
-    st = context()
+    st = plugin_context()
     old = st.key_for("run_A", "hit_classification").lineage_hash
     st.set_config({"hit_coincidence_window_ns": 120000})
     assert st.key_for("run_A", "hit_classification").lineage_hash != old

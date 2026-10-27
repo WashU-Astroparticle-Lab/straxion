@@ -311,7 +311,7 @@ class TestHitClassificationWithRealDataOnline:
 
 def test_spike_coincidence_plugin_registration():
     """Test that the DxHitClassification plugin is properly registered in the offline context."""
-    st = straxion.qualiphide_thz_offline()
+    st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
     assert "hit_classification" in st._plugin_class_registry
     # In offline context, hit_classification maps to DxHitClassification
     assert st._plugin_class_registry["hit_classification"] == DxHitClassification
@@ -319,7 +319,7 @@ def test_spike_coincidence_plugin_registration():
 
 def test_spike_coincidence_dtype_inference():
     """Test that DxHitClassification can infer the correct data type."""
-    st = straxion.qualiphide_thz_offline()
+    st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
     plugin = st.get_single_plugin("1756824965", "hit_classification")
     dtype = plugin.infer_dtype()
     # List of expected fields for DxHitClassification
@@ -365,7 +365,7 @@ class TestDxHitClassificationWithRealDataOffline:
 
     def test_qualiphide_thz_offline_context_creation(self):
         """Test that the qualiphide_thz_offline context can be created without errors."""
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         assert st is not None
         assert hasattr(st, "get_array")
 
@@ -448,7 +448,7 @@ class TestDxHitClassificationWithRealDataOffline:
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
         # Create context and process spike coincidence
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
         # These historical assertions exercise the explicit legacy comparison.
@@ -601,7 +601,7 @@ class TestDxHitClassificationWithRealDataOffline:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
         # These historical assertions exercise the explicit legacy comparison.
@@ -698,7 +698,7 @@ class TestDxHitClassificationWithRealDataOffline:
 
     def test_spike_coincidence_missing_data_directory(self):
         """Test that the spike coincidence plugin raises errors when data directory is missing."""
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
 
         configs = {
@@ -717,7 +717,7 @@ class TestDxHitClassificationWithRealDataOffline:
 
     def test_spike_coincidence_invalid_config(self):
         """Test that the spike coincidence plugin handles invalid configuration gracefully."""
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
 
         # Test with invalid configuration
@@ -744,7 +744,7 @@ class TestDxHitClassificationWithRealDataOffline:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
         # These historical assertions exercise the explicit legacy comparison.
@@ -805,7 +805,7 @@ class TestDxHitClassificationWithRealDataOffline:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
         # These historical assertions exercise the explicit legacy comparison.
@@ -861,7 +861,7 @@ class TestDxHitClassificationWithRealDataOffline:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
         # These historical assertions exercise the explicit legacy comparison.
@@ -1569,7 +1569,7 @@ def test_fit_tau_nonconvergence():
 
 def test_compute_tau_fits_driver():
     """Test the compute_tau_fits driver on a mix of good and pathological hits."""
-    st = straxion.qualiphide_thz_offline()
+    st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
     plugin = st.get_single_plugin("1756824965", "hit_classification")
 
     fs = plugin.config["fs"]
@@ -1606,7 +1606,7 @@ def test_compute_tau_fits_driver():
 
 def test_determine_spike_threshold_with_sigma():
     """Test determine_spike_threshold works correctly with spike_thresholds_sigma."""
-    st = straxion.qualiphide_thz_offline()
+    st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
     plugin = st.get_single_plugin("1756824965", "hit_classification")
 
     # Create mock records with data_dx_convolved
@@ -1636,7 +1636,7 @@ def test_determine_spike_threshold_with_sigma():
 
 def test_noise_psd_length_validation():
     """Test that noise PSD length mismatch raises ValueError during setup."""
-    st = straxion.qualiphide_thz_offline()
+    st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
 
     # Create invalid PSD with wrong length (should be 400 = 100 + 300)
     invalid_psd = [1.0] * 50  # Wrong length
@@ -1658,7 +1658,7 @@ def test_noise_psd_length_validation():
 
 def test_compute_per_channel_noise_psd_empty_channel():
     """Test that channels without noise windows return None for PSD."""
-    st = straxion.qualiphide_thz_offline()
+    st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
     plugin = st.get_single_plugin("1756824965", "hit_classification")
 
     # Get the expected PSD length from plugin config

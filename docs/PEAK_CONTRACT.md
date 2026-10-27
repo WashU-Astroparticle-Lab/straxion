@@ -178,13 +178,21 @@ hash identifies today's files but does not establish their historical identity.
 For manual contexts, use `template_sha256` and `file_sha256` from
 `straxion.processing_provenance` when deliberately selecting a new asset set.
 The bundled-template expected digest is pinned in `DEFAULT_TEMPLATE_CONTENT_SHA256`
-and included in lineage. Import and configuration/key resolution do not read
-those files. Setup still hashes their full contents before estimation and rejects
+and included in lineage. Import and plugin-default resolution do not read those files. The completed-run
+offline context additionally verifies files before cached-data lookup. Setup still hashes their full contents before estimation and rejects
 changed assets; no file-metadata cache is used. When intentionally updating bundled
 templates, update the digest in the same change (the tests verify it against the
 shipped files). Custom assets require their own explicit tracked digest.
 Use the original per-SR own-template folder and avgmap configuration;
 never substitute a default asset to make regeneration succeed.
+
+The [completed-run offline context](OFFLINE_PRODUCTION.md) prepares and resolves
+frozen averaged maps automatically. Its records and classifier share the same
+template digest; any supplied expected digest is verified before storage lookup.
+The export CLI defaults to averaged calibration and accepts
+`--calibration-mode per_scan` for explicitly requested historical per-scan work.
+Both modes retain the CLI's required expected-template-hash check; averaged mode
+also requires the expected map hash.
 
 Export schema version 2 adds `event_seed_mask_{start,raw,ma,convolved}.npy`
 and corresponding `event_excluded_hit_ids_*` arrays. Each effective mask is the

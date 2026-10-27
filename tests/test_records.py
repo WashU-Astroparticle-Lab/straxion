@@ -640,6 +640,9 @@ class TestDxRecordsSetupMethods:
                     )
 
         self.dx_records.deps = {"raw_records": MockDeps()}
+        self.dx_records.config["template_content_sha256"] = DxRecords.takes_config[
+            "template_content_sha256"
+        ].default
 
         # Test setup
         self.dx_records.setup()
@@ -1528,7 +1531,7 @@ class TestRecordsWithRealDataOffline:
         """Test that the qualiphide_thz_offline context can be created without errors."""
         import straxion
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         assert st is not None
         assert hasattr(st, "get_array")
 
@@ -1612,7 +1615,7 @@ class TestRecordsWithRealDataOffline:
         import straxion
 
         # Create context and process records
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
 
@@ -1685,7 +1688,7 @@ class TestRecordsWithRealDataOffline:
 
         import straxion
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
 
@@ -1729,7 +1732,7 @@ class TestRecordsWithRealDataOffline:
         """Test that the records plugin raises appropriate errors when data directory is missing."""
         import straxion
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
 
         configs = {
@@ -1750,7 +1753,7 @@ class TestRecordsWithRealDataOffline:
         """Test that the records plugin handles invalid configuration gracefully."""
         import straxion
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
 
         # Test with invalid configuration
@@ -1779,7 +1782,7 @@ class TestRecordsWithRealDataOffline:
 
         import straxion
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
 

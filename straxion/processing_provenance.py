@@ -9,7 +9,8 @@ DEFAULT_TEMPLATE_CONTENT_SHA256 = "0b93bb85b9dd6fa6bb7412322f293ab10500bc86ea01f
 
 
 def file_sha256(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    with open(path, "rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def template_manifest(path, folder):

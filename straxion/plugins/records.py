@@ -11,6 +11,7 @@ from straxion.constants import (
     TEMPLATE_INTERP_FOLDER,
 )
 from straxion.utils import base_waveform_dtype, circfit, load_interpolation
+from straxion.processing_provenance import DEFAULT_TEMPLATE_CONTENT_SHA256, template_sha256
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import fftconvolve
 import os
@@ -368,18 +369,39 @@ PULSE_KERNEL_OPTIONS = (
         help="Folder containing per-channel template interpolation files.",
     ),
     strax.Option(
+        "dx_map_sha256",
+        default="",
+        type=str,
+        track=True,
+        help="Expected map content SHA-256, resolved before lineage by the offline context.",
+    ),
+    strax.Option(
+        "dx_map_require_all",
+        default=False,
+        type=bool,
+        track=True,
+        help="Require a valid averaged map for every channel; no per-scan fallback.",
+    ),
+    strax.Option(
+        "scan_calibration_sha256",
+        default="",
+        type=str,
+        track=True,
+        help="Content identity of the per-acquisition scan calibration inputs.",
+    ),
+    strax.Option(
+        "template_content_sha256",
+        default=DEFAULT_TEMPLATE_CONTENT_SHA256,
+        type=str,
+        track=True,
+        help="Expected template content identity, verified at setup; resolved by offline context.",
+    ),
+    strax.Option(
         "dx_map_dir",
         type=str,
         default="",
         track=False,
         help="Directory holding epoch-averaged theta->frequency calibration map npz files.",
-    ),
-    strax.Option(
-        "dx_map_sha256",
-        default="",
-        type=str,
-        track=True,
-        help="Required SHA256 content identity when using an averaged dx map.",
     ),
     strax.Option(
         "dx_map_filename",
@@ -396,8 +418,8 @@ PULSE_KERNEL_OPTIONS = (
                 "scans of (f - f(0))/f(0), the fractional frequency offset relative to each "
                 "scan's own on-resonance point, so y_med(0) = 0. Channels whose y_med contains "
                 "non-finite values fall back to the per-scan table. Other keys are ignored. "
-                "strax hashes the filename, not the file content, so include a content tag in "
-                "the filename when the map is regenerated."
+                "dx_map_sha256 tracks the file content and is verified when loading. "
+                "The offline production context requires valid maps for every channel."
             ),
         ),
     ),
@@ -765,22 +787,23 @@ class DxRecords(strax.Plugin):
             KeyError: If the map lacks the ``x`` or ``y_med`` keys.
         """
         map_path = os.path.join(self.config["dx_map_dir"], self.config["dx_map_filename"])
-        from straxion.processing_provenance import file_sha256
+        from straxion.calibration import read_dx_map
 
-        if os.path.isfile(map_path) and file_sha256(map_path) != self.config["dx_map_sha256"]:
-            raise ValueError("Set dx_map_sha256 to the map file SHA256 before regeneration")
         if not os.path.isfile(map_path):
             raise FileNotFoundError(
                 f"Averaged dx map file not found: {map_path} (check dx_map_dir and dx_map_filename)"
             )
-        M = np.load(map_path)
-        missing = [key for key in ("x", "y_med") if key not in M.files]
-        if missing:
-            raise KeyError(
-                f"Averaged dx map {map_path} lacks required key(s) {missing}; "
-                f"available keys: {list(M.files)}"
-            )
-        x_all, y_all = M["x"], M["y_med"]
+        expected = self.config.get("dx_map_sha256", "")
+        if not expected:
+            raise ValueError("Set dx_map_sha256 to the map file SHA256 before regeneration")
+        # Hash the bytes actually loaded. Only the production context requires
+        # complete maps; explicit low-level use retains PR #99's partial-map policy.
+        x_all, y_all, _ = read_dx_map(
+            map_path,
+            expected,
+            len(self.fres),
+            require_all=self.config.get("dx_map_require_all", False),
+        )
 
         for ch in range(len(self.fres)):
             if ch >= len(x_all) or not np.all(np.isfinite(y_all[ch])):
@@ -859,6 +882,13 @@ class DxRecords(strax.Plugin):
         return pulse_kernal
 
     def setup(self):
+        actual = template_sha256(
+            self.config["template_interp_path"], self.config["template_interp_folder"]
+        )
+        if actual != self.config["template_content_sha256"]:
+            raise ValueError(
+                "Set template_content_sha256 to the current template_sha256 before regeneration"
+            )
         # Get record_length from the plugin making raw_records.
         raw_records_dtype = self.deps["raw_records"].dtype_for("raw_records")
         self.record_length = len(np.zeros(1, raw_records_dtype)[0]["data_i"])

@@ -17,6 +17,9 @@ pip install -e ./
 ```
 
 ## Tutorials
+- For completed science runs, use the [offline production workflow](docs/OFFLINE_PRODUCTION.md).
+  The offline context defaults to frozen epoch-averaged maps; per-scan processing requires
+  `calibration_mode="per_scan"`.
 - See [this document](https://strax.readthedocs.io/en/latest/) for `strax` related functionality.
 - Check `notebooks/` for `straxion` tutorials in the *QUALIPHIDE* context.
 

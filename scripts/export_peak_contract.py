@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--cache", required=True, type=Path, help="New private regeneration cache")
     parser.add_argument("--output", required=True, type=Path, help="New export directory")
     parser.add_argument("--waveform-count", default=0, type=int)
+    parser.add_argument("--calibration-mode", choices=("averaged", "per_scan"), default="averaged")
     args = parser.parse_args()
     if args.cache.exists() or args.output.exists():
         parser.error("Cache and export destinations must both be new directories")
@@ -37,7 +38,9 @@ def main():
     config.setdefault("substrate_veto_ms", 5.0)
     config.setdefault("substrate_time_basis", "ma")
     config.setdefault("compute_legacy_spike_coincidence", True)
-    context = straxion.qualiphide_thz_offline(output_folder=str(args.cache))
+    context = straxion.qualiphide_thz_offline(
+        output_folder=str(args.cache), calibration_mode=args.calibration_mode
+    )
     context.set_config(config)
     export_peak_contract(
         context,
