@@ -10,6 +10,7 @@ from straxion.constants import (
     HIT_WINDOW_LENGTH_RIGHT,
 )
 from straxion.utils import base_waveform_dtype
+from straxion.hit_metadata import TIMING_DTYPE, fill_timing, validate_records
 
 export, __all__ = strax.exporter()
 
@@ -193,6 +194,41 @@ def _compute_hit_boundaries_and_amplitudes(
 @export
 @strax.takes_config(
     strax.Option(
+        "compute_legacy_spike_coincidence",
+        default=False,
+        type=bool,
+        track=True,
+        help="Opt-in upstream record-threshold coincidence for legacy comparisons.",
+    ),
+    strax.Option(
+        "hit_coincidence_window_ns",
+        default=131000,
+        type=int,
+        track=True,
+        help="MA-peak coincidence half-width; inclusive endpoints, includes self.",
+    ),
+    strax.Option(
+        "spike_coincidence_window",
+        default=0.131e-3,
+        type=float,
+        track=True,
+        help="Legacy record-coincidence half-width in seconds, rounded to samples.",
+    ),
+    strax.Option(
+        "spike_threshold_dx",
+        default=None,
+        type=float,
+        track=True,
+        help="Legacy spike threshold in dx; exclusive with sigma thresholds.",
+    ),
+    strax.Option(
+        "spike_thresholds_sigma",
+        default=[4.0 for _ in range(41)],
+        type=list,
+        track=True,
+        help="Legacy per-channel spike threshold multipliers.",
+    ),
+    strax.Option(
         "hit_threshold_dx",
         default=None,
         track=True,
@@ -233,7 +269,7 @@ class DxHits(strax.Plugin):
     The hit-finding algorithm is based on the kernel convolved signal.
     """
 
-    __version__ = "0.1.0"
+    __version__ = "0.2.0"
 
     # Inherited from straxen. Not optimized outside XENONnT.
     rechunk_on_save = False
@@ -401,7 +437,16 @@ class DxHits(strax.Plugin):
             )
         )
 
-        return dtype
+        return (
+            dtype
+            + TIMING_DTYPE
+            + [
+                ("n_spikes_coinciding", "i8"),
+                ("legacy_spike_coincidence_valid", "?"),
+                ("hit_coincidence", "i4"),
+                ("hit_coincidence_channels", "i4"),
+            ]
+        )
 
     def setup(self):
         self.hit_waveform_length = HIT_WINDOW_LENGTH_LEFT + HIT_WINDOW_LENGTH_RIGHT
@@ -410,8 +455,8 @@ class DxHits(strax.Plugin):
 
         self.hit_threshold_dx = self.config["hit_threshold_dx"]
         self.hit_thresholds_sigma = self.config["hit_thresholds_sigma"]
-        self.hit_min_width_samples = self.config["hit_min_width"] * self.fs
         self.fs = self.config["fs"]
+        self.hit_min_width_samples = self.config["hit_min_width"] * self.fs
         self.dt_exact = 1 / self.fs * SECOND_TO_NANOSECOND
 
     @staticmethod
@@ -500,6 +545,7 @@ class DxHits(strax.Plugin):
         Returns:
             np.ndarray: Array of hits with waveform data and characteristics.
         """
+        validate_records(records)
         hit_threshold_dx = self.determine_hit_threshold(records)
 
         results = []
@@ -517,6 +563,25 @@ class DxHits(strax.Plugin):
         # Order hits first by time
         results = results[np.argsort(results["time"])]
 
+        from straxion.substrate_reconstruction import hit_coincidences
+
+        counts, _ = hit_coincidences(results, self.config["hit_coincidence_window_ns"])
+        results["hit_coincidence"] = counts["n_hits"]
+        results["hit_coincidence_channels"] = counts["n_channels"]
+        results["n_spikes_coinciding"] = -1
+        if self.config["compute_legacy_spike_coincidence"]:
+            # Invoke the unchanged legacy record estimator without initializing OF/templates.
+            from .hit_classification import DxHitClassification
+
+            legacy = DxHitClassification()
+            legacy.config = self.config
+            legacy.spike_threshold_dx = self.config["spike_threshold_dx"]
+            legacy.spike_coincidence_window = int(
+                round(self.config["spike_coincidence_window"] * self.fs)
+            )
+            thresholds = legacy.determine_spike_threshold(records)
+            legacy.find_spike_coincidence(results, results, records, thresholds)
+            results["legacy_spike_coincidence_valid"] = True
         return results
 
     def _process_single_record(self, record, hit_threshold_dx):
@@ -615,6 +680,16 @@ class DxHits(strax.Plugin):
             hits[i]["endtime"] = min(calculated_endtime, record_endtime)
             hits[i]["length"] = right_i - left_i
 
+        fill_timing(
+            hits,
+            record,
+            hit_start_i,
+            aligned_indices,
+            left_indices,
+            right_indices,
+            self.fs,
+            getattr(self, "run_id", ""),
+        )
         return hits
 
     def _process_hit(
