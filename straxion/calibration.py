@@ -9,6 +9,7 @@ import io
 import json
 from pathlib import Path
 import re
+import tempfile
 import warnings
 
 import numpy as np
@@ -132,6 +133,7 @@ def prepare_offline_calibration(
     *,
     epochs=None,
     exclude_runs=(),
+    exclude_scans=(),
     gap_hours=6.0,
     fs=38000,
     n_grid=2000,
@@ -142,13 +144,17 @@ def prepare_offline_calibration(
 
     ``epochs`` optionally maps labels to acquisition timestamps and must cover
     every non-excluded acquisition exactly once. Otherwise split at start-time
-    gaps strictly greater than ``gap_hours`` (the historical notebook rule).
+    gaps strictly greater than ``gap_hours``. Use explicit epochs to reproduce
+    notebook boundaries that were selected by run index or detector state.
     Exclude bad acquisitions explicitly; only scans assigned to retained runs
-    contribute. A scan is the latest complete configuration strictly before an
+    contribute, except timestamps in ``exclude_scans``. These scans still calibrate
+    their acquisitions but do not enter the median. A scan is the latest complete
+    configuration strictly before an
     acquisition. Sparse epochs warn but are never merged automatically.
 
     The destination must not exist: preparing a replacement always creates a
-    separate release, so an interrupted or previous preparation is not overwritten.
+    separate release. Files are built in a temporary sibling directory and published
+    together, so an interrupted preparation does not block the destination.
     """
     folder = Path(input_folder).resolve()
     destination = Path(calibration_dir).resolve()
@@ -190,6 +196,9 @@ def prepare_offline_calibration(
     files = {key: _timestamp_files(folder, *pattern) for key, pattern in patterns.items()}
     # An incomplete newer scan must not silently select an older calibration.
     scan_times = sorted(set().union(*(set(f) for f in files.values())))
+    excluded_scans = {int(s) for s in exclude_scans}
+    if excluded_scans - set(scan_times):
+        raise ValueError(f"Excluded scans not found: {sorted(excluded_scans - set(scan_times))}")
     assignments = {}
     for run in retained:
         previous = [stamp for stamp in scan_times if stamp < run]
@@ -199,6 +208,14 @@ def prepare_offline_calibration(
         if any(stamp not in f for f in files.values()):
             raise ValueError(f"Incomplete scan {stamp} for acquisition {run}")
         assignments[run] = stamp
+
+    contributing = {
+        label: sorted({assignments[r] for r in group} - excluded_scans)
+        for label, group in epochs.items()
+    }
+    for label, stamps in contributing.items():
+        if not stamps:
+            raise ValueError(f"Epoch {label} has no contributing scans after exclusions")
 
     settings = dict(
         widescan_resolution=widescan_resolution,
@@ -211,22 +228,20 @@ def prepare_offline_calibration(
             if names[f"{key}_z"].replace(f"{key}_z", f"{key}_f") != names[f"{key}_f"]:
                 raise ValueError(f"Mismatched {key} scan files at {stamp}")
         hashes = {name: file_sha256(folder / name) for name in names.values()}
-        tables[stamp] = calibration_tables(dict(scan_config(folder, names), **settings))
+        if stamp not in excluded_scans:
+            tables[stamp] = calibration_tables(dict(scan_config(folder, names), **settings))
         for name, digest in hashes.items():
             verify_file(folder / name, digest)
         scans[str(stamp)] = dict(files=names, sha256=hashes)
 
     maps = {}
-    for label, group in epochs.items():
-        stamps = sorted({assignments[r] for r in group})
+    for label, stamps in contributing.items():
         if len(stamps) < 3:
             warnings.warn(
                 f"Epoch {label} has only {len(stamps)} scan(s); weak median", stacklevel=2
             )
         maps[label] = (average_maps([tables[s] for s in stamps], n_grid), stamps)
 
-    # Write maps first; the final manifest is the completion marker.
-    destination.mkdir(parents=True, exist_ok=False)
     manifest = dict(
         schema_version=SCHEMA_VERSION,
         algorithm="pointwise-median-v1",
@@ -236,23 +251,38 @@ def prepare_offline_calibration(
         },
         settings=dict(settings, fs=fs, n_grid=n_grid, gap_hours=gap_hours),
         excluded_runs=sorted(excluded),
+        excluded_scans=sorted(excluded_scans),
         scans=scans,
         runs={},
         epochs={},
     )
-    for i, (label, (data, stamps)) in enumerate(maps.items()):
-        path = destination / f"dx_map_{i}.npz"
-        np.savez(path, **data, configs=np.array(stamps))
-        read_dx_map(path)
-        manifest["epochs"][label] = dict(
-            runs=sorted(epochs[label]), scans=stamps, filename=path.name, sha256=file_sha256(path)
-        )
-        for run in epochs[label]:
-            manifest["runs"][str(run)] = dict(
-                filename=runs[run], scan=str(assignments[run]), epoch=label
+    # A sibling keeps the final rename on the same filesystem. Readers only see
+    # a complete release; even an uncatchable interruption leaves the target free.
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=f".{destination.name}-", dir=destination.parent
+    ) as temporary:
+        staging = Path(temporary)
+        for i, (label, (data, stamps)) in enumerate(maps.items()):
+            path = staging / f"dx_map_{i}.npz"
+            np.savez(path, **data, configs=np.array(stamps))
+            read_dx_map(path)
+            manifest["epochs"][label] = dict(
+                runs=sorted(epochs[label]),
+                scans=stamps,
+                filename=path.name,
+                sha256=file_sha256(path),
             )
-    manifest_path = destination / "manifest.json"
-    temporary = destination / "manifest.json.tmp"
-    temporary.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    temporary.replace(manifest_path)
-    return manifest_path
+            for run in epochs[label]:
+                manifest["runs"][str(run)] = dict(
+                    filename=runs[run], scan=str(assignments[run]), epoch=label
+                )
+        (staging / "manifest.json").write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+        )
+        if destination.exists():
+            raise FileExistsError(
+                f"Calibration destination exists: {destination}; use a new directory"
+            )
+        staging.rename(destination)
+    return destination / "manifest.json"

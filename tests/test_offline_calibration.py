@@ -153,6 +153,90 @@ def test_incomplete_or_absent_scan_is_not_skipped(science_run, tmp_path):
         prepare_offline_calibration(folder, tmp_path / "absent")
 
 
+def test_scan_exclusion_preserves_runs_and_their_calibration(science_run, tmp_path):
+    folder, original = science_run
+    with pytest.warns(UserWarning):
+        path = prepare_offline_calibration(folder, tmp_path / "scan_excluded", exclude_scans=[190])
+    manifest = json.loads(path.read_text())
+    assert manifest["excluded_scans"] == [190]
+    assert manifest["epochs"]["e0"]["scans"] == [90, 290]
+    assert manifest["runs"] == json.loads(original.read_text())["runs"]
+    assert manifest["runs"]["200"]["scan"] == "190"
+    assert "190" in manifest["scans"]
+    tables = [
+        calibration_tables(
+            dict(
+                scan_config(folder, manifest["scans"][str(stamp)]["files"]), **manifest["settings"]
+            )
+        )
+        for stamp in (90, 290)
+    ]
+    expected = average_maps(tables)
+    with np.load(path.parent / "dx_map_0.npz") as saved:
+        np.testing.assert_array_equal(saved["configs"], [90, 290])
+        np.testing.assert_array_equal(saved["y_med"], expected["y_med"])
+    st = context((folder, path))
+    records = st.get_array("200", "records", progress_bar=False)
+    assert len(records) > 0
+    plugin = st.get_single_plugin("200", "records")
+    assert plugin.config["resonant_frequency_filename"] == "fres_test-190.npy"
+    # A scan omitted from the median remains a pinned per-acquisition input.
+    np.save(folder / "fres_test-190.npy", [1.1e9])
+    with pytest.raises(ValueError, match="Calibration file changed"):
+        st.key_for("200", "records")
+
+
+@pytest.mark.parametrize(
+    "excluded, message",
+    [([999], "Excluded scans not found"), ([90, 190, 290], "no contributing scans")],
+)
+def test_invalid_scan_exclusions_fail_before_publication(science_run, tmp_path, excluded, message):
+    destination = tmp_path / "invalid_exclusion"
+    with pytest.raises(ValueError, match=message):
+        prepare_offline_calibration(science_run[0], destination, exclude_scans=excluded)
+    assert not destination.exists()
+
+
+def test_interrupted_preparation_can_retry_default_destination(science_run, tmp_path, monkeypatch):
+    folder, _ = science_run
+    output = tmp_path / "retry"
+    destination = output / "calibration"
+    original_savez = np.savez
+
+    def interrupt_after_write(path, **kwargs):
+        original_savez(path, **kwargs)
+        assert Path(path).is_file()
+        assert not destination.exists()
+        raise KeyboardInterrupt("interrupted after first map")
+
+    with monkeypatch.context() as patch:
+        patch.setattr("straxion.calibration.np.savez", interrupt_after_write)
+        with pytest.warns(UserWarning), pytest.raises(KeyboardInterrupt):
+            straxion.qualiphide_thz_offline(input_folder=folder, output_folder=str(output))
+    assert not destination.exists()
+    assert not list(output.glob(".calibration-*"))
+    with pytest.warns(UserWarning):
+        st = straxion.qualiphide_thz_offline(input_folder=folder, output_folder=str(output))
+    assert st.run_ids == ["100", "200", "300", "30000"]
+    assert (destination / "manifest.json").is_file()
+
+
+def test_concurrent_release_is_not_overwritten(science_run, tmp_path, monkeypatch):
+    destination = tmp_path / "concurrent"
+    original_savez = np.savez
+
+    def publish_other_release(path, **kwargs):
+        original_savez(path, **kwargs)
+        destination.mkdir(exist_ok=True)
+        (destination / "manifest.json").write_text("other release")
+
+    monkeypatch.setattr("straxion.calibration.np.savez", publish_other_release)
+    with pytest.warns(UserWarning), pytest.raises(FileExistsError):
+        prepare_offline_calibration(science_run[0], destination)
+    assert (destination / "manifest.json").read_text() == "other release"
+    assert not list(tmp_path.glob(".concurrent-*"))
+
+
 @pytest.mark.parametrize("bad", ["nan", "descending", "shape", "zero", "channels"])
 def test_invalid_maps_fail(tmp_path, bad):
     x = np.linspace(-1, 1, 11)[None, :]
@@ -429,3 +513,26 @@ def test_default_template_identity_cannot_follow_changed_bundled_assets(science_
     monkeypatch.setattr("straxion.offline.template_sha256", lambda *args: "changed-assets")
     with pytest.raises(ValueError, match="Template content differs"):
         st.key_for("100", "hit_classification")
+
+
+def test_plain_records_context_requires_matching_template_identity(own_template_run):
+    from straxion.processing_provenance import template_sha256
+
+    resolved = dict(own_template_run.config)
+    for plugin in own_template_run._get_plugins(("records",), "100").values():
+        resolved.update(plugin.config)
+    expected = resolved.pop("template_content_sha256")
+    plain = strax.Context(
+        storage=[], config=resolved, register=list(own_template_run._plugin_class_registry.values())
+    )
+    with pytest.raises(ValueError, match="Set template_content_sha256"):
+        plain.get_single_plugin("100", "records")
+    plain.set_config({"template_content_sha256": expected})
+    plugin = plain.get_single_plugin("100", "records")
+    assert plugin.config["template_content_sha256"] == template_sha256(
+        resolved["template_interp_path"], resolved["template_interp_folder"]
+    )
+    path = Path(resolved["template_interp_folder"]) / "ch0_template_interp.pkl"
+    path.write_bytes(path.read_bytes() + b"changed")
+    with pytest.raises(ValueError, match="Set template_content_sha256"):
+        plugin.setup()

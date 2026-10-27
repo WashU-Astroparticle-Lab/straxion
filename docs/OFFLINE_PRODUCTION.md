@@ -22,9 +22,10 @@ for run_id in st.run_ids:
 On first use this creates `production/calibration/manifest.json` and one map per
 epoch. On subsequent calls it reuses the manifest, with exactly the same
 acquisitions, exclusions and epoch membership. `st.make` reuses matching saved
-products, allowing interrupted production to resume. Preparation never replaces
-an existing calibration directory. An interrupted preparation without a finished
-manifest requires a fresh directory.
+products, allowing interrupted production to resume. Preparation builds and validates
+the release in a temporary sibling directory, then atomically publishes it at the
+calibration destination. Interruption before publication leaves that destination
+available for retry. Preparation never replaces an existing calibration directory.
 
 The directory should contain one completed science run. Acquisition files use
 `ts_38kHz-<timestamp>.npy` by default. Each scan timestamp needs matching
@@ -34,10 +35,14 @@ scan strictly before each acquisition is selected, matching the reprocessing
 notebooks. No waveform files are loaded during preparation.
 
 By default, acquisition **start-time** gaps strictly greater than six hours split
-epochs, as in the existing notebooks. This is an initial grouping convention;
+epochs. This is an initial grouping convention;
 detector changes and known bad blocks require explicit overrides. Epochs with
 fewer than three distinct scans warn and remain separate. Each distinct assigned
 scan contributes once, regardless of the number of acquisitions it serves.
+Gap grouping is not guaranteed to reproduce existing notebook boundaries: the
+SR3 pt1/pt2 split used run indices. Supply `epochs=` with the approved acquisition
+membership when reproducing existing maps, including SR3e0/SR3e1 and SR1's three
+epochs; inspect that membership before production.
 
 ## Epochs and exclusions
 
@@ -48,6 +53,7 @@ manifest = straxion.prepare_offline_calibration(
     "/data/completed_science_run",
     "/data/calibration_release_1",  # must not already exist
     exclude_runs=[1750000100],
+    exclude_scans=[1750000150],  # omit from the median, retain its acquisitions
     epochs={
         "early": [1750000200, 1750000300],
         "late": [1750090000, 1750090100],
@@ -67,7 +73,15 @@ a run list. A scan used only by excluded acquisitions is omitted from the median
 if the same scan also serves retained acquisitions, it still contributes. Straxion
 does not hardcode science-run names or known bad blocks.
 
-Alternatively pass `calibration_options={"exclude_runs": [...], "gap_hours": 6.0}`
+Use `exclude_scans` for a scan that must not contribute to a median. Values are
+scan timestamps, not notebook configuration indices. Its acquisitions stay in
+production and continue to use that scan's own gain, phase reference and f0.
+The manifest records these exclusions, retains the scan's hashes, and lists only
+contributing scans under each epoch. Unknown scan timestamps and epochs left with
+no contributing scans raise errors. This option cannot rescue an incomplete or
+unusable per-acquisition calibration; exclude those acquisitions explicitly.
+
+Alternatively pass `calibration_options={"exclude_scans": [...], "gap_hours": 6.0}`
 to the context on first use. Omit preparation options when resuming. A changed
 selection, epoch definition or map recipe requires a new calibration directory.
 New files added to the input directory do not extend an already frozen production.
@@ -104,6 +118,14 @@ content-hashed. An explicitly supplied nonexistent template directory is an erro
 Records and classification use the same pinned bundled-template identity from
 `straxion.processing_provenance`. If `template_content_sha256` is supplied, the
 context verifies it before lookup and never replaces an incorrect expected hash.
+`DxRecords` also verifies this identity at setup in a plain `strax.Context`.
+Plain contexts using custom templates must supply their `template_sha256` as
+`template_content_sha256` before creating processing keys.
+
+These checks re-read the manifest, map, selected scan files and templates when
+resolving plugins, including repeated cache queries. Plugin caching is disabled
+to preserve per-acquisition configuration and detect asset drift; repeated lookup
+therefore incurs file I/O even when products are already stored.
 
 ## Existing maps and legacy processing
 

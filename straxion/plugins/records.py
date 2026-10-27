@@ -11,7 +11,7 @@ from straxion.constants import (
     TEMPLATE_INTERP_FOLDER,
 )
 from straxion.utils import base_waveform_dtype, circfit, load_interpolation
-from straxion.processing_provenance import DEFAULT_TEMPLATE_CONTENT_SHA256
+from straxion.processing_provenance import DEFAULT_TEMPLATE_CONTENT_SHA256, template_sha256
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import fftconvolve
 import os
@@ -394,7 +394,7 @@ PULSE_KERNEL_OPTIONS = (
         default=DEFAULT_TEMPLATE_CONTENT_SHA256,
         type=str,
         track=True,
-        help="Content identity of pulse templates resolved by the offline context.",
+        help="Expected template content identity, verified at setup; resolved by offline context.",
     ),
     strax.Option(
         "dx_map_dir",
@@ -882,6 +882,13 @@ class DxRecords(strax.Plugin):
         return pulse_kernal
 
     def setup(self):
+        actual = template_sha256(
+            self.config["template_interp_path"], self.config["template_interp_folder"]
+        )
+        if actual != self.config["template_content_sha256"]:
+            raise ValueError(
+                "Set template_content_sha256 to the current template_sha256 before regeneration"
+            )
         # Get record_length from the plugin making raw_records.
         raw_records_dtype = self.deps["raw_records"].dtype_for("raw_records")
         self.record_length = len(np.zeros(1, raw_records_dtype)[0]["data_i"])
