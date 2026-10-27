@@ -368,6 +368,34 @@ PULSE_KERNEL_OPTIONS = (
         help="Folder containing per-channel template interpolation files.",
     ),
     strax.Option(
+        "dx_map_sha256",
+        default="",
+        type=str,
+        track=True,
+        help="Expected map content SHA-256, resolved before lineage by the offline context.",
+    ),
+    strax.Option(
+        "dx_map_require_all",
+        default=False,
+        type=bool,
+        track=True,
+        help="Require a valid averaged map for every channel; no per-scan fallback.",
+    ),
+    strax.Option(
+        "scan_calibration_sha256",
+        default="",
+        type=str,
+        track=True,
+        help="Content identity of the per-acquisition scan calibration inputs.",
+    ),
+    strax.Option(
+        "template_content_sha256",
+        default="",
+        type=str,
+        track=True,
+        help="Content identity of pulse templates resolved by the offline context.",
+    ),
+    strax.Option(
         "dx_map_dir",
         type=str,
         default="",
@@ -762,14 +790,16 @@ class DxRecords(strax.Plugin):
             raise FileNotFoundError(
                 f"Averaged dx map file not found: {map_path} (check dx_map_dir and dx_map_filename)"
             )
-        M = np.load(map_path)
-        missing = [key for key in ("x", "y_med") if key not in M.files]
-        if missing:
-            raise KeyError(
-                f"Averaged dx map {map_path} lacks required key(s) {missing}; "
-                f"available keys: {list(M.files)}"
+        if self.config.get("dx_map_require_all", False) or self.config.get("dx_map_sha256", ""):
+            from straxion.calibration import read_dx_map
+
+            x_all, y_all, _ = read_dx_map(
+                map_path, self.config.get("dx_map_sha256", ""), len(self.fres)
             )
-        x_all, y_all = M["x"], M["y_med"]
+        else:
+            # Explicit low-level legacy use retains its historical partial-map policy.
+            with np.load(map_path, allow_pickle=False) as data:
+                x_all, y_all = data["x"], data["y_med"]
 
         for ch in range(len(self.fres)):
             if ch >= len(x_all) or not np.all(np.isfinite(y_all[ch])):

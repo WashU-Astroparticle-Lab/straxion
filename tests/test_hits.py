@@ -443,7 +443,7 @@ class TestHitsWithRealDataOffline:
 
     def test_qualiphide_thz_offline_context_creation(self):
         """Test that the qualiphide_thz_offline context can be created without errors."""
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         assert st is not None
         assert hasattr(st, "get_array")
 
@@ -525,7 +525,7 @@ class TestHitsWithRealDataOffline:
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
         # Create context and process hits
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
 
@@ -635,7 +635,7 @@ class TestHitsWithRealDataOffline:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
 
@@ -671,7 +671,7 @@ class TestHitsWithRealDataOffline:
 
     def test_hits_missing_data_directory(self):
         """Test that the hits plugin raises errors when data directory is missing."""
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
 
         configs = {
@@ -690,7 +690,7 @@ class TestHitsWithRealDataOffline:
 
     def test_hits_invalid_config(self):
         """Test that the hits plugin handles invalid configuration gracefully."""
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
 
         # Test with invalid configuration
@@ -1027,7 +1027,7 @@ class TestDxHitsComputeSynthetic:
 
     def test_amplitude_dr_signed_extremum_and_alignment(self):
         """amplitude_dr keeps the sign of a negative-going dissipation pulse."""
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         plugin = st.get_single_plugin("1756824965", "hits")
         record = self._make_record(plugin)
 
@@ -1047,7 +1047,7 @@ class TestDxHitsComputeSynthetic:
 
     def test_data_dr_zero_padding_for_truncated_hit(self):
         """A hit near the record edge zero-pads data_dr past the valid window."""
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         plugin = st.get_single_plugin("1756824965", "hits")
         record = self._make_record(plugin)
 

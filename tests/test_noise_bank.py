@@ -46,14 +46,14 @@ def _get_test_config(test_data_dir, run_id):
 
 def test_noise_bank_plugin_registration():
     """Test that the NoiseBank plugin is properly registered in the context."""
-    st = straxion.qualiphide_thz_offline()
+    st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
     assert "noises" in st._plugin_class_registry
     assert st._plugin_class_registry["noises"] == NoiseBank
 
 
 def test_noise_bank_dtype_inference():
     """Test that NoiseBank can infer the correct data type."""
-    st = straxion.qualiphide_thz_offline()
+    st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
     plugin = st.get_single_plugin("1756824965", "noises")
     dtype = plugin.infer_dtype()
     # List of expected fields (add/remove as needed)
@@ -78,7 +78,7 @@ def test_noise_bank_dtype_inference():
 
 def test_noise_bank_empty_input():
     """Test that NoiseBank returns empty output for empty input."""
-    st = straxion.qualiphide_thz_offline()
+    st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
     plugin = st.get_single_plugin("1756824965", "noises")
     empty_records = np.array(
         [],
@@ -105,7 +105,7 @@ def test_noise_bank_empty_input():
 
 def test_noise_bank_minimal_valid_input():
     """Test NoiseBank with a minimal valid record that should produce no noises."""
-    st = straxion.qualiphide_thz_offline()
+    st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
     plugin = st.get_single_plugin("1756824965", "noises")
     # Minimal record with all zeros (should not trigger any hits)
     record = np.zeros(
@@ -137,7 +137,7 @@ def test_noise_bank_minimal_valid_input():
 
 def test_noise_bank_malformed_input():
     """Test that NoiseBank handles malformed input gracefully."""
-    st = straxion.qualiphide_thz_offline()
+    st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
     plugin = st.get_single_plugin("1756824965", "noises")
     # Missing required fields
     bad_record = np.zeros(1, dtype=[("channel", np.int16)])
@@ -155,7 +155,7 @@ class TestNoiseBankWithRealDataOffline:
 
     def test_qualiphide_thz_offline_context_creation(self):
         """Test that the qualiphide_thz_offline context can be created without errors."""
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         assert st is not None
         assert hasattr(st, "get_array")
 
@@ -237,7 +237,7 @@ class TestNoiseBankWithRealDataOffline:
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
         # Create context and process noises
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
 
@@ -313,7 +313,7 @@ class TestNoiseBankWithRealDataOffline:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = _get_test_config(test_data_dir, run_id)
 
@@ -349,7 +349,7 @@ class TestNoiseBankWithRealDataOffline:
 
     def test_noise_bank_missing_data_directory(self):
         """Test that the noise bank plugin raises errors when data directory is missing."""
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
 
         configs = {
@@ -368,7 +368,7 @@ class TestNoiseBankWithRealDataOffline:
 
     def test_noise_bank_invalid_config(self):
         """Test that the noise bank plugin handles invalid configuration gracefully."""
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
 
         # Test with invalid configuration

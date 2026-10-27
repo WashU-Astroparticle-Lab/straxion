@@ -34,7 +34,7 @@ def clean_strax_data():
 
 def test_match_plugin_registration():
     """Test that the Match plugin is properly registered."""
-    st = straxion.qualiphide_thz_offline()
+    st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
     assert "match" in st._plugin_class_registry
     assert st._plugin_class_registry["match"] == Match
 
@@ -75,7 +75,7 @@ class TestMatchWithRealData:
         if not test_data_dir:
             pytest.fail("STRAXION_TEST_DATA_DIR environment variable is not set")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         plugin = st.get_single_plugin("1756824965", "match")
         dtype = plugin.infer_dtype()
 
@@ -119,7 +119,7 @@ class TestMatchWithRealData:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = self._get_test_config(test_data_dir, run_id, salt_rate=100)
 
@@ -209,7 +209,7 @@ class TestMatchWithRealData:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = self._get_test_config(test_data_dir, run_id, salt_rate=100)
 
@@ -242,7 +242,7 @@ class TestMatchWithRealData:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = self._get_test_config(test_data_dir, run_id, salt_rate=100)
 
@@ -284,7 +284,7 @@ class TestMatchWithRealData:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = self._get_test_config(test_data_dir, run_id, salt_rate=100)
 
@@ -328,7 +328,7 @@ class TestMatchWithRealData:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = self._get_test_config(test_data_dir, run_id, salt_rate=100)
 
@@ -371,7 +371,7 @@ class TestMatchWithRealData:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = self._get_test_config(test_data_dir, run_id, salt_rate=100)
 
@@ -401,7 +401,7 @@ class TestMatchWithRealData:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = self._get_test_config(test_data_dir, run_id, salt_rate=100)
 
@@ -436,7 +436,7 @@ class TestMatchWithRealData:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = self._get_test_config(test_data_dir, run_id, salt_rate=100)
 
@@ -481,7 +481,7 @@ class TestMatchWithRealData:
         if not os.path.exists(test_data_dir):
             pytest.fail(f"Test data directory {test_data_dir} does not exist")
 
-        st = straxion.qualiphide_thz_offline()
+        st = straxion.qualiphide_thz_offline(calibration_mode="per_scan")
         run_id = "1756824965"
         configs = self._get_test_config(test_data_dir, run_id, salt_rate=100, match_window_ms=None)
 
