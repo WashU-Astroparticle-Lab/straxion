@@ -26,6 +26,9 @@ products, allowing interrupted production to resume. Preparation builds and vali
 the release in a temporary sibling directory, then atomically publishes it at the
 calibration destination. Interruption before publication leaves that destination
 available for retry. Preparation never replaces an existing calibration directory.
+A hard kill can leave a hidden sibling folder named `.<calibration-directory-name>-*`;
+it does not block retries and can be removed manually once its preparation process
+is no longer running.
 
 The directory should contain one completed science run. Acquisition files use
 `ts_38kHz-<timestamp>.npy` by default. Each scan timestamp needs matching
