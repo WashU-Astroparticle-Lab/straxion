@@ -89,42 +89,15 @@ def export_peak_contract(context, run_id, destination, *, source_revision, wavef
 def _add_reconstruction_views(hits, plugin, arrays, unavailable):
     # Freeze the selected seed mask for start-vs-peak comparisons; basis changes
     # only membership/time, even when a peak-based seed alternative was selected.
-    from straxion.substrate_reconstruction import prompt_groups
-
     seed_mask = plugin.select_substrate_hits(hits, plugin.config)
     arrays["substrate_seed_mask"] = seed_mask
     if np.all(hits["legacy_spike_coincidence_valid"]):
         legacy_config = dict(plugin.config, substrate_seed_coincidence="record_threshold")
         legacy_mask = plugin.select_substrate_hits(hits, legacy_config)
         arrays["legacy_record_seed_mask"] = legacy_mask
-        legacy_groups, legacy_members = prompt_groups(
-            hits,
-            legacy_mask,
-            basis="start",
-            gap_ns=plugin.coincidence_window_ns,
-            min_hits=plugin.min_hit_coincidence,
-        )
-        arrays["legacy_groups_start"] = legacy_groups
-        arrays["legacy_members_start"] = legacy_members
-        for veto_ms in (0, 5, 50):
-            arrays[f"legacy_veto_start_{veto_ms}ms"] = apply_veto(
-                legacy_groups, veto_ms * 1_000_000
-            )
+        _add_group_view(hits, legacy_mask, plugin, arrays, unavailable, "start", "legacy_")
     for basis in ("start", "raw", "ma", "convolved"):
-        try:
-            groups, members = prompt_groups(
-                hits,
-                seed_mask,
-                basis=basis,
-                gap_ns=plugin.coincidence_window_ns,
-                min_hits=plugin.min_hit_coincidence,
-            )
-            arrays[f"groups_{basis}"] = groups
-            arrays[f"members_{basis}"] = members
-            for veto_ms in (0, 5, 50):
-                arrays[f"veto_{basis}_{veto_ms}ms"] = apply_veto(groups, veto_ms * 1_000_000)
-        except ValueError as error:
-            unavailable[f"groups_{basis}"] = str(error)
+        _add_group_view(hits, seed_mask, plugin, arrays, unavailable, basis)
     _add_fixed_membership_views(hits, arrays, unavailable)
     try:
         arrays["substrate_events"] = plugin.compute(hits)
@@ -132,8 +105,33 @@ def _add_reconstruction_views(hits, plugin, arrays, unavailable):
         unavailable["substrate_events"] = str(error)
 
 
+def _add_group_view(hits, mask, plugin, arrays, unavailable, basis, prefix=""):
+    from straxion.substrate_reconstruction import prompt_groups
+
+    try:
+        groups, members = prompt_groups(
+            hits,
+            mask,
+            basis=basis,
+            gap_ns=plugin.coincidence_window_ns,
+            min_hits=plugin.min_hit_coincidence,
+        )
+        arrays[f"{prefix}groups_{basis}"] = groups
+        arrays[f"{prefix}members_{basis}"] = members
+        for veto_ms in (0, 5, 50):
+            arrays[f"{prefix}veto_{basis}_{veto_ms}ms"] = apply_veto(groups, veto_ms * 1_000_000)
+    except ValueError as error:
+        unavailable[f"{prefix}groups_{basis}"] = str(error)
+
+
 def _add_fixed_membership_views(hits, arrays, unavailable):
     # First comparison: identical start-time membership, alternate timing only.
+    if "groups_start" not in arrays:
+        for basis in ("raw", "ma", "convolved"):
+            unavailable[f"fixed_start_membership_{basis}"] = (
+                "Start membership unavailable: " + unavailable.get("groups_start", "missing view")
+            )
+        return
     groups, members = arrays["groups_start"], arrays["members_start"]
     by_group = {}
     for m in members:

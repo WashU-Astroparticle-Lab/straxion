@@ -6,8 +6,7 @@ from pathlib import Path
 import subprocess
 import straxion
 from straxion.export_peak_contract import export_peak_contract
-from straxion.processing_provenance import template_sha256, file_sha256
-from straxion.constants import DEFAULT_TEMPLATE_INTERP_PATH, TEMPLATE_INTERP_FOLDER
+from straxion.processing_provenance import verify_export_assets
 
 
 def main():
@@ -28,14 +27,10 @@ def main():
     if dirty:
         parser.error("Commit the implementation before regeneration so provenance is reproducible")
     config = json.loads(args.config.read_text())
-    config["template_content_sha256"] = template_sha256(
-        config.get("template_interp_path", DEFAULT_TEMPLATE_INTERP_PATH),
-        config.get("template_interp_folder", TEMPLATE_INTERP_FOLDER),
-    )
-    if config.get("dx_map_filename"):
-        config["dx_map_sha256"] = file_sha256(
-            Path(config["dx_map_dir"]) / config["dx_map_filename"]
-        )
+    try:
+        verify_export_assets(config)
+    except (ValueError, OSError) as error:
+        parser.error(str(error))
     # The export comparison uses the requested offline gap while the plugin retains
     # its historical 0.2-ms gap default for callers that do not opt in.
     config.setdefault("substrate_coincidence_window_ms", 1.0)

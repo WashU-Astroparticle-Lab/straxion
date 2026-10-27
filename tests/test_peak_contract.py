@@ -483,3 +483,164 @@ def test_classifier_acquisition_psds_remain_isolated():
     np.testing.assert_array_equal(together[: len(h)], first_expected)
     np.testing.assert_array_equal(together[len(h) :], second_expected)
     assert np.any(first_expected["noise_psd_sha256"] != second_expected["noise_psd_sha256"])
+
+
+def test_invalid_ma_cannot_pass_photon_selection(monkeypatch):
+    st, _, h, noise, _, _ = produce()
+    st.set_config({"classification_coincidence_mode": "hit_peaks"})
+    plugin = st.get_single_plugin("run_A", "hit_classification")
+    # Hold unrelated estimators benign so timing validity alone controls selection.
+    for name in (
+        "compute_rise_edge_slope",
+        "is_symmetric_spike_hit",
+        "is_truncated_hit",
+        "compute_tau_fits",
+    ):
+        monkeypatch.setattr(plugin, name, lambda *args: None)
+    monkeypatch.setattr(
+        plugin,
+        "compute_optimal_filter_parameters",
+        lambda out, *args: out["kappa"].fill(38),
+    )
+    h["hit_coincidence"] = 1
+    valid = plugin.compute(h, noise)
+    assert np.all(valid["is_photon_candidate"])
+    h["peak_ma_valid"][0] = False
+    h["hit_coincidence"][0] = 0
+    invalid = plugin.compute(h, noise)
+    assert not invalid["is_photon_candidate"][0]
+    assert not invalid["is_coincident_with_hits"][0]  # unknown, not measured coincidence
+    assert np.all(invalid["is_photon_candidate"][1:])
+
+
+@pytest.mark.parametrize("basis", ["raw", "ma", "convolved"])
+def test_substrate_skips_invalid_timing_without_aborting(basis, caplog):
+    st, _, h, noise, classifier, _ = produce()
+    data = classifier.compute(h, noise)
+    data["kappa"] = 38
+    data["best_chi2"] = 2
+    data["n_spikes_coinciding"] = 10
+    data["is_coincident_with_spikes"] = True
+    data["is_symmetric_spike"] = False
+    data["is_invalid_kappa"] = False
+    st.set_config(
+        {
+            "substrate_seed_coincidence": "record_threshold",
+            "substrate_time_basis": basis,
+            "substrate_min_hit_coincidence": 1,
+        }
+    )
+    plugin = st.get_single_plugin("run_A", "substrate_events")
+    expected = plugin.compute(data[1:])
+    data[f"peak_{basis}_valid"][0] = False
+    np.testing.assert_array_equal(plugin.compute(data), expected)
+    assert f"Excluded 1 substrate seeds with invalid {basis}" in caplog.text
+    assert len(data) == len(h)
+
+
+def test_seed_mode_fallback_matches_plugin_default():
+    st, _, h, noise, classifier, _ = produce()
+    data = classifier.compute(h, noise)
+    data["legacy_spike_coincidence_valid"] = False
+    plugin = st.get_single_plugin("run_A", "substrate_events")
+    config = dict(plugin.config)
+    del config["substrate_seed_coincidence"]
+    np.testing.assert_array_equal(
+        plugin.select_substrate_hits(data, config),
+        plugin.select_substrate_hits(data, plugin.config),
+    )
+
+
+def test_export_retains_rows_when_all_group_views_fail(tmp_path, monkeypatch):
+    from straxion.export_peak_contract import export_peak_contract
+
+    st, _, h, noise, classifier, _ = produce()
+    data = classifier.compute(h, noise)
+    data["kappa"] = 38
+    data["best_chi2"] = 2
+    data["is_symmetric_spike"] = False
+    data["is_invalid_kappa"] = False
+    data["is_coincident_with_spikes"] = True
+    data["n_spikes_coinciding"] = 10
+    data["amplitude"][0] = np.nan
+    st.set_config({"substrate_min_peak_channels": 1})
+    st.register(SyntheticRecords)
+    monkeypatch.setattr(st, "get_array", lambda run, target: data)
+    manifest = export_peak_contract(st, "run_A", tmp_path / "export", source_revision="synthetic")
+    for name in (
+        "groups_start",
+        "legacy_groups_start",
+        "fixed_start_membership_raw",
+        "fixed_start_membership_ma",
+        "fixed_start_membership_convolved",
+        "substrate_events",
+    ):
+        assert name in manifest["unavailable_views"]
+    saved = np.load(tmp_path / "export" / "hit_classification.npy", allow_pickle=False)
+    assert len(saved) == len(data)
+    assert np.isnan(saved["amplitude"][0])
+
+
+def test_export_asset_hashes_are_required_and_never_overwritten(tmp_path):
+    from straxion.processing_provenance import (
+        verify_export_assets,
+        template_sha256,
+        file_sha256,
+    )
+
+    template = tmp_path / "default.pkl"
+    template.write_bytes(b"template")
+    folder = tmp_path / "templates"
+    folder.mkdir()
+    own = folder / "channel.pkl"
+    own.write_bytes(b"own-template")
+    averaged = tmp_path / "avg.npy"
+    averaged.write_bytes(b"averaged-map")
+    config = {
+        "template_interp_path": str(template),
+        "template_interp_folder": str(folder),
+        "dx_map_dir": str(tmp_path),
+        "dx_map_filename": averaged.name,
+    }
+    with pytest.raises(ValueError, match="requires an expected template"):
+        verify_export_assets(config)
+    config["template_content_sha256"] = template_sha256(template, folder)
+    with pytest.raises(ValueError, match="requires an expected dx_map"):
+        verify_export_assets(config)
+    config["dx_map_sha256"] = file_sha256(averaged)
+    expected = config.copy()
+    verify_export_assets(config)
+    own.write_bytes(b"changed-template")
+    with pytest.raises(ValueError, match="Template content differs"):
+        verify_export_assets(config)
+    own.write_bytes(b"own-template")
+    averaged.write_bytes(b"changed-map")
+    with pytest.raises(ValueError, match="Averaged map differs"):
+        verify_export_assets(config)
+    assert config == expected
+
+
+def test_template_default_is_lazy_and_part_of_lineage(monkeypatch):
+    import importlib
+
+    module = importlib.import_module("straxion.plugins.hit_classification")
+
+    def forbid_hash(*args):
+        raise AssertionError("Template contents read during import")
+
+    monkeypatch.setattr("straxion.processing_provenance.template_sha256", forbid_hash)
+    # Execute the module in an isolated namespace without re-registering its classes.
+    from pathlib import Path
+
+    namespace = {
+        "__name__": "straxion.plugins._review_import",
+        "__package__": "straxion.plugins",
+        "__file__": module.__file__,
+    }
+    exec(compile(Path(module.__file__).read_text(), module.__file__, "exec"), namespace)
+    assert namespace["DxHitClassification"].takes_config["template_content_sha256"].default_factory
+    monkeypatch.setattr(module, "template_sha256", lambda *args: "first-assets")
+    first = context().key_for("run_A", "hit_classification")
+    monkeypatch.setattr(module, "template_sha256", lambda *args: "second-assets")
+    second = context().key_for("run_A", "hit_classification")
+    assert first.lineage_hash != second.lineage_hash

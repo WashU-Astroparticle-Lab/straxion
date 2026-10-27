@@ -58,6 +58,9 @@ With `compute_legacy_spike_coincidence=True`, `n_spikes_coinciding` retains the
 legacy convolved **record-threshold** count, including its historical negative-slice behavior at the acquisition's left edge.
 It does not establish a separate detected pulse. Otherwise its value is -1 and
 `legacy_spike_coincidence_valid=False`; it must not be interpreted as zero.
+`is_coincident_with_spikes` is False when unavailable and is meaningful only
+where `legacy_spike_coincidence_valid` is True. For new analyses use
+`is_coincident_with_hits`; the tutorial now uses this field.
 Its configured `spike_coincidence_window` is a half-width rounded to samples. The code default
 0.131 ms at 38 kHz rounds to 5 samples and uses `[peak_i-5:peak_i+5)`: ten samples,
 about 0.263 ms total. These are code defaults, not verified production overrides.
@@ -89,7 +92,11 @@ from `SubstrateEvents.reconstruct` and exported for alternate local scans.
 
 `classification_coincidence_mode="hit_peaks"` is the new photon-selection default:
 `is_coincident_with_hits` tests total actual-hit count against `max_hit_coincidence`
-(default 1, including self). `is_coincident_with_spikes` remains separately named.
+(default 1, including self). Invalid MA timing excludes the reference hit from
+photon selection even when its count is zero; `peak_ma_valid` identifies this
+unknown state. Counts describe valid MA peaks only: an invalid neighbor is not
+included, so they are not a guarantee of isolation from every detected hit.
+`is_coincident_with_spikes` remains separately named.
 Set `classification_coincidence_mode="legacy_record"` and enable the upstream
 legacy count to reproduce the old photon-selection flags. OF/shape estimators do
 not depend on this choice.
@@ -100,8 +107,16 @@ strict kappa/chi requirements and excludes symmetric spikes/invalid kappa. It do
 not consult the legacy count or reuse `is_photon_candidate`. The explicit
 `record_threshold` seed mode retains the old channel threshold and reconstructs
 the old photon predicate from legacy flags, independently of the new photon flag.
-It requires a valid upstream legacy count. No energy cut or new truncation veto
+It requires a valid upstream legacy count. A config dictionary omitting the
+seed-mode key uses the same `hit_peaks` default as the plugin; callers using old
+tables must explicitly select `record_threshold`. No energy cut or new truncation veto
 is introduced. Neither selection establishes that a group is physical.
+
+Normal event reconstruction excludes selected seeds whose requested peak time
+is invalid and logs the number excluded and the time basis. The scalar table and
+seed-selection predicate retain those rows. Exported comparisons deliberately keep
+the seed mask frozen: if a basis cannot represent every selected seed, that view
+is marked unavailable instead of silently changing the comparison population.
 
 Events retain original window-support envelopes for framework `time`/`endtime`,
 are sorted by those starts, and additionally report first/last/brightest member
@@ -135,10 +150,18 @@ must be regenerated; old starts cannot be converted into
 native peaks by adding fixed padding. Tracked `template_content_sha256` covers the
 default template and every per-channel template file; `dx_map_sha256` is required
 when an averaged map is selected. Setup verifies supplied digests. The export
-entry point computes these identities from the selected files before requesting
-any products. For manual contexts, use `template_sha256` and `file_sha256` from
-`straxion.processing_provenance`, and update the tracked config whenever assets
-change. Use the original per-SR own-template folder and avgmap configuration;
+entry point requires an expected
+`template_content_sha256` in the per-run JSON and an expected `dx_map_sha256`
+whenever an averaged map is selected; missing or mismatched values fail before
+processing. It never replaces these expected values. Pin hashes from the original
+processing provenance or an independently verified asset set. A newly calculated
+hash identifies today's files but does not establish their historical identity.
+For manual contexts, use `template_sha256` and `file_sha256` from
+`straxion.processing_provenance` when deliberately selecting a new asset set.
+The bundled-template default is resolved lazily during configuration, before
+lineage is built, so importing the package does not hash template files. Setup
+still rechecks actual contents; hashes are not cached across file changes.
+Use the original per-SR own-template folder and avgmap configuration;
 never substitute a default asset to make regeneration succeed.
 
 `export_peak_contract` writes the complete scalar table, directed coincidence

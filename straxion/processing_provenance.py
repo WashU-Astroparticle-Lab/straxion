@@ -22,3 +22,25 @@ def template_sha256(path, folder):
     return hashlib.sha256(
         json.dumps(template_manifest(path, folder), sort_keys=True).encode()
     ).hexdigest()
+
+
+def verify_export_assets(config):
+    """Verify pinned regeneration assets without replacing the expected identities."""
+    from straxion.constants import DEFAULT_TEMPLATE_INTERP_PATH, TEMPLATE_INTERP_FOLDER
+
+    expected = config.get("template_content_sha256")
+    if not expected:
+        raise ValueError("Export config requires an expected template_content_sha256")
+    actual = template_sha256(
+        config.get("template_interp_path", DEFAULT_TEMPLATE_INTERP_PATH),
+        config.get("template_interp_folder", TEMPLATE_INTERP_FOLDER),
+    )
+    if actual != expected:
+        raise ValueError("Template content differs from the expected template_content_sha256")
+    if config.get("dx_map_filename"):
+        expected = config.get("dx_map_sha256")
+        if not expected:
+            raise ValueError("Export config requires an expected dx_map_sha256")
+        actual = file_sha256(Path(config["dx_map_dir"]) / config["dx_map_filename"])
+        if actual != expected:
+            raise ValueError("Averaged map differs from the expected dx_map_sha256")

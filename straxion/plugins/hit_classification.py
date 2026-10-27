@@ -155,7 +155,9 @@ def _profile_fit_numba(x, amplitude, center, kappa):
         "template_content_sha256",
         type=str,
         track=True,
-        default=template_sha256(DEFAULT_TEMPLATE_INTERP_PATH, TEMPLATE_INTERP_FOLDER),
+        default_factory=lambda: template_sha256(
+            DEFAULT_TEMPLATE_INTERP_PATH, TEMPLATE_INTERP_FOLDER
+        ),
         help="Content identity of default and per-channel templates; verify before estimation.",
     ),
     strax.Option(
@@ -359,7 +361,7 @@ def _profile_fit_numba(x, amplitude, center, kappa):
 class DxHitClassification(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.5.0"
+    __version__ = "0.5.1"
 
     depends_on = ("hits", "noises")
     provides = "hit_classification"
@@ -374,7 +376,13 @@ class DxHitClassification(strax.Plugin):
         ]
 
         hit_id_dtype = [
-            (("Is in coincidence with spikes", "is_coincident_with_spikes"), bool),
+            (
+                (
+                    "Legacy spike coincidence; meaningful only if legacy_spike_coincidence_valid",
+                    "is_coincident_with_spikes",
+                ),
+                bool,
+            ),
             (("Coincident with detected MA-peak hits", "is_coincident_with_hits"), bool),
             (("Is symmetric spike hit", "is_symmetric_spike"), bool),
             (("Is truncated hit", "is_truncated_hit"), bool),
@@ -1646,7 +1654,8 @@ class DxHitClassification(strax.Plugin):
                 )
             coincident = hit_classification["is_coincident_with_spikes"]
         elif mode == "hit_peaks":
-            coincident = hit_classification["is_coincident_with_hits"]
+            # Unknown MA timing must never be interpreted as isolation.
+            coincident = hit_classification["is_coincident_with_hits"] | ~hits["peak_ma_valid"]
         else:
             raise ValueError("Unknown classification_coincidence_mode")
         # Explicit mode controls photon selection; OF/shape estimators are unchanged.

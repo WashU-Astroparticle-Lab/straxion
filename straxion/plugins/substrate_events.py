@@ -170,7 +170,7 @@ class SubstrateEvents(strax.Plugin):
     hit windows and peak sorting cannot violate a finite-overlap assumption.
     """
 
-    __version__ = "0.1.0"
+    __version__ = "0.1.1"
 
     depends_on = ("hit_classification",)
     provides = "substrate_events"
@@ -327,7 +327,7 @@ class SubstrateEvents(strax.Plugin):
         ):
             raise ValueError("Hit sampling frequency differs from configured fs")
         kappa_ms = hits["kappa"] / config["fs"] * 1e3
-        mode = config.get("substrate_seed_coincidence", "record_threshold")
+        mode = config.get("substrate_seed_coincidence", "hit_peaks")
         if mode == "record_threshold":
             if "legacy_spike_coincidence_valid" in hits.dtype.names and not np.all(
                 hits["legacy_spike_coincidence_valid"]
@@ -449,9 +449,22 @@ class SubstrateEvents(strax.Plugin):
 
     def reconstruct(self, hits):
         """Return all pre-veto groups, membership links, and a separate veto view."""
+        seed_mask = self.select_substrate_hits(hits, self.config)
+        basis = self.config["substrate_time_basis"]
+        if basis in ("raw", "ma", "convolved"):
+            invalid = seed_mask & ~hits[f"peak_{basis}_valid"]
+            if np.any(invalid):
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "Excluded %d substrate seeds with invalid %s peak timing",
+                    np.count_nonzero(invalid),
+                    basis,
+                )
+            seed_mask = seed_mask & ~invalid
         groups, members = prompt_groups(
             hits,
-            self.select_substrate_hits(hits, self.config),
+            seed_mask,
             basis=self.config["substrate_time_basis"],
             gap_ns=self.coincidence_window_ns,
             min_hits=self.min_hit_coincidence,
