@@ -42,7 +42,51 @@ def export_peak_contract(context, run_id, destination, *, source_revision, wavef
         raise ValueError("Exported coincidence differs from full-acquisition reconstruction")
     arrays = {"hit_classification": hits, "hit_coincidence_members": links}
     unavailable = {}
-    original_basis = plugin.config["substrate_time_basis"]
+    _add_reconstruction_views(hits, plugin, arrays, unavailable)
+    if waveform_count:
+        arrays["validation_waveforms"] = _validation_waveform_subset(
+            context, run_id, hits, waveform_count
+        )
+    configs, lineage, map_hash = _processing_manifest(context, run_id)
+    destination.mkdir(parents=True)
+    for name, array in arrays.items():
+        np.save(destination / f"{name}.npy", array, allow_pickle=False)
+    manifest = {
+        "schema_version": 1,
+        "run_id": str(run_id),
+        "source_revision": source_revision,
+        "n_detected_hits": len(hits),
+        "unavailable_views": unavailable,
+        "config": configs,
+        "lineage": lineage,
+        "template_files_sha256": assets,
+        "dx_map_sha256": map_hash,
+        "default_time_basis": plugin.config["substrate_time_basis"],
+        "hit_coincidence_basis": "ma",
+        "hit_coincidence_endpoints": "inclusive; self included",
+        "seed_mask_frozen_across_time_bases": True,
+        "support_counts_reference": (
+            "alignment and named peaks; excludes center; physical zeros valid"
+        ),
+        "validation_status": (
+            "Generated package; representative waveform/real-data review still required"
+        ),
+        "files": {
+            f"{name}.npy": {
+                "sha256": file_sha256(destination / f"{name}.npy"),
+                "rows": len(array),
+                "dtype": array.dtype.descr,
+            }
+            for name, array in arrays.items()
+        },
+    }
+    (destination / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, default=_json_value) + "\n"
+    )
+    return manifest
+
+
+def _add_reconstruction_views(hits, plugin, arrays, unavailable):
     # Freeze the selected seed mask for start-vs-peak comparisons; basis changes
     # only membership/time, even when a peak-based seed alternative was selected.
     from straxion.substrate_reconstruction import prompt_groups
@@ -81,6 +125,14 @@ def export_peak_contract(context, run_id, destination, *, source_revision, wavef
                 arrays[f"veto_{basis}_{veto_ms}ms"] = apply_veto(groups, veto_ms * 1_000_000)
         except ValueError as error:
             unavailable[f"groups_{basis}"] = str(error)
+    _add_fixed_membership_views(hits, arrays, unavailable)
+    try:
+        arrays["substrate_events"] = plugin.compute(hits)
+    except ValueError as error:
+        unavailable["substrate_events"] = str(error)
+
+
+def _add_fixed_membership_views(hits, arrays, unavailable):
     # First comparison: identical start-time membership, alternate timing only.
     groups, members = arrays["groups_start"], arrays["members_start"]
     by_group = {}
@@ -98,24 +150,23 @@ def export_peak_contract(context, run_id, destination, *, source_revision, wavef
             arrays[f"fixed_start_membership_{basis}"] = fixed
         except ValueError as error:
             unavailable[f"fixed_start_membership_{basis}"] = str(error)
-    try:
-        arrays["substrate_events"] = plugin.compute(hits)
-    except ValueError as error:
-        unavailable["substrate_events"] = str(error)
-    if waveform_count:
-        waveforms = context.get_array(run_id, "hits")
-        # Deterministic validation subset, including boundary/invalid/intactness cases.
-        special = np.flatnonzero(
-            ~hits["intact25_alignment"]
-            | hits["peak_ma_at_left_boundary"]
-            | hits["peak_ma_at_right_boundary"]
-        )
-        uniform = np.linspace(0, max(0, len(hits) - 1), min(waveform_count, len(hits)), dtype=int)
-        ix = np.unique(np.r_[special[:waveform_count], uniform])
-        wanted = set(hits["hit_id"][ix])
-        arrays["validation_waveforms"] = waveforms[
-            np.array([x in wanted for x in waveforms["hit_id"]], bool)
-        ]
+
+
+def _validation_waveform_subset(context, run_id, hits, waveform_count):
+    waveforms = context.get_array(run_id, "hits")
+    # Deterministic validation subset, including boundary/invalid/intactness cases.
+    special = np.flatnonzero(
+        ~hits["intact25_alignment"]
+        | hits["peak_ma_at_left_boundary"]
+        | hits["peak_ma_at_right_boundary"]
+    )
+    uniform = np.linspace(0, max(0, len(hits) - 1), min(waveform_count, len(hits)), dtype=int)
+    ix = np.unique(np.r_[special[:waveform_count], uniform])
+    wanted = set(hits["hit_id"][ix])
+    return waveforms[np.array([x in wanted for x in waveforms["hit_id"]], bool)]
+
+
+def _processing_manifest(context, run_id):
     configs = {}
     lineage = {}
     for name in (
@@ -134,42 +185,7 @@ def export_peak_contract(context, run_id, destination, *, source_revision, wavef
         map_hash = file_sha256(Path(map_config["dx_map_dir"]) / map_config["dx_map_filename"])
         if map_hash != map_config["dx_map_sha256"]:
             raise ValueError("Averaged map manifest mismatch")
-    destination.mkdir(parents=True)
-    for name, array in arrays.items():
-        np.save(destination / f"{name}.npy", array, allow_pickle=False)
-    manifest = {
-        "schema_version": 1,
-        "run_id": str(run_id),
-        "source_revision": source_revision,
-        "n_detected_hits": len(hits),
-        "unavailable_views": unavailable,
-        "config": configs,
-        "lineage": lineage,
-        "template_files_sha256": assets,
-        "dx_map_sha256": map_hash,
-        "default_time_basis": original_basis,
-        "hit_coincidence_basis": "ma",
-        "hit_coincidence_endpoints": "inclusive; self included",
-        "seed_mask_frozen_across_time_bases": True,
-        "support_counts_reference": (
-            "alignment and named peaks; excludes center; physical zeros valid"
-        ),
-        "validation_status": (
-            "Generated package; representative waveform/real-data review still required"
-        ),
-        "files": {
-            f"{name}.npy": {
-                "sha256": file_sha256(destination / f"{name}.npy"),
-                "rows": len(array),
-                "dtype": array.dtype.descr,
-            }
-            for name, array in arrays.items()
-        },
-    }
-    (destination / "manifest.json").write_text(
-        json.dumps(manifest, indent=2, default=_json_value) + "\n"
-    )
-    return manifest
+    return configs, lineage, map_hash
 
 
 def _json_value(value):
