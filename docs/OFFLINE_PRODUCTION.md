@@ -101,6 +101,9 @@ folder. The low-level bundled template defaults remain available, so omitting
 this option still uses the bundled templates; straxion does not infer the correct
 science-run templates. The default template and all per-channel overrides are
 content-hashed. An explicitly supplied nonexistent template directory is an error.
+Records and classification use the same lazy template identity from
+`straxion.processing_provenance`. If `template_content_sha256` is supplied, the
+context verifies it before lookup and never replaces an incorrect expected hash.
 
 ## Existing maps and legacy processing
 
@@ -134,6 +137,32 @@ the notebook median recipe, per-scan calibration parity, overrides/exclusions,
 strict validation, path portability, resume, content-dependent keys, and rejection
 of changed calibration even when matching records are already stored. Existing
 per-scan tests request that mode explicitly.
+
+## Compatibility with PR #99
+
+This branch integrates PR #99 at `748d81e0aa44ad3d538302d09a44f5bdf22a2821`.
+Classification retains that PR's `hits`/`noises` dependencies, acquisition-wide
+PSD aggregation, native peak/support metadata, MA-peak coincidence default and
+substrate reconstruction semantics. The avgmap workflow resolves the same
+template hash for records and classification before lineage is constructed.
+
+The public `export_peak_contract(st, run_id, destination, source_revision=...)`
+function accepts a manifest-backed offline context directly. It exports the
+scalar contract and the effective map/template identities selected for that run.
+See [the peak contract](PEAK_CONTRACT.md) for export views and reconstruction
+settings; its CLI explicitly chooses the 1-ms gap/5-ms veto comparison, while the
+library's historical substrate gap/veto defaults remain unchanged.
+
+For the standalone `scripts/export_peak_contract.py`, supply the existing per-run
+JSON with pinned expected `template_content_sha256` and `dx_map_sha256`. The CLI
+continues to reject missing or incorrect expected hashes before creating its
+context. Its default calibration mode is averaged; a deliberate historical
+per-scan export now requires `--calibration-mode per_scan`.
+
+Combined synthetic tests cover actual avgmap waveform processing with per-run
+templates through classification and scalar export, including validation
+waveforms, matching hashes in both plugin lineages, preserved peak fields and
+rejection of changed pinned templates even when classifications are cached.
 
 The remaining data-machine check is to prepare maps from exactly the scans used
 by an existing completed-run notebook, compare `x` and `y_med`, then process a few

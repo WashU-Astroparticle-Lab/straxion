@@ -319,3 +319,103 @@ def test_miniature_production_matches_plain_plugin_and_cached_drift_fails(scienc
     np.savez(path, x=x, y_med=y * 1.2)
     with pytest.raises(ValueError, match="Calibration file changed"):
         st.get_array("100", "records", progress_bar=False)
+
+
+@pytest.fixture
+def own_template_run(science_run, tmp_path):
+    from straxion.constants import TEMPLATE_INTERP_FOLDER
+
+    folder = tmp_path / "own_templates"
+    folder.mkdir()
+    shutil.copyfile(
+        Path(TEMPLATE_INTERP_FOLDER) / "ch0_template_interp.pkl",
+        folder / "ch0_template_interp.pkl",
+    )
+    waveform = science_run[0] / "ts_38kHz-100.npy"
+    np.save(waveform, np.tile(np.load(waveform), (1, 10)))
+    return context(
+        science_run,
+        config=dict(
+            template_interp_folder=str(folder),
+            record_length=10000,
+            salt_rate=30,
+            energy_resolution_mode="none",
+            hit_threshold_dx=1e-7,
+            hit_thresholds_sigma=None,
+            hit_min_width=1 / 38000,
+        ),
+    )
+
+
+def test_avgmap_and_own_templates_work_through_peak_contract_export(own_template_run, tmp_path):
+    from straxion.export_peak_contract import export_peak_contract
+    from straxion.processing_provenance import template_sha256, verify_export_assets
+
+    st = own_template_run
+    classified = st.get_array("100", "hit_classification", progress_bar=False)
+    assert len(classified) > 0
+    assert {"hit_id", "peak_ma_time", "clean_left_ma", "noise_psd_sha256"} <= set(
+        classified.dtype.names
+    )
+    classifier = st.get_single_plugin("100", "hit_classification")
+    records = st.get_single_plugin("100", "records")
+    assert classifier.depends_on == ("hits", "noises")
+    assert classifier.config["classification_coincidence_mode"] == "hit_peaks"
+    expected = template_sha256(
+        classifier.config["template_interp_path"], classifier.config["template_interp_folder"]
+    )
+    assert (
+        classifier.config["template_content_sha256"]
+        == records.config["template_content_sha256"]
+        == expected
+    )
+    verify_export_assets(dict(records.config, **classifier.config))
+    report = export_peak_contract(
+        st,
+        "100",
+        tmp_path / "peak_export",
+        source_revision="synthetic-avgmap-pr99",
+        waveform_count=2,
+    )
+    saved = np.load(tmp_path / "peak_export" / "hit_classification.npy", allow_pickle=False)
+    np.testing.assert_array_equal(saved, classified)
+    assert report["n_detected_hits"] == len(classified)
+    assert report["dx_map_sha256"] == records.config["dx_map_sha256"]
+    assert report["config"]["hit_classification"]["template_content_sha256"] == expected
+    assert report["default_time_basis"] == "ma"
+    assert (
+        report["lineage"]["hit_classification"]["hash"]
+        == st.key_for("100", "hit_classification").lineage_hash
+    )
+    assert (tmp_path / "peak_export" / "validation_waveforms.npy").is_file()
+
+
+@pytest.mark.parametrize("target", ["records", "hit_classification"])
+def test_supplied_template_digest_is_verified_before_lookup(own_template_run, target):
+    st = own_template_run
+    pinned = "wrong-expected-template"
+    st.set_config({"template_content_sha256": pinned})
+    with pytest.raises(ValueError, match="Template content differs"):
+        st.is_stored("100", target)
+    assert st.config["template_content_sha256"] == pinned
+
+
+def test_cached_peak_classification_cannot_bypass_pinned_assets(own_template_run):
+    st = own_template_run
+    expected = st.get_single_plugin("100", "hit_classification").config["template_content_sha256"]
+    st.set_config({"template_content_sha256": expected})
+    st.make("100", "hit_classification", progress_bar=False)
+    assert st.is_stored("100", "hit_classification")
+    path = Path(st.config["template_interp_folder"]) / "ch0_template_interp.pkl"
+    path.write_bytes(path.read_bytes() + b"changed")
+    with pytest.raises(ValueError, match="Template content differs"):
+        st.get_array("100", "hit_classification", progress_bar=False)
+    assert st.config["template_content_sha256"] == expected
+
+
+def test_low_level_maps_still_require_expected_hash(science_run):
+    _, manifest = science_run
+    plugin = DxRecords()
+    plugin.config = {"dx_map_dir": str(manifest.parent), "dx_map_filename": "dx_map_0.npz"}
+    with pytest.raises(ValueError, match="Set dx_map_sha256"):
+        plugin._apply_averaged_dx_map()

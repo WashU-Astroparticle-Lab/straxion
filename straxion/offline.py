@@ -7,7 +7,8 @@ from pathlib import Path
 
 import strax
 
-from .calibration import SCHEMA_VERSION, file_sha256, read_dx_map, scan_config, verify_file
+from .calibration import SCHEMA_VERSION, read_dx_map, scan_config, verify_file
+from .processing_provenance import template_sha256
 
 
 @strax.takes_config(
@@ -111,7 +112,16 @@ class OfflineContext(strax.Context):
                 n_channels = max(bounds[1] for bounds in channel_map.values()) + 1
                 _, _, digest = read_dx_map(path, cfg.get("dx_map_sha256", ""), n_channels)
                 cfg.update(dx_map_sha256=digest, dx_map_require_all=True)
-                cfg["template_content_sha256"] = self._template_hash(cfg, plugin)
+        # PR #99's classifier has its own tracked template identity and no direct
+        # records dependency. Resolve the same identity for every template consumer.
+        if "template_content_sha256" in plugin.takes_config:
+            digest = self._template_hash(cfg, plugin)
+            expected = cfg.get("template_content_sha256")
+            if expected and expected != digest:
+                raise ValueError(
+                    "Template content differs from the expected template_content_sha256"
+                )
+            cfg["template_content_sha256"] = digest
         return cfg
 
     @staticmethod
@@ -119,13 +129,9 @@ class OfflineContext(strax.Context):
         """Track the default template and the per-channel overrides, independent of paths."""
         names = ("template_interp_path", "template_interp_folder")
         path, folder = [Path(cfg.get(k, plugin.takes_config[k].default)) for k in names]
-        hashes = {"default": file_sha256(path)}
         if "template_interp_folder" in cfg and not folder.is_dir():
             raise FileNotFoundError(f"Template folder not found: {folder}")
-        if folder.is_dir():
-            for item in sorted(folder.glob("*.pkl")):
-                hashes[item.name] = file_sha256(item)
-        return hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
+        return template_sha256(path, folder)
 
     def _set_plugin_config(self, p, run_id, tolerant=True):
         # strax calls this both before lineage creation and before plugin setup.
@@ -133,14 +139,15 @@ class OfflineContext(strax.Context):
         # changing self.config during multi-run iteration or concurrent readers.
         resolved = copy(self)
         resolved.config = self._resolved_config(run_id, p)
+        previous_config = p.config.copy() if hasattr(p, "lineage") else {}
+        strax.Context._set_plugin_config(resolved, p, run_id, tolerant=tolerant)
         if hasattr(p, "lineage"):
             for key in ("dx_map_sha256", "scan_calibration_sha256", "template_content_sha256"):
-                previous = p.config.get(key, "")
-                if previous and previous != resolved.config.get(key, ""):
+                previous = previous_config.get(key, "")
+                if previous and previous != p.config.get(key, ""):
                     raise ValueError(
                         f"{key} changed after lineage creation; retry with stable files"
                     )
-        strax.Context._set_plugin_config(resolved, p, run_id, tolerant=tolerant)
 
     def new_context(
         self,

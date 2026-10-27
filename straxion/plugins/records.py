@@ -11,6 +11,7 @@ from straxion.constants import (
     TEMPLATE_INTERP_FOLDER,
 )
 from straxion.utils import base_waveform_dtype, circfit, load_interpolation
+from straxion.processing_provenance import default_template_sha256
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import fftconvolve
 import os
@@ -390,7 +391,7 @@ PULSE_KERNEL_OPTIONS = (
     ),
     strax.Option(
         "template_content_sha256",
-        default="",
+        default_factory=default_template_sha256,
         type=str,
         track=True,
         help="Content identity of pulse templates resolved by the offline context.",
@@ -417,8 +418,8 @@ PULSE_KERNEL_OPTIONS = (
                 "scans of (f - f(0))/f(0), the fractional frequency offset relative to each "
                 "scan's own on-resonance point, so y_med(0) = 0. Channels whose y_med contains "
                 "non-finite values fall back to the per-scan table. Other keys are ignored. "
-                "strax hashes the filename, not the file content, so include a content tag in "
-                "the filename when the map is regenerated."
+                "dx_map_sha256 tracks the file content and is verified when loading. "
+                "The offline production context requires valid maps for every channel."
             ),
         ),
     ),
@@ -443,7 +444,7 @@ class DxRecords(strax.Plugin):
     ignored. ``avg_map_used`` (bool per channel) records which channels took the map.
     """
 
-    __version__ = "0.5.0"
+    __version__ = "0.6.0"
     rechunk_on_save = False
     compressor = "zstd"  # Inherited from straxen. Not optimized outside XENONnT.
 
@@ -786,20 +787,23 @@ class DxRecords(strax.Plugin):
             KeyError: If the map lacks the ``x`` or ``y_med`` keys.
         """
         map_path = os.path.join(self.config["dx_map_dir"], self.config["dx_map_filename"])
+        from straxion.calibration import read_dx_map
+
         if not os.path.isfile(map_path):
             raise FileNotFoundError(
                 f"Averaged dx map file not found: {map_path} (check dx_map_dir and dx_map_filename)"
             )
-        if self.config.get("dx_map_require_all", False) or self.config.get("dx_map_sha256", ""):
-            from straxion.calibration import read_dx_map
-
-            x_all, y_all, _ = read_dx_map(
-                map_path, self.config.get("dx_map_sha256", ""), len(self.fres)
-            )
-        else:
-            # Explicit low-level legacy use retains its historical partial-map policy.
-            with np.load(map_path, allow_pickle=False) as data:
-                x_all, y_all = data["x"], data["y_med"]
+        expected = self.config.get("dx_map_sha256", "")
+        if not expected:
+            raise ValueError("Set dx_map_sha256 to the map file SHA256 before regeneration")
+        # Hash the bytes actually loaded. Only the production context requires
+        # complete maps; explicit low-level use retains PR #99's partial-map policy.
+        x_all, y_all, _ = read_dx_map(
+            map_path,
+            expected,
+            len(self.fres),
+            require_all=self.config.get("dx_map_require_all", False),
+        )
 
         for ch in range(len(self.fres)):
             if ch >= len(x_all) or not np.all(np.isfinite(y_all[ch])):

@@ -83,6 +83,9 @@ class TestDxRecordsAveragedDxMap:
 
     def _save_map(self, filename, **arrays):
         np.savez(os.path.join(self.map_dir, filename), **arrays)
+        from straxion.processing_provenance import file_sha256
+
+        self.dx_records.config["dx_map_sha256"] = file_sha256(os.path.join(self.map_dir, filename))
 
     def _rerun_setup(self):
         self.dx_records._setup_iq_correction_and_calibration()
@@ -191,4 +194,4 @@ class TestDxRecordsAveragedDxMap:
         assert options["dx_map_dir"].default == ""
         assert options["dx_map_filename"].track is True
         assert options["dx_map_filename"].default == ""
-        assert DxRecords.__version__ == "0.5.0"
+        assert DxRecords.__version__ == "0.6.0"

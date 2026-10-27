@@ -12,15 +12,11 @@ import re
 import warnings
 
 import numpy as np
+from .processing_provenance import file_sha256
 
 __all__ = ["prepare_offline_calibration"]
 
 SCHEMA_VERSION = 1
-
-
-def file_sha256(path):
-    with open(path, "rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def verify_file(path, expected):
@@ -30,7 +26,7 @@ def verify_file(path, expected):
     return actual
 
 
-def read_dx_map(path, expected_hash="", n_channels=None):
+def read_dx_map(path, expected_hash="", n_channels=None, *, require_all=True):
     """Read and validate one complete map, hashing the exact bytes being loaded."""
     content = Path(path).read_bytes()
     digest = hashlib.sha256(content).hexdigest()
@@ -38,6 +34,8 @@ def read_dx_map(path, expected_hash="", n_channels=None):
         raise ValueError(f"Calibration file changed: {path}")
     with np.load(io.BytesIO(content), allow_pickle=False) as data:
         x, y = data["x"], data["y_med"]
+    if not require_all:
+        return x, y, digest
     if x.ndim != 2 or x.shape != y.shape or x.shape[0] == 0 or x.shape[1] < 2:
         raise ValueError("Averaged map x and y_med must have matching (channels, grid) shapes")
     if n_channels is not None and len(x) != n_channels:
