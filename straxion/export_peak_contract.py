@@ -4,7 +4,12 @@ import json
 from pathlib import Path
 import numpy as np
 from straxion.processing_provenance import template_manifest, file_sha256, template_sha256
-from straxion.substrate_reconstruction import hit_coincidences, timing, apply_veto
+from straxion.substrate_reconstruction import (
+    hit_coincidences,
+    timing,
+    apply_veto,
+    timing_valid_mask,
+)
 
 
 def export_peak_contract(context, run_id, destination, *, source_revision, waveform_count=0):
@@ -42,7 +47,7 @@ def export_peak_contract(context, run_id, destination, *, source_revision, wavef
         raise ValueError("Exported coincidence differs from full-acquisition reconstruction")
     arrays = {"hit_classification": hits, "hit_coincidence_members": links}
     unavailable = {}
-    _add_reconstruction_views(hits, plugin, arrays, unavailable)
+    seed_selection = _add_reconstruction_views(hits, plugin, arrays, unavailable)
     if waveform_count:
         arrays["validation_waveforms"] = _validation_waveform_subset(
             context, run_id, hits, waveform_count
@@ -52,11 +57,12 @@ def export_peak_contract(context, run_id, destination, *, source_revision, wavef
     for name, array in arrays.items():
         np.save(destination / f"{name}.npy", array, allow_pickle=False)
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": str(run_id),
         "source_revision": source_revision,
         "n_detected_hits": len(hits),
         "unavailable_views": unavailable,
+        "event_seed_selection": seed_selection,
         "config": configs,
         "lineage": lineage,
         "template_files_sha256": assets,
@@ -91,6 +97,19 @@ def _add_reconstruction_views(hits, plugin, arrays, unavailable):
     # only membership/time, even when a peak-based seed alternative was selected.
     seed_mask = plugin.select_substrate_hits(hits, plugin.config)
     arrays["substrate_seed_mask"] = seed_mask
+    selection: dict = {"active_basis": plugin.config["substrate_time_basis"], "by_basis": {}}
+    for basis in ("start", "raw", "ma", "convolved"):
+        effective = seed_mask & timing_valid_mask(hits, basis)
+        mask_name = f"event_seed_mask_{basis}"
+        excluded_name = f"event_excluded_hit_ids_{basis}"
+        arrays[mask_name] = effective
+        arrays[excluded_name] = hits["hit_id"][seed_mask & ~effective]
+        selection["by_basis"][basis] = {
+            "mask_file": f"{mask_name}.npy",
+            "excluded_hit_ids_file": f"{excluded_name}.npy",
+            "n_selected": int(np.count_nonzero(effective)),
+            "n_excluded_invalid_timing": len(arrays[excluded_name]),
+        }
     if np.all(hits["legacy_spike_coincidence_valid"]):
         legacy_config = dict(plugin.config, substrate_seed_coincidence="record_threshold")
         legacy_mask = plugin.select_substrate_hits(hits, legacy_config)
@@ -103,6 +122,7 @@ def _add_reconstruction_views(hits, plugin, arrays, unavailable):
         arrays["substrate_events"] = plugin.compute(hits)
     except ValueError as error:
         unavailable["substrate_events"] = str(error)
+    return selection
 
 
 def _add_group_view(hits, mask, plugin, arrays, unavailable, basis, prefix=""):

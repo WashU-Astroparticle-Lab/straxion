@@ -620,27 +620,167 @@ def test_export_asset_hashes_are_required_and_never_overwritten(tmp_path):
     assert config == expected
 
 
-def test_template_default_is_lazy_and_part_of_lineage(monkeypatch):
+def test_template_default_is_pinned_and_verified(monkeypatch):
     import importlib
+    from straxion.constants import (
+        DEFAULT_TEMPLATE_INTERP_PATH,
+        TEMPLATE_INTERP_FOLDER,
+    )
+    from straxion.processing_provenance import template_sha256, DEFAULT_TEMPLATE_CONTENT_SHA256
 
+    assert template_sha256(DEFAULT_TEMPLATE_INTERP_PATH, TEMPLATE_INTERP_FOLDER) == (
+        DEFAULT_TEMPLATE_CONTENT_SHA256
+    )
     module = importlib.import_module("straxion.plugins.hit_classification")
 
     def forbid_hash(*args):
-        raise AssertionError("Template contents read during import")
+        raise AssertionError("Template contents read during configuration resolution")
 
-    monkeypatch.setattr("straxion.processing_provenance.template_sha256", forbid_hash)
-    # Execute the module in an isolated namespace without re-registering its classes.
-    from pathlib import Path
-
-    namespace = {
-        "__name__": "straxion.plugins._review_import",
-        "__package__": "straxion.plugins",
-        "__file__": module.__file__,
-    }
-    exec(compile(Path(module.__file__).read_text(), module.__file__, "exec"), namespace)
-    assert namespace["DxHitClassification"].takes_config["template_content_sha256"].default_factory
-    monkeypatch.setattr(module, "template_sha256", lambda *args: "first-assets")
+    monkeypatch.setattr(module, "template_sha256", forbid_hash)
     first = context().key_for("run_A", "hit_classification")
-    monkeypatch.setattr(module, "template_sha256", lambda *args: "second-assets")
     second = context().key_for("run_A", "hit_classification")
-    assert first.lineage_hash != second.lineage_hash
+    assert first.lineage_hash == second.lineage_hash
+    assert first.lineage["hit_classification"][2]["template_content_sha256"] == (
+        DEFAULT_TEMPLATE_CONTENT_SHA256
+    )
+    # Setup still checks actual contents on every new classifier instance.
+    monkeypatch.setattr(module, "template_sha256", lambda *args: "changed-assets")
+    with pytest.raises(ValueError, match="template_content_sha256"):
+        context().get_single_plugin("run_A", "hit_classification")
+
+
+def test_export_effective_masks_reproduce_split_chain(tmp_path, monkeypatch):
+    import json
+    from straxion.export_peak_contract import export_peak_contract
+
+    st, _, h, noise, classifier, _ = produce()
+    data = classifier.compute(h, noise)
+    data["kappa"] = 38
+    data["best_chi2"] = 2
+    data["is_symmetric_spike"] = False
+    data["is_invalid_kappa"] = False
+    data["is_coincident_with_spikes"] = True
+    data["n_spikes_coinciding"] = 10
+    times = data["record_time"][0] + 1_000_000 + np.arange(len(data)) * 1000
+    for basis in ("raw", "ma", "convolved"):
+        data[f"peak_{basis}_time"] = times
+    data["time"] = times - 500
+    data["endtime"] = times + 500
+    data["peak_ma_valid"][4] = False
+    counts, _ = hit_coincidences(data)
+    data["hit_coincidence"] = counts["n_hits"]
+    data["hit_coincidence_channels"] = counts["n_channels"]
+    st.set_config(
+        {
+            "substrate_seed_coincidence": "record_threshold",
+            "substrate_coincidence_window_ms": 0.001,
+            "substrate_min_hit_coincidence": 1,
+        }
+    )
+    st.register(SyntheticRecords)
+    monkeypatch.setattr(st, "get_array", lambda run, target: data)
+    destination = tmp_path / "export"
+    export_peak_contract(st, "run_A", destination, source_revision="synthetic")
+    manifest = json.loads((destination / "manifest.json").read_text())
+    assert manifest["schema_version"] == 2
+    assert "groups_ma" in manifest["unavailable_views"]
+    saved = np.load(destination / "hit_classification.npy", allow_pickle=False)
+    original = np.load(destination / "substrate_seed_mask.npy", allow_pickle=False)
+    assert np.all(original)
+    selection = manifest["event_seed_selection"]
+    assert selection["active_basis"] == "ma"
+    for basis, info in selection["by_basis"].items():
+        mask = np.load(destination / info["mask_file"], allow_pickle=False)
+        excluded = np.load(destination / info["excluded_hit_ids_file"], allow_pickle=False)
+        expected = original.copy()
+        if basis == "ma":
+            expected[4] = False
+        np.testing.assert_array_equal(mask, expected)
+        np.testing.assert_array_equal(excluded, saved["hit_id"][original & ~expected])
+        assert info["n_selected"] == np.count_nonzero(expected)
+        assert info["n_excluded_invalid_timing"] == len(excluded)
+    mask = np.load(destination / selection["by_basis"]["ma"]["mask_file"])
+    groups, _ = prompt_groups(saved, mask, basis="ma", gap_ns=1000, min_hits=1)
+    accepted = groups[apply_veto(groups, 0)["accepted"]]
+    events = np.load(destination / "substrate_events.npy", allow_pickle=False)
+    assert len(events) == 2  # Removing the middle seed splits the chain.
+    np.testing.assert_array_equal(events["group_id"], accepted["group_id"])
+    np.testing.assert_array_equal(events["n_hits"], accepted["n_hits"])
+    np.testing.assert_array_equal(events["brightest_member_time"], accepted["brightest_time"])
+
+
+def test_export_map_directory_uses_plugin_default(tmp_path, monkeypatch):
+    from straxion.processing_provenance import verify_export_assets, template_sha256, file_sha256
+    from straxion.constants import DEFAULT_TEMPLATE_INTERP_PATH, TEMPLATE_INTERP_FOLDER
+
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "avg.npy"
+    path.write_bytes(b"map")
+    config = {
+        "template_content_sha256": template_sha256(
+            DEFAULT_TEMPLATE_INTERP_PATH, TEMPLATE_INTERP_FOLDER
+        ),
+        "dx_map_filename": path.name,
+        "dx_map_sha256": file_sha256(path),
+    }
+    verify_export_assets(config)
+    path.unlink()
+    with pytest.raises(FileNotFoundError):
+        verify_export_assets(config)
+
+
+@pytest.mark.parametrize("sigma", [False, True])
+def test_legacy_producer_has_no_config_paradigm_warning(sigma):
+    import warnings
+
+    st = context(
+        hit_threshold_dx=0.5,
+        hit_thresholds_sigma=None,
+        hit_min_width=1 / 38000,
+        compute_legacy_spike_coincidence=True,
+        spike_threshold_dx=None if sigma else 0.5,
+        spike_thresholds_sigma=5.0 if sigma else None,
+    )
+    plugin = st.get_single_plugin("run_A", "hits")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        hits = plugin.compute(records())
+    assert np.all(hits["legacy_spike_coincidence_valid"])
+    assert not any("mixing config paradigms" in str(w.message) for w in caught)
+
+
+@pytest.mark.parametrize("window", [0, 1, 10, 1000])
+def test_fast_coincidence_matches_brute_force(window):
+    rng = np.random.default_rng(147)
+    hits = table(rng.integers(0, 100, 150), rng.choice([0, 2, 40], 150))
+    hits["record_time"] = rng.integers(0, 3, len(hits))
+    hits["run_id"][::7] = b"B"
+    hits["peak_ma_valid"] = rng.random(len(hits)) > 0.2
+    counts, links = hit_coincidences(hits, window, with_links=True)
+    expected_links = set()
+    for i, h in enumerate(hits):
+        mask = (
+            hits["peak_ma_valid"]
+            & h["peak_ma_valid"]
+            & (hits["record_time"] == h["record_time"])
+            & (hits["run_id"] == h["run_id"])
+            & (np.abs(hits["peak_ma_time"] - h["peak_ma_time"]) <= window)
+        )
+        assert counts["n_hits"][i] == np.count_nonzero(mask)
+        assert counts["n_channels"][i] == len(np.unique(hits["channel"][mask]))
+        expected_links.update((h["hit_id"], member) for member in hits["hit_id"][mask])
+    assert set(map(tuple, links)) == expected_links
+    without_links, empty = hit_coincidences(hits, window)
+    np.testing.assert_array_equal(counts, without_links)
+    assert len(empty) == 0
+
+
+@pytest.mark.parametrize("window", [0, 10, 2**64])
+def test_coincidence_int64_boundaries(window):
+    limits = np.iinfo(np.int64)
+    hits = table([limits.min, limits.min + 10, 0, limits.max - 10, limits.max])
+    counts, _ = hit_coincidences(hits, window)
+    for i, t in enumerate(hits["peak_ma_time"]):
+        mask = np.array([abs(int(x) - int(t)) <= window for x in hits["peak_ma_time"]])
+        assert counts["n_hits"][i] == np.count_nonzero(mask)
+        assert counts["n_channels"][i] == len(np.unique(hits["channel"][mask]))

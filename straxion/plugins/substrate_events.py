@@ -10,6 +10,7 @@ from straxion.constants import (
 from straxion.colors import get_channel_position
 from straxion.substrate_reconstruction import (
     prompt_groups,
+    timing_valid_mask,
     apply_veto,
 )
 
@@ -452,7 +453,7 @@ class SubstrateEvents(strax.Plugin):
         seed_mask = self.select_substrate_hits(hits, self.config)
         basis = self.config["substrate_time_basis"]
         if basis in ("raw", "ma", "convolved"):
-            invalid = seed_mask & ~hits[f"peak_{basis}_valid"]
+            invalid = seed_mask & ~timing_valid_mask(hits, basis)
             if np.any(invalid):
                 import logging
 
