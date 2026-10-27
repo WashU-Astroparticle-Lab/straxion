@@ -74,6 +74,10 @@ prerequisite. The tracked `hit_coincidence_window_ns` is an independent half-wid
 (default 131000 ns), not the clustering gap. The records-based hit producer sees the
 whole acquisition, avoiding chunk-edge neighborhoods. `hit_coincidences(...,
 with_links=True)` reconstructs directed ID links from the scalar table.
+Scalar counts use vectorized window bounds and a compiled sliding channel tally;
+each member enters and leaves the tally at most once per acquisition. The first
+call may incur Numba compilation/cache-load time. Explicit link generation still
+scales with the number of neighborhood pairs.
 
 ## Groups, events and comparison modes
 
@@ -97,6 +101,21 @@ photon selection even when its count is zero; `peak_ma_valid` identifies this
 unknown state. Counts describe valid MA peaks only: an invalid neighbor is not
 included, so they are not a guarantee of isolation from every detected hit.
 `is_coincident_with_spikes` remains separately named.
+For a cut flow in `hit_peaks` mode, include unknown timing explicitly:
+
+```python
+unknown_coincidence = ~hits["peak_ma_valid"]
+rejected = (
+    unknown_coincidence
+    | hits["is_coincident_with_hits"]
+    | hits["is_symmetric_spike"]
+    | hits["is_truncated_hit"]
+    | hits["is_invalid_kappa"]
+)
+# is_photon_candidate == ~rejected; individual rejection counts can overlap.
+```
+
+The tutorial plots unknown MA timing separately from measured coincidence.
 Set `classification_coincidence_mode="legacy_record"` and enable the upstream
 legacy count to reproduce the old photon-selection flags. OF/shape estimators do
 not depend on this choice.
@@ -158,9 +177,12 @@ processing provenance or an independently verified asset set. A newly calculated
 hash identifies today's files but does not establish their historical identity.
 For manual contexts, use `template_sha256` and `file_sha256` from
 `straxion.processing_provenance` when deliberately selecting a new asset set.
-The bundled-template default is resolved lazily during configuration, before
-lineage is built, so importing the package does not hash template files. Setup
-still rechecks actual contents; hashes are not cached across file changes.
+The bundled-template expected digest is pinned in `DEFAULT_TEMPLATE_CONTENT_SHA256`
+and included in lineage. Import and plugin-default resolution do not read those files. The completed-run
+offline context additionally verifies files before cached-data lookup. Setup still hashes their full contents before estimation and rejects
+changed assets; no file-metadata cache is used. When intentionally updating bundled
+templates, update the digest in the same change (the tests verify it against the
+shipped files). Custom assets require their own explicit tracked digest.
 Use the original per-SR own-template folder and avgmap configuration;
 never substitute a default asset to make regeneration succeed.
 
@@ -171,6 +193,16 @@ The export CLI defaults to averaged calibration and accepts
 `--calibration-mode per_scan` for explicitly requested historical per-scan work.
 Both modes retain the CLI's required expected-template-hash check; averaged mode
 also requires the expected map hash.
+
+Export schema version 2 adds `event_seed_mask_{start,raw,ma,convolved}.npy`
+and corresponding `event_excluded_hit_ids_*` arrays. Each effective mask is the
+frozen primary seed mask AND the validity of that basis (all rows are timing-valid
+in `start` mode). The manifest's `event_seed_selection` identifies the active
+basis, file names, retained count and invalid-timing exclusion count for every
+basis. To reproduce `substrate_events.npy`, use the active effective mask with
+`prompt_groups` and the saved gap/minimum/veto settings. Removing an invalid seed
+can split a chain; the exported masks make this change explicit. These masks do
+not replace the frozen `substrate_seed_mask` used for timing-only comparisons.
 
 `export_peak_contract` writes the complete scalar table, directed coincidence
 links, frozen seed mask, groups/members for four time bases, independent veto

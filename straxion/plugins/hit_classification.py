@@ -16,7 +16,7 @@ from straxion.constants import (
     INDEX_DTYPE,
 )
 from straxion.utils import load_interpolation
-from straxion.processing_provenance import template_sha256, default_template_sha256
+from straxion.processing_provenance import template_sha256, DEFAULT_TEMPLATE_CONTENT_SHA256
 from .hits import DxHits
 from straxion.hit_metadata import TIMING_DTYPE, ESTIMATOR_DTYPE, psd_digest
 
@@ -155,7 +155,7 @@ def _profile_fit_numba(x, amplitude, center, kappa):
         "template_content_sha256",
         type=str,
         track=True,
-        default_factory=default_template_sha256,
+        default=DEFAULT_TEMPLATE_CONTENT_SHA256,
         help="Content identity of default and per-channel templates; verify before estimation.",
     ),
     strax.Option(

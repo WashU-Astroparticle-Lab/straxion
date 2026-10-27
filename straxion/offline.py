@@ -8,7 +8,7 @@ from pathlib import Path
 import strax
 
 from .calibration import SCHEMA_VERSION, read_dx_map, scan_config, verify_file
-from .processing_provenance import template_sha256
+from .processing_provenance import template_sha256, DEFAULT_TEMPLATE_CONTENT_SHA256
 
 
 @strax.takes_config(
@@ -117,6 +117,10 @@ class OfflineContext(strax.Context):
         if "template_content_sha256" in plugin.takes_config:
             digest = self._template_hash(cfg, plugin)
             expected = cfg.get("template_content_sha256")
+            if not expected and not any(
+                key in cfg for key in ("template_interp_path", "template_interp_folder")
+            ):
+                expected = DEFAULT_TEMPLATE_CONTENT_SHA256
             if expected and expected != digest:
                 raise ValueError(
                     "Template content differs from the expected template_content_sha256"

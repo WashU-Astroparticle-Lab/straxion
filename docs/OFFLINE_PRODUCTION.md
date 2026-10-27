@@ -101,7 +101,7 @@ folder. The low-level bundled template defaults remain available, so omitting
 this option still uses the bundled templates; straxion does not infer the correct
 science-run templates. The default template and all per-channel overrides are
 content-hashed. An explicitly supplied nonexistent template directory is an error.
-Records and classification use the same lazy template identity from
+Records and classification use the same pinned bundled-template identity from
 `straxion.processing_provenance`. If `template_content_sha256` is supplied, the
 context verifies it before lookup and never replaces an incorrect expected hash.
 
@@ -140,7 +140,7 @@ per-scan tests request that mode explicitly.
 
 ## Compatibility with PR #99
 
-This branch integrates PR #99 at `748d81e0aa44ad3d538302d09a44f5bdf22a2821`.
+This branch integrates PR #99 at `c0ac5ec38c8a8fc567f739587d54521f53c57849`.
 Classification retains that PR's `hits`/`noises` dependencies, acquisition-wide
 PSD aggregation, native peak/support metadata, MA-peak coincidence default and
 substrate reconstruction semantics. The avgmap workflow resolves the same

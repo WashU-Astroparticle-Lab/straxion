@@ -383,6 +383,9 @@ def test_avgmap_and_own_templates_work_through_peak_contract_export(own_template
     assert report["dx_map_sha256"] == records.config["dx_map_sha256"]
     assert report["config"]["hit_classification"]["template_content_sha256"] == expected
     assert report["default_time_basis"] == "ma"
+    assert report["schema_version"] == 2
+    assert report["event_seed_selection"]["active_basis"] == "ma"
+    assert (tmp_path / "peak_export" / "event_seed_mask_ma.npy").is_file()
     assert (
         report["lineage"]["hit_classification"]["hash"]
         == st.key_for("100", "hit_classification").lineage_hash
@@ -419,3 +422,10 @@ def test_low_level_maps_still_require_expected_hash(science_run):
     plugin.config = {"dx_map_dir": str(manifest.parent), "dx_map_filename": "dx_map_0.npz"}
     with pytest.raises(ValueError, match="Set dx_map_sha256"):
         plugin._apply_averaged_dx_map()
+
+
+def test_default_template_identity_cannot_follow_changed_bundled_assets(science_run, monkeypatch):
+    st = context(science_run)
+    monkeypatch.setattr("straxion.offline.template_sha256", lambda *args: "changed-assets")
+    with pytest.raises(ValueError, match="Template content differs"):
+        st.key_for("100", "hit_classification")

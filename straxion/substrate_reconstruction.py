@@ -6,6 +6,7 @@ input table. Stable IDs reference the producer identities, independent of sortin
 
 import hashlib
 import numpy as np
+from numba import njit
 
 GROUP_DTYPE = [
     ("group_id", "S64"),
@@ -23,6 +24,15 @@ GROUP_DTYPE = [
 ]
 MEMBER_DTYPE = [("group_id", "S64"), ("hit_id", "S64"), ("hit_index", "i8")]
 VETO_DTYPE = [("accepted", "?"), ("blocked_by_group_id", "S64"), ("veto_end", "i8")]
+
+
+def timing_valid_mask(hits, basis):
+    """Validity of the requested timing basis, aligned with all input rows."""
+    if basis == "start":
+        return np.ones(len(hits), dtype=bool)
+    if basis not in ("raw", "ma", "convolved"):
+        raise ValueError("time basis must be start, raw, ma, or convolved")
+    return hits[f"peak_{basis}_valid"]
 
 
 def timing(hits, basis):
@@ -155,11 +165,49 @@ def hit_coincidences(hits, window_ns=131_000, *, with_links=False):
         ix = np.array([i for i, k in enumerate(acq) if k == key and valid[i]], dtype=int)
         ix = ix[np.lexsort((ids[ix], t[ix]))]
         sorted_t = t[ix]
-        for i in ix:
-            a = np.searchsorted(sorted_t, int(t[i]) - window_ns, side="left")
-            b = np.searchsorted(sorted_t, int(t[i]) + window_ns, side="right")
-            members = ix[a:b]
-            counts[i] = (len(members), len(np.unique(hits["channel"][members])))
-            if with_links:
-                links.extend((ids[i], ids[j]) for j in members)
+        if not len(ix):
+            continue
+        left, right = _coincidence_bounds(sorted_t, int(window_ns))
+        counts["n_hits"][ix] = right - left
+        _, channels = np.unique(hits["channel"][ix], return_inverse=True)
+        counts["n_channels"][ix] = _distinct_channel_counts(channels, left, right)
+        if with_links:
+            for i, a, b in zip(ix, left, right):
+                links.extend((ids[i], ids[j]) for j in ix[a:b])
     return counts, np.array(links, dtype=[("reference_hit_id", "S64"), ("member_hit_id", "S64")])
+
+
+def _coincidence_bounds(times, window):
+    limits = np.iinfo(np.int64)
+    if int(times[0]) - window >= limits.min and int(times[-1]) + window <= limits.max:
+        return (
+            np.searchsorted(times, times - window, side="left"),
+            np.searchsorted(times, times + window, side="right"),
+        )
+    # Clip Python-integer arithmetic before conversion at int64 boundaries.
+    lower = np.array([max(limits.min, int(t) - window) for t in times], dtype=np.int64)
+    upper = np.array([min(limits.max, int(t) + window) for t in times], dtype=np.int64)
+    return (np.searchsorted(times, lower, side="left"), np.searchsorted(times, upper, side="right"))
+
+
+@njit(cache=True)
+def _distinct_channel_counts(channels, left, right):
+    """Monotone sliding neighborhoods; each member enters/leaves at most once."""
+    occupancy = np.zeros(int(channels.max()) + 1, dtype=np.int64)
+    result = np.zeros(len(channels), dtype=np.int32)
+    start = stop = distinct = 0
+    for i in range(len(channels)):
+        while stop < right[i]:
+            channel = channels[stop]
+            if occupancy[channel] == 0:
+                distinct += 1
+            occupancy[channel] += 1
+            stop += 1
+        while start < left[i]:
+            channel = channels[start]
+            occupancy[channel] -= 1
+            if occupancy[channel] == 0:
+                distinct -= 1
+            start += 1
+        result[i] = distinct
+    return result

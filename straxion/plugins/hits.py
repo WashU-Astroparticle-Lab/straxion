@@ -576,6 +576,7 @@ class DxHits(strax.Plugin):
             legacy = DxHitClassification()
             legacy.config = self.config
             legacy.spike_threshold_dx = self.config["spike_threshold_dx"]
+            legacy.spike_thresholds_sigma = self.config["spike_thresholds_sigma"]
             legacy.spike_coincidence_window = int(
                 round(self.config["spike_coincidence_window"] * self.fs)
             )

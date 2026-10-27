@@ -11,7 +11,7 @@ from straxion.constants import (
     TEMPLATE_INTERP_FOLDER,
 )
 from straxion.utils import base_waveform_dtype, circfit, load_interpolation
-from straxion.processing_provenance import default_template_sha256
+from straxion.processing_provenance import DEFAULT_TEMPLATE_CONTENT_SHA256
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import fftconvolve
 import os
@@ -391,7 +391,7 @@ PULSE_KERNEL_OPTIONS = (
     ),
     strax.Option(
         "template_content_sha256",
-        default_factory=default_template_sha256,
+        default=DEFAULT_TEMPLATE_CONTENT_SHA256,
         type=str,
         track=True,
         help="Content identity of pulse templates resolved by the offline context.",
