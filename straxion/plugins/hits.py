@@ -195,10 +195,10 @@ def _compute_hit_boundaries_and_amplitudes(
 @strax.takes_config(
     strax.Option(
         "compute_legacy_spike_coincidence",
-        default=False,
+        default=True,
         type=bool,
         track=True,
-        help="Opt-in upstream record-threshold coincidence for legacy comparisons.",
+        help="Compute record-threshold coincidence required by the default photon selection.",
     ),
     strax.Option(
         "hit_coincidence_window_ns",
@@ -269,7 +269,7 @@ class DxHits(strax.Plugin):
     The hit-finding algorithm is based on the kernel convolved signal.
     """
 
-    __version__ = "0.2.0"
+    __version__ = "0.3.0"
 
     # Inherited from straxen. Not optimized outside XENONnT.
     rechunk_on_save = False

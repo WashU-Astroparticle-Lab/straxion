@@ -12,9 +12,9 @@ The offline classifier no longer depends on records. Optimal-filter fitting and
 per-channel noise PSD estimation remain in `DxHitClassification`; no PSD vector
 is copied into each hit. The online theta pipeline is unchanged. Hits retain their
 four waveform arrays and carry the native timing/support metadata and actual-hit
-coincidence counts. An optional upstream calculation supplies legacy record
-coincidence for comparisons. It is disabled by default and is not a prerequisite
-for new coincidence or selection.
+coincidence counts. The upstream record-threshold coincidence calculation is enabled by default
+for nominal-background photon selection. It can be disabled when explicitly
+using peak-based photon selection instead.
 
 ## Scalar contract
 
@@ -94,31 +94,52 @@ Rejected and subthreshold groups never extend the veto. Every pre-veto group,
 including subthreshold groups, and its hit-ID/input-index linkage is available
 from `SubstrateEvents.reconstruct` and exported for alternate local scans.
 
-`classification_coincidence_mode="hit_peaks"` is the new photon-selection default:
-`is_coincident_with_hits` tests total actual-hit count against `max_hit_coincidence`
-(default 1, including self). Invalid MA timing excludes the reference hit from
-photon selection even when its count is zero; `peak_ma_valid` identifies this
-unknown state. Counts describe valid MA peaks only: an invalid neighbor is not
-included, so they are not a guarantee of isolation from every detected hit.
-`is_coincident_with_spikes` remains separately named.
-For a cut flow in `hit_peaks` mode, include unknown timing explicitly:
+`is_photon_candidate` now applies the full nominal-background photon selection.
+With the defaults it requires all of:
+
+- Not a symmetric spike, not truncated, and a finite kappa fit.
+- `n_spikes_coinciding < 5` (inclusive `max_spike_coincidence=4`).
+- `0.7 < kappa / fs * 1000 < 2.5` milliseconds.
+- `best_chi2 > 0.8`. This is deliberately a **lower** bound.
+
+The three shape-cut options are `photon_kappa_min_ms`, `photon_kappa_max_ms`,
+and `photon_min_best_chi2`; their bounds are exclusive and tracked in lineage.
+This is an event-level selection: there is no channel exclusion, energy cut,
+or intact-window requirement. The separate exponential `tau` fit is not used.
+
+`classification_coincidence_mode="legacy_record"` is the default, with
+`compute_legacy_spike_coincidence=True` upstream. Missing legacy counts raise
+an error rather than passing the cut through the -1 sentinel. This restores
+the coincidence estimator used for the nominal-background spectrum; actual
+MA-peak counts are different and remain available in their own fields.
+
+For explicit `classification_coincidence_mode="hit_peaks"`, only the coincidence
+part changes: `is_coincident_with_hits` tests total detected MA-peak hits against
+`max_hit_coincidence` (default 1, including self), and invalid MA timing rejects
+the reference hit. The same kappa and best_chi2 cuts still apply. Counts describe
+valid MA peaks only: an invalid neighbor is not included. In this mode the upstream
+legacy calculation may be disabled to avoid its cost. For a complete cut flow:
 
 ```python
-unknown_coincidence = ~hits["peak_ma_valid"]
-rejected = (
-    unknown_coincidence
-    | hits["is_coincident_with_hits"]
-    | hits["is_symmetric_spike"]
-    | hits["is_truncated_hit"]
-    | hits["is_invalid_kappa"]
+kappa_ms = hits["kappa"] / config["fs"] * 1000
+accepted = (
+    hits["peak_ma_valid"]
+    & ~hits["is_coincident_with_hits"]
+    & ~hits["is_symmetric_spike"]
+    & ~hits["is_truncated_hit"]
+    & ~hits["is_invalid_kappa"]
+    & (kappa_ms > config["photon_kappa_min_ms"])
+    & (kappa_ms < config["photon_kappa_max_ms"])
+    & (hits["best_chi2"] > config["photon_min_best_chi2"])
 )
-# is_photon_candidate == ~rejected; individual rejection counts can overlap.
+# is_photon_candidate == accepted
 ```
 
-The tutorial plots unknown MA timing separately from measured coincidence.
-Set `classification_coincidence_mode="legacy_record"` and enable the upstream
-legacy count to reproduce the old photon-selection flags. OF/shape estimators do
-not depend on this choice.
+The hits and classification plugin versions are bumped, so old cached products
+are not silently reused. Regenerate classifications to obtain the new flag;
+previously exported arrays are not rewritten. Amplitude, OF/shape estimators,
+and peak timing are unchanged. Default production now pays the additional cost
+of record-threshold coincidence in the hits stage.
 
 `substrate_seed_coincidence="hit_peaks"` is the new seed default. It uses MA
 `hit_coincidence_channels >= substrate_min_peak_channels` (default 5), retains
@@ -216,7 +237,7 @@ pathologically dense neighborhood; scalar counts and peak timestamps are also
 available for independent reconstruction. Run-specific paths and
 operational instructions belong in a local runbook/wiki, not a public PR.
 
-Synthetic regression tests cover the unchanged classification fields (including
+Synthetic regression tests cover the classification estimators (including
 PSD fallback and per-channel templates), clipped/neighbor-overlapping windows,
 physical zeros, alignment/peak offsets, exact gap/veto boundaries, repeated
 channels, long chains, acquisition isolation, chunk fragmentation, stable IDs,
