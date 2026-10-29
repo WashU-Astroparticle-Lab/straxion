@@ -144,7 +144,10 @@ def test_classification_estimators_unchanged(fallback):
     expected_plugin.setup_optimal_filter()
     old = legacy_classify(expected_plugin, c, r, noise)
     new = downstream.compute(h, noise)
-    added = {d[0] for d in TIMING_DTYPE + ESTIMATOR_DTYPE} | {"is_coincident_with_hits"}
+    added = {d[0] for d in TIMING_DTYPE + ESTIMATOR_DTYPE} | {
+        "is_coincident_with_hits",
+        "is_photon_candidate",
+    }
     for field in new.dtype.names:
         if field not in added:
             np.testing.assert_array_equal(new[field], old[field], err_msg=field)
@@ -299,6 +302,8 @@ def test_full_dependency_pipeline_and_export(tmp_path):
     st.register(SyntheticRecords)
     data = st.get_array("run_A", "hit_classification")
     assert len(data) == 10
+    assert np.all(data["legacy_spike_coincidence_valid"])
+    assert np.all(data["n_spikes_coinciding"] >= 0)
     assert np.all(data["hit_coincidence"] >= 2)
     expected = st.get_single_plugin("run_A", "substrate_events").compute(data)
     actual = st.get_array("run_A", "substrate_events")
@@ -392,8 +397,14 @@ def test_classifier_psd_independent_of_cached_chunking():
     assert np.any(expected["noise_window_count"] > 0)
 
 
-def test_optional_legacy_count_and_default_peak_selection():
-    st = context(hit_threshold_dx=0.5, hit_thresholds_sigma=None, hit_min_width=1 / 38000)
+def test_optional_legacy_count_and_explicit_peak_selection():
+    st = context(
+        hit_threshold_dx=0.5,
+        hit_thresholds_sigma=None,
+        hit_min_width=1 / 38000,
+        compute_legacy_spike_coincidence=False,
+        classification_coincidence_mode="hit_peaks",
+    )
     r = records()
     hits = st.get_single_plugin("run_A", "hits").compute(r)
     assert np.all(hits["n_spikes_coinciding"] == -1)
@@ -503,11 +514,12 @@ def test_invalid_ma_cannot_pass_photon_selection(monkeypatch):
         "compute_tau_fits",
     ):
         monkeypatch.setattr(plugin, name, lambda *args: None)
-    monkeypatch.setattr(
-        plugin,
-        "compute_optimal_filter_parameters",
-        lambda out, *args: out["kappa"].fill(38),
-    )
+
+    def benign_fit(out, *args):
+        out["kappa"] = 38
+        out["best_chi2"] = 1
+
+    monkeypatch.setattr(plugin, "compute_optimal_filter_parameters", benign_fit)
     h["hit_coincidence"] = 1
     valid = plugin.compute(h, noise)
     assert np.all(valid["is_photon_candidate"])

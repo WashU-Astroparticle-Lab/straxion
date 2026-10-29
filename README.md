@@ -31,3 +31,11 @@ The test pipeline in `tests/` is built based on synthesized data contained in th
 - Please make a pull request for any development, except for documentation-related edits.
 - Note that [`pre-commit`](https://pre-commit.com) will automatically examine and try to fix the code styles for each commit. Sometimes the fix cannot be done automatically, and you will need to update manually at your discretion.
 - Please avoid bumping versions of this package or the plugins without communication with other developers.
+
+### Photon-candidate selection
+
+The default `is_photon_candidate` flag matches the nominal-background analysis:
+clean waveform flags, fewer than five record-threshold coincident spikes,
+0.7 < kappa < 2.5 ms, and `best_chi2 > 0.8`. Kappa is converted from samples
+using the configured sampling frequency. See [the selection contract](docs/PEAK_CONTRACT.md#groups-events-and-comparison-modes)
+for tracked cut options, the explicit peak-coincidence alternative, and cache migration.

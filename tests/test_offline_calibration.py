@@ -444,7 +444,8 @@ def test_avgmap_and_own_templates_work_through_peak_contract_export(own_template
     classifier = st.get_single_plugin("100", "hit_classification")
     records = st.get_single_plugin("100", "records")
     assert classifier.depends_on == ("hits", "noises")
-    assert classifier.config["classification_coincidence_mode"] == "hit_peaks"
+    assert classifier.config["classification_coincidence_mode"] == "legacy_record"
+    assert np.all(classified["legacy_spike_coincidence_valid"])
     expected = template_sha256(
         classifier.config["template_interp_path"], classifier.config["template_interp_folder"]
     )

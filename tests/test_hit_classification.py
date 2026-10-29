@@ -577,8 +577,8 @@ class TestDxHitClassificationWithRealDataOffline:
                 # Check that spike coincidence logic is consistent
                 for hit_class in hit_classification:
                     expected_coincident = (
-                        hit_class["n_spikes_coinciding"] > 1
-                    )  # max_spike_coincidence = 1
+                        hit_class["n_spikes_coinciding"] > 4
+                    )  # max_spike_coincidence = 4 (photon selection requires < 5)
                     assert (
                         hit_class["is_coincident_with_spikes"] == expected_coincident
                     ), "Spike coincidence logic is inconsistent"

@@ -132,10 +132,10 @@ def _profile_fit_numba(x, amplitude, center, kappa):
 @strax.takes_config(
     strax.Option(
         "classification_coincidence_mode",
-        default="hit_peaks",
+        default="legacy_record",
         type=str,
         track=True,
-        help="hit_peaks (default) or explicit legacy_record photon-selection comparison.",
+        help="legacy_record (default analysis selection) or explicit hit_peaks comparison.",
     ),
     strax.Option(
         "max_hit_coincidence",
@@ -161,9 +161,30 @@ def _profile_fit_numba(x, amplitude, center, kappa):
     strax.Option(
         "max_spike_coincidence",
         type=int,
-        default=1,
+        default=4,
         track=True,
-        help="Maximum number of spikes that can be coincident with a photon candidate hit.",
+        help="Inclusive maximum record-threshold spike count for photon candidates (4 means < 5).",
+    ),
+    strax.Option(
+        "photon_kappa_min_ms",
+        type=float,
+        default=0.7,
+        track=True,
+        help="Exclusive lower bound on fitted photon kappa in milliseconds.",
+    ),
+    strax.Option(
+        "photon_kappa_max_ms",
+        type=float,
+        default=2.5,
+        track=True,
+        help="Exclusive upper bound on fitted photon kappa in milliseconds.",
+    ),
+    strax.Option(
+        "photon_min_best_chi2",
+        type=float,
+        default=0.8,
+        track=True,
+        help="Exclusive lower bound on best_chi2 for photon candidates (not an upper chi2 cut).",
     ),
     strax.Option(
         "spike_coincidence_window",
@@ -359,7 +380,7 @@ def _profile_fit_numba(x, amplitude, center, kappa):
 class DxHitClassification(strax.Plugin):
     """Classify hits into different types based on their coincidence with spikes."""
 
-    __version__ = "0.5.1"
+    __version__ = "0.6.0"
 
     depends_on = ("hits", "noises")
     provides = "hit_classification"
@@ -500,6 +521,13 @@ class DxHitClassification(strax.Plugin):
         return base_dtype + hit_id_dtype + hit_feature_dtype + TIMING_DTYPE + ESTIMATOR_DTYPE
 
     def setup(self):
+        lo = self.config["photon_kappa_min_ms"]
+        hi = self.config["photon_kappa_max_ms"]
+        if not (np.isfinite(lo) and np.isfinite(hi) and 0 <= lo < hi):
+            raise ValueError("Photon kappa bounds must be finite and satisfy 0 <= min < max")
+        chi2 = self.config["photon_min_best_chi2"]
+        if not (np.isfinite(chi2) and chi2 >= 0):
+            raise ValueError("photon_min_best_chi2 must be finite and non-negative")
         self.spike_coincidence_window = int(
             round(self.config["spike_coincidence_window"] * self.config["fs"])
         )
@@ -1634,6 +1662,16 @@ class DxHitClassification(strax.Plugin):
         # Fit the exponential decay time constant of every hit
         self.compute_tau_fits(hit_classification, hits)
 
+        self.compute_photon_selection(hit_classification, hits)
+        return hit_classification
+
+    def compute_photon_selection(self, hit_classification, hits):
+        """Apply waveform, coincidence, kappa and fit-quality cuts in place.
+
+        Defaults reproduce the QUALIPHIDE nominal-background photon selection.
+        Kappa is stored in samples; both time bounds and the best_chi2 bound are
+        strict. Explicit hit_peaks mode changes only the coincidence estimator.
+        """
         hit_classification["is_coincident_with_spikes"] = (
             hit_classification["n_spikes_coinciding"] > self.max_spike_coincidence
         )
@@ -1646,7 +1684,9 @@ class DxHitClassification(strax.Plugin):
         )
         mode = self.config["classification_coincidence_mode"]
         if mode == "legacy_record":
-            if not np.all(hits["legacy_spike_coincidence_valid"]):
+            if not np.all(hits["legacy_spike_coincidence_valid"]) or np.any(
+                hit_classification["n_spikes_coinciding"] < 0
+            ):
                 raise ValueError(
                     "Legacy mode requires compute_legacy_spike_coincidence=True upstream"
                 )
@@ -1656,15 +1696,16 @@ class DxHitClassification(strax.Plugin):
             coincident = hit_classification["is_coincident_with_hits"] | ~hits["peak_ma_valid"]
         else:
             raise ValueError("Unknown classification_coincidence_mode")
-        # Explicit mode controls photon selection; OF/shape estimators are unchanged.
-        hit_classification["is_photon_candidate"] = ~(
-            coincident
-            | hit_classification["is_symmetric_spike"]
-            | hit_classification["is_truncated_hit"]
-            | hit_classification["is_invalid_kappa"]
+        kappa_ms = hit_classification["kappa"] / self.config["fs"] * 1e3
+        hit_classification["is_photon_candidate"] = (
+            ~coincident
+            & ~hit_classification["is_symmetric_spike"]
+            & ~hit_classification["is_truncated_hit"]
+            & ~hit_classification["is_invalid_kappa"]
+            & (kappa_ms > self.config["photon_kappa_min_ms"])
+            & (kappa_ms < self.config["photon_kappa_max_ms"])
+            & (hit_classification["best_chi2"] > self.config["photon_min_best_chi2"])
         )
-
-        return hit_classification
 
 
 @export
