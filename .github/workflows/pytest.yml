@@ -51,7 +51,7 @@ jobs:
       - name: Install strax and straxion
         run: |
           pip install git+https://github.com/AxFoundation/strax.git --force-reinstall
-          pip install .
+          pip install '.[sr5]'
           pip install tf-keras scikit-learn --upgrade
 
       - name: Debug GitHub Releases API

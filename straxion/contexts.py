@@ -5,6 +5,8 @@ import straxion
 from pathlib import Path
 from .calibration import file_sha256, prepare_offline_calibration
 from .offline import OfflineContext
+from .sr5 import SR5Context
+from .plugins.sr5 import SR5RawRecords, SR5DxRecords
 
 common_options: Dict[str, Any] = dict(
     # register_all=[straxion.plugins],
@@ -123,6 +125,49 @@ def qualiphide_thz_offline(
             )
         )
 
+    return st
+
+
+def qualiphide_sr5_online(
+    *,
+    group_path,
+    scan_files,
+    template_interp_folder,
+    output_folder="./strax_data",
+    config=None,
+    **kwargs,
+):
+    """Process one completed SR5 group with the offline algorithms.
+
+    Pass all five scan filenames as a mapping with keys fine_f, fine_z,
+    wide_f, wide_z, fres. Pass the SR3 template directory explicitly. Sampling
+    frequency, record length, and California acquisition time come from Zarr.
+    The DAQ macro owns readiness and calls ``st.make(run_id, targets)``.
+    """
+    cfg = {**common_config, **(config or {})}
+    cfg.update(
+        sr5_group_path=str(Path(group_path).resolve()),
+        sr5_scan_files={role: str(Path(path).resolve()) for role, path in scan_files.items()},
+        template_interp_folder=str(Path(template_interp_folder).resolve()),
+    )
+    st = SR5Context(
+        config=cfg,
+        calibration_mode="per_scan",
+        **{**common_options, **kwargs},
+    )
+    st.register(
+        [
+            SR5RawRecords,
+            SR5DxRecords,
+            straxion.plugins.hits.DxHits,
+            straxion.plugins.hit_classification.DxHitClassification,
+            straxion.plugins.substrate_events.SubstrateEvents,
+            straxion.plugins.noise_bank.NoiseBank,
+            straxion.plugins.truth.Truth,
+            straxion.plugins.match.Match,
+        ]
+    )
+    st.storage = [strax.DataDirectory(str(output_folder))]
     return st
 
 

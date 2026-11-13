@@ -49,6 +49,25 @@ ESTIMATOR_DTYPE = [
 ]
 
 
+def timing_dtype(fs):
+    """Keep the legacy integer schema; retain fractional rates without rounding."""
+    if float(fs).is_integer():
+        return TIMING_DTYPE
+    return [
+        (name, "f8" if name == "sampling_frequency_hz" else dtype) for name, dtype in TIMING_DTYPE
+    ]
+
+
+def sample_offset_ns(indices, fs):
+    """Round relative offsets before adding the integer Unix epoch."""
+    if not np.isfinite(fs) or fs <= 0:
+        raise ValueError("Sampling frequency must be finite and positive")
+    indices = np.asarray(indices, dtype=np.int64)
+    if float(fs).is_integer():
+        return indices * 1_000_000_000 // int(fs)
+    return np.floor(indices * (1_000_000_000 / fs)).astype(np.int64)
+
+
 def psd_digest(psd):
     return hashlib.sha256(np.asarray(psd, dtype="<f8").tobytes()).hexdigest().encode()
 
@@ -78,7 +97,7 @@ def fill_timing(hits, record, candidates, aligned, left, right, fs, run_id):
     hits["candidate_record_i"] = candidates
     hits["sampling_frequency_hz"] = fs
     hits["alignment_record_i"] = aligned
-    hits["alignment_time"] = origin + aligned * 1_000_000_000 // fs
+    hits["alignment_time"] = origin + sample_offset_ns(aligned, fs)
     hits["alignment_valid"] = np.isfinite(record["data_dx_convolved"][aligned]) & (
         hits["alignment_time"] < record["endtime"]
     )
@@ -106,10 +125,10 @@ def fill_timing(hits, record, candidates, aligned, left, right, fs, run_id):
     ):
         indices = hits[index_field].astype(np.int64)
         hits[f"peak_{basis}_record_i"] = indices
-        hits[f"peak_{basis}_time"] = origin + indices * 1_000_000_000 // fs
+        hits[f"peak_{basis}_time"] = origin + sample_offset_ns(indices, fs)
         hits[f"peak_{basis}_valid"] = [
             left[i] <= index < right[i]
-            and origin + int(index) * 1_000_000_000 // fs < int(record["endtime"])
+            and origin + sample_offset_ns(index, fs) < int(record["endtime"])
             and np.all(np.isfinite(record[waveform_field][left[i] : right[i]]))
             for i, index in enumerate(indices)
         ]

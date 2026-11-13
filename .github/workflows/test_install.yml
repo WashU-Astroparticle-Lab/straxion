@@ -33,7 +33,7 @@ jobs:
       - name: Install dependencies
         run: sudo apt-get install -y graphviz
       - name: Install straxion
-        run: pip install .
+        run: pip install '.[sr5]'
       - name: Test import
         run: python -c "import straxion"
       - name: goodbye

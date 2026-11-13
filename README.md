@@ -17,6 +17,8 @@ pip install -e ./
 ```
 
 ## Tutorials
+- For individual SR5 Zarr acquisitions, use the [SR5 single-run wrapper](docs/sr5_online.md)
+  with explicit scan filenames and SR3 templates.
 - For completed science runs, use the [offline production workflow](docs/OFFLINE_PRODUCTION.md).
   The offline context defaults to frozen epoch-averaged maps; per-scan processing requires
   `calibration_mode="per_scan"`.
