@@ -101,8 +101,11 @@ class SR5Context(OfflineContext):
             raise ValueError("SR5 online processing requires per_scan calibration")
         _, metadata, digest = open_acquisition(cfg["sr5_group_path"])
         low, high = cfg["channel_map"][cfg.get("sub_detector", "kids")]
-        if low != 0 or high + 1 != metadata["shape"][1]:
-            raise ValueError("channel_map must match all Zarr channels, starting at zero")
+        if low != 0 or high < 0 or high + 1 > metadata["shape"][1]:
+            raise ValueError(
+                "channel_map must select an available Zarr channel prefix starting at zero"
+            )
+        cfg["sr5_science_channels"] = high + 1
         owned = dict(fs=1.0 / metadata["dt"], record_length=metadata["shape"][2])
         for key, value in owned.items():
             if key in cfg and cfg[key] != value:

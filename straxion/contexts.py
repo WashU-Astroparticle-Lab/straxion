@@ -6,7 +6,7 @@ from pathlib import Path
 from .calibration import file_sha256, prepare_offline_calibration
 from .offline import OfflineContext
 from .sr5 import SR5Context
-from .processor.sr5 import SR5RawRecords, SR5DxRecords
+from .processor.sr5 import SR5RawRecords, SR5DxRecords, SR5Truth
 
 common_options: Dict[str, Any] = dict(
     # register_all=[straxion.plugins],
@@ -142,6 +142,8 @@ def qualiphide_sr5_online(
     Pass all five scan filenames as a mapping with keys fine_f, fine_z,
     wide_f, wide_z, fres. Pass the SR3 template directory explicitly. Sampling
     frequency, record length, and California acquisition time come from Zarr.
+    Raw records retain all acquired tones; only channels 0-40 (the science
+    channel_map) enter calibrated records, salting and downstream products.
     The DAQ macro owns readiness and calls ``st.make(run_id, targets)``.
     """
     cfg = {**common_config, **(config or {})}
@@ -163,7 +165,7 @@ def qualiphide_sr5_online(
             straxion.plugins.hit_classification.DxHitClassification,
             straxion.plugins.substrate_events.SubstrateEvents,
             straxion.plugins.noise_bank.NoiseBank,
-            straxion.plugins.truth.Truth,
+            SR5Truth,
             straxion.plugins.match.Match,
         ]
     )

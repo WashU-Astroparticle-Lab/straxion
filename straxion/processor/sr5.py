@@ -6,7 +6,16 @@ from immutabledict import immutabledict
 
 from ..plugins.raw_records import QUALIPHIDETHzReader
 from ..plugins.records import DxRecords
+from ..plugins.truth import Truth
 from ..sr5 import open_acquisition
+
+
+def _science_records(raw_records, n_channels):
+    """Keep the science prefix as a view, without copying full waveforms."""
+    science = raw_records[:n_channels]
+    if not np.array_equal(science["channel"], np.arange(n_channels)):
+        raise ValueError("SR5 raw records must contain the science channels in order from zero")
+    return science
 
 
 @strax.takes_config(
@@ -17,7 +26,7 @@ from ..sr5 import open_acquisition
     strax.Option("record_length", type=int),
 )
 class SR5RawRecords(QUALIPHIDETHzReader):
-    """Read all samples of one CRS group into normalized float32 S21 I/Q.
+    """Read all samples and all acquired tones into normalized float32 S21 I/Q.
 
     Storage chunks are copied in blocks into the final record arrays. They do
     not become separate runs or separate processing chunks.
@@ -66,11 +75,12 @@ class SR5RawRecords(QUALIPHIDETHzReader):
     strax.Option("sr5_scan_files", type=dict, track=False),
     strax.Option("sr5_fres", type=tuple),
     strax.Option("sr5_fres_requested", type=tuple),
+    strax.Option("sr5_science_channels", type=int),
 )
 class SR5DxRecords(DxRecords):
-    """Use explicit scan files and the frequencies actually transmitted by CRS."""
+    """Calibrate only the science prefix using explicitly supplied scan files."""
 
-    __version__ = "0.1.0"
+    __version__ = "0.2.0"
     takes_config = immutabledict(
         {
             key: value
@@ -92,20 +102,38 @@ class SR5DxRecords(DxRecords):
             for role, path in self.config["sr5_scan_files"].items()
         }
         requested = np.asarray(self.config["sr5_fres_requested"])
-        if not np.array_equal(arrays["fres"], requested):
+        n = self.config["sr5_science_channels"]
+        scan_fres = arrays["fres"]
+        if (
+            scan_fres.ndim != 1
+            or len(scan_fres) not in (n, len(requested))
+            or not np.array_equal(scan_fres[:n], requested[:n])
+        ):
             raise ValueError("Scan fres does not match the acquisition's fres_requested")
-        self.fres = np.asarray(self.config["sr5_fres"], dtype=np.float64)
+        self.fres = np.asarray(self.config["sr5_fres"][:n], dtype=np.float64)
         for kind in ("fine", "wide"):
             f, z = arrays[f"{kind}_f"], arrays[f"{kind}_z"]
-            if (
-                f.ndim != 2
-                or f.shape != z.shape
-                or f.shape[0] != len(self.fres)
-                or not np.all(np.isfinite(f))
-                or not np.all(np.isfinite(z))
-            ):
-                raise ValueError(f"Invalid {kind} scan shape or nonfinite values")
+            if f.ndim != 2 or f.shape != z.shape or f.shape[0] not in (n, len(requested)):
+                raise ValueError(f"Invalid {kind} scan shape")
+            f, z = f[:n], z[:n]
+            if not np.all(np.isfinite(f)) or not np.all(np.isfinite(z)):
+                raise ValueError(f"Invalid {kind} science scan: nonfinite values")
             if not np.all((self.fres >= f.min(axis=1)) & (self.fres <= f.max(axis=1))):
                 raise ValueError(f"Actual tone frequencies lie outside the {kind} scan")
             setattr(self, f"{kind}_f", f)
             setattr(self, f"{kind}_z", z)
+
+    def compute(self, raw_records, truth):
+        science = _science_records(raw_records, self.config["sr5_science_channels"])
+        return super().compute(science, truth)
+
+
+@strax.takes_config(strax.Option("sr5_science_channels", type=int))
+class SR5Truth(Truth):
+    """Restrict simulated pulse injection to the same science channels as records."""
+
+    __version__ = "0.1.0"
+
+    def compute(self, raw_records):
+        science = _science_records(raw_records, self.config["sr5_science_channels"])
+        return super().compute(science)
