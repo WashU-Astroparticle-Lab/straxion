@@ -23,6 +23,30 @@ def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
+def _open_array(path, ts):
+    """Require physical CRS payloads before opening a read-only array."""
+    meta = json.loads((path / "zarr.json").read_text())
+    physical_shape = meta["chunk_grid"]["configuration"]["chunk_shape"]
+    encoding = meta["chunk_key_encoding"]
+    if encoding["name"] != "default":
+        raise ValueError("Expected the CRS default Zarr chunk-key encoding")
+    separator = encoding.get("configuration", {}).get("separator", "/")
+    grid = [(n + c - 1) // c for n, c in zip(meta["shape"], physical_shape)]
+    for index in product(*(range(n) for n in grid)):
+        payload = path / separator.join(("c", *(str(i) for i in index)))
+        if not payload.is_file() or payload.stat().st_size == 0:
+            raise ValueError(f"Missing or empty Zarr payload: {payload}")
+    return ts.open(
+        dict(
+            driver="zarr3",
+            kvstore=dict(driver="file", path=str(path) + "/"),
+            fill_missing_data_reads=False,
+        ),
+        read=True,
+        write=False,
+    ).result()
+
+
 def open_acquisition(path):
     """Validate a local Zarr v3 group without allocating its full timestream.
 
@@ -38,29 +62,10 @@ def open_acquisition(path):
     group_metadata = json.loads((path / "zarr.json").read_text())
     if group_metadata.get("zarr_format") != 3 or group_metadata.get("node_type") != "group":
         raise ValueError("Expected a Zarr v3 acquisition group")
-    arrays = {}
-    for name in ("z", "dt", "counts_to_s21", "fres", "fres_requested"):
-        array_path = path / name
-        meta = json.loads((array_path / "zarr.json").read_text())
-        physical_shape = meta["chunk_grid"]["configuration"]["chunk_shape"]
-        encoding = meta["chunk_key_encoding"]
-        if encoding["name"] != "default":
-            raise ValueError("Expected the CRS default Zarr chunk-key encoding")
-        separator = encoding.get("configuration", {}).get("separator", "/")
-        grid = [(n + c - 1) // c for n, c in zip(meta["shape"], physical_shape)]
-        for index in product(*(range(n) for n in grid)):
-            payload = array_path / separator.join(("c", *(str(i) for i in index)))
-            if not payload.is_file() or payload.stat().st_size == 0:
-                raise ValueError(f"Missing or empty Zarr payload: {payload}")
-        arrays[name] = ts.open(
-            dict(
-                driver="zarr3",
-                kvstore=dict(driver="file", path=str(array_path) + "/"),
-                fill_missing_data_reads=False,
-            ),
-            read=True,
-            write=False,
-        ).result()
+    arrays = {
+        name: _open_array(path / name, ts)
+        for name in ("z", "dt", "counts_to_s21", "fres", "fres_requested")
+    }
     z = arrays["z"]
     if len(z.shape) != 3 or z.shape[0] != 2 or min(z.shape) <= 0:
         raise ValueError("Expected z with shape (2, channels, samples)")
