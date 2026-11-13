@@ -4,8 +4,8 @@ import numpy as np
 import strax
 from immutabledict import immutabledict
 
-from .raw_records import QUALIPHIDETHzReader
-from .records import DxRecords
+from ..plugins.raw_records import QUALIPHIDETHzReader
+from ..plugins.records import DxRecords
 from ..sr5 import open_acquisition
 
 

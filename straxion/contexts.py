@@ -6,7 +6,7 @@ from pathlib import Path
 from .calibration import file_sha256, prepare_offline_calibration
 from .offline import OfflineContext
 from .sr5 import SR5Context
-from .plugins.sr5 import SR5RawRecords, SR5DxRecords
+from .processor.sr5 import SR5RawRecords, SR5DxRecords
 
 common_options: Dict[str, Any] = dict(
     # register_all=[straxion.plugins],
