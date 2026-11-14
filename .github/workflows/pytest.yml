@@ -22,6 +22,10 @@ jobs:
     name: "${{ matrix.test }}_py${{ matrix.python-version }}"
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      # base_environment includes an unrelated rframe Hypothesis hook that
+      # imports Pydantic v1 APIs. No straxion tests use these third-party hooks.
+      HYPOTHESIS_NO_PLUGINS: "1"
     strategy:
       fail-fast: False
       matrix:
@@ -51,7 +55,7 @@ jobs:
       - name: Install strax and straxion
         run: |
           pip install git+https://github.com/AxFoundation/strax.git --force-reinstall
-          pip install .
+          pip install '.[sr5]'
           pip install tf-keras scikit-learn --upgrade
 
       - name: Debug GitHub Releases API

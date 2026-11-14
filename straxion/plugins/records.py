@@ -324,7 +324,7 @@ PULSE_KERNEL_OPTIONS = (
         "fs",
         default=38_000,
         track=True,
-        type=int,
+        type=(int, float),
         help="Sampling frequency (assumed the same for all channels) in unit of Hz",
     ),
     strax.Option(
@@ -846,7 +846,10 @@ class DxRecords(strax.Plugin):
             pulse_kernal (np.ndarray): Smoothed pulse train
 
         """
-        dt = int(1 / fs * SECOND_TO_NANOSECOND)
+        # Preserve legacy integer-rate kernels; SR5 uses the native fractional rate.
+        dt = SECOND_TO_NANOSECOND / fs
+        if float(fs).is_integer():
+            dt = int(1 / fs * SECOND_TO_NANOSECOND)
 
         # Calculate significant length upfront to avoid unnecessary computation.
         significant_length = min(ns, int((truncation_factor * tau + t0) / dt))

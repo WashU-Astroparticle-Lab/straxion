@@ -29,6 +29,10 @@ pandas = "*"
 scipy = "*"
 matplotlib = "*"
 pytz = "*"
+tensorstore = {version = ">=0.1.78,<0.2", optional = true}
+
+[tool.poetry.extras]
+sr5 = ["tensorstore"]
 
 [build-system]
 requires = ["poetry-core>=1.0.8", "setuptools>=61.0"]

@@ -56,7 +56,7 @@ N_CHANNELS = 41
         "fs",
         default=38_000,
         track=True,
-        type=int,
+        type=(int, float),
         help="Sampling frequency (assumed the same for all channels) in unit of Hz",
     ),
     strax.Option(

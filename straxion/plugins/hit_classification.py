@@ -18,7 +18,7 @@ from straxion.constants import (
 from straxion.utils import load_interpolation
 from straxion.processing_provenance import template_sha256, DEFAULT_TEMPLATE_CONTENT_SHA256
 from .hits import DxHits
-from straxion.hit_metadata import TIMING_DTYPE, ESTIMATOR_DTYPE, psd_digest
+from straxion.hit_metadata import TIMING_DTYPE, ESTIMATOR_DTYPE, psd_digest, timing_dtype
 
 export, __all__ = strax.exporter()
 
@@ -214,7 +214,7 @@ def _profile_fit_numba(x, amplitude, center, kappa):
         "fs",
         default=38_000,
         track=True,
-        type=int,
+        type=(int, float),
         help="Sampling frequency (assumed the same for all channels) in unit of Hz",
     ),
     strax.Option(
@@ -518,7 +518,13 @@ class DxHitClassification(strax.Plugin):
             ),
         ]
 
-        return base_dtype + hit_id_dtype + hit_feature_dtype + TIMING_DTYPE + ESTIMATOR_DTYPE
+        return (
+            base_dtype
+            + hit_id_dtype
+            + hit_feature_dtype
+            + timing_dtype(getattr(self, "config", {}).get("fs", 38_000))
+            + ESTIMATOR_DTYPE
+        )
 
     def setup(self):
         lo = self.config["photon_kappa_min_ms"]

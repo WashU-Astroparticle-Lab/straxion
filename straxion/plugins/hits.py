@@ -10,7 +10,7 @@ from straxion.constants import (
     HIT_WINDOW_LENGTH_RIGHT,
 )
 from straxion.utils import base_waveform_dtype
-from straxion.hit_metadata import TIMING_DTYPE, fill_timing, validate_records
+from straxion.hit_metadata import timing_dtype, fill_timing, validate_records
 
 export, __all__ = strax.exporter()
 
@@ -259,7 +259,7 @@ def _compute_hit_boundaries_and_amplitudes(
         "fs",
         default=38_000,
         track=True,
-        type=int,
+        type=(int, float),
         help="Sampling frequency (assumed the same for all channels) in unit of Hz",
     ),
 )
@@ -439,7 +439,7 @@ class DxHits(strax.Plugin):
 
         return (
             dtype
-            + TIMING_DTYPE
+            + timing_dtype(self.config["fs"])
             + [
                 ("n_spikes_coinciding", "i8"),
                 ("legacy_spike_coincidence_valid", "?"),
